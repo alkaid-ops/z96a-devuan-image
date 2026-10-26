@@ -1,0 +1,53 @@
+#!/bin/bash
+# Description: Install a custom overlay
+# Destination: /usr/local/bin/add-overlay
+
+# depends
+if [[ `command -v dtc` ]] && [[ `command -v whiptail` ]]; then
+	:;
+else
+	if [[ `curl -I https://github.com 2>&1 | grep 'HTTP/2 200'` ]]; then
+		echo -e "You are missing dependencies ..."
+		sudo apt update; sudo apt install -y device-tree-compiler whiptail
+	else
+		echo -e "You are missing dependencies?"
+		exit 0
+	fi
+fi
+if [[ -f "/etc/opt/board.txt" ]]; then
+	. /etc/opt/board.txt
+else
+	export NEWT_COLORS='root=,black'
+	whiptail --msgbox "    Your board is not supported." 0 0
+	exit 0
+fi
+
+# variables
+if [[ "$FAMILY" == "broadcom" ]]; then
+	USER_OLDIR="/boot/${FAMILY}/user-overlays"
+else
+	USER_OLDIR="/boot/user-overlays"
+fi
+DTS=`echo $1`
+DTBO=`echo $1 | sed 's/dts/dtbo/g'`
+
+# execute
+if [[ -z "$DTS" ]]; then
+	echo -e "A dts file is required."
+else
+	dtc -I dts -O dtb ${DTS} -o ${DTBO}
+	if [[ -f "$DTS" ]] && [[ -f "$DTBO" ]]; then
+		sudo mkdir -p $USER_OLDIR/dts
+		sudo mv -f ${DTS} $USER_OLDIR/dts
+		sudo mv -f ${DTBO} $USER_OLDIR
+		echo -en "Overlay installed: "
+		ls ${USER_OLDIR}/${DTBO}
+		exit 0
+	else
+		echo -e "Encountered an error creating: $DTBO"
+		echo -e "Check the code and try again."
+		exit 0
+	fi
+fi
+
+exit 0

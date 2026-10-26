@@ -1,0 +1,244 @@
+#!/bin/bash
+
+# general firmware
+install_firmware (){
+ARIA2="aria2c -c --download-result=hide --console-log-level=error --disable-ipv6=true --summary-interval=0 --show-files=false"
+echo ""
+cd ~
+mkdir -p /lib/firmware/brcm
+git clone --depth=1 -b pyavitz https://github.com/pyavitz/armbian-firmware.git firmware
+rm -fdr firmware/{.git,README.md,ath11k/WCN6855}; cp -fr firmware/* /lib/firmware; rm -fdr firmware
+mv fw-0a5c_21e8.hcd /lib/firmware/brcm/BCM20702A0-0a5c-21e8.hcd
+cp /lib/firmware/brcm/BCM20702A0-0a5c-21e8.hcd /lib/firmware/brcm/BCM20702A1-0a5c-21e8.hcd
+install -Dm644 UPDATE.mem /lib/firmware/renesas_usb_fw.mem
+rm -f UPDATE.mem
+git clone --depth=1 -q -b realtek https://github.com/pyavitz/firmware.git
+rm -fdr firmware/{.git,README.md}; cp -fr firmware/* /lib/firmware; rm -fdr firmware
+cd /lib/firmware
+if [[ ! -f "/lib/firmware/dvb-fe-xc4000-1.4.1.fw" ]]; then ${ARIA2} https://github.com/armbian/firmware/raw/master/dvb-fe-xc4000-1.4.1.fw; fi
+if [[ ! -f "/lib/firmware/xc3028-v27.fw" ]]; then ${ARIA2} https://github.com/armbian/firmware/raw/master/xc3028-v27.fw; fi
+if [[ ! -f "/lib/firmware/xc3028L-v36.fw" ]]; then ${ARIA2} https://github.com/armbian/firmware/raw/master/xc3028L-v36.fw; fi
+if [[ ! -f "/lib/firmware/xc4000-1.4.fw" ]]; then ${ARIA2} https://github.com/armbian/firmware/raw/master/xc4000-1.4.fw; fi
+if [[ ! -f "/lib/firmware/dvb-fe-xc4000-1.4.fw" ]]; then ln -s /lib/firmware/xc4000-1.4.fw /lib/firmware/dvb-fe-xc4000-1.4.fw; fi
+cd ~
+}
+
+# Update regulatory db
+wireless_regdb (){
+if [[ "$DISTRO" == "ubuntu" ]]; then
+	echo 'KERNEL=="regulatory*", ACTION=="change", SUBSYSTEM=="platform", RUN+="/sbin/crda"' > /etc/udev/rules.d/60-regdb.rules
+fi
+if [[ `curl -I https://kernel.googlesource.com 2>&1 | grep 'HTTP/2 200'` ]]; then
+	git clone --depth=1 -q https://kernel.googlesource.com/pub/scm/linux/kernel/git/sforshee/wireless-regdb
+	sleep .25
+	if [[ -f "wireless-regdb/regulatory.db" ]] && [[ -f "wireless-regdb/regulatory.db.p7s" ]]; then
+		mkdir -p /lib/firmware/updates
+		cp -fr wireless-regdb/{regulatory.db,regulatory.db.p7s} /lib/firmware/updates/
+	else
+		echo -e ""
+		echo -e "ERR: Missing regulatory db files?"
+	fi
+	rm -fdr wireless-regdb
+else
+	echo "ERR: wireless-regdb, https://kernel.googlesource.com is down."
+fi
+}
+
+# wireless conf files
+wireless_conf (){
+mkdir -p /etc/modprobe.d/
+mkdir -p /usr/lib/NetworkManager/conf.d/
+cat <<EOF > /etc/modprobe.d/realtek-wireless.conf
+options 8723ds rtw_power_mgnt=0
+options 8821cu rtw_led_ctrl=1 rtw_vht_enable=1 rtw_power_mgnt=0 rtw_enusbss=0 rtw_switch_usb_mode=1
+options rtw88_core disable_lps_deep=y
+options rtw88_usb switch_usb_mode=y
+options 8852be rtw_drv_log_level=0 rtw_phl_log_level=0
+EOF
+cat <<EOF > /etc/modprobe.d/aic8800-wireless.conf
+options aic8800_fdrv aicwf_dbg_level=0 custregd=0 ps_on=0
+options aic8800_bsp aic_fw_path=/lib/firmware/aic8800_sdio
+EOF
+# Take Realtek wifi dongle out of Driver CDROM Mode
+mkdir -p /etc/udev/rules.d
+cat <<EOF > /etc/udev/rules.d/usb_modeswitch.rules
+# Realtek Semiconductor Corp. RTL8188GU 802.11n WLAN Adapter
+ATTR{idVendor}=="0bda", ATTR{idProduct}=="1a2b", RUN+="/usr/sbin/usb_modeswitch -K -v 0bda -p 1a2b"
+EOF
+}
+
+router_udev_rules (){
+mkdir -p /etc/udev/rules.d
+if [[ "$BOARD" =~ ^(nanopir3s|nanopir3slts)$ ]]; then
+	echo 'SUBSYSTEM=="leds", KERNEL=="green:wan", ACTION=="add", ATTR{trigger}="netdev", ATTR{device_name}="eth0", ATTR{link}="1" ATTR{rx}="1" ATTR{tx}="1"' > /etc/udev/rules.d/10-nanopi-led.rules
+	echo 'SUBSYSTEM=="leds", KERNEL=="green:lan", ACTION=="add", ATTR{trigger}="netdev", ATTR{device_name}="eth1", ATTR{link}="1" ATTR{rx}="1" ATTR{tx}="1"' >> /etc/udev/rules.d/10-nanopi-led.rules
+fi
+if [[ "$BOARD" == "nanopir5s" ]]; then
+	echo 'SUBSYSTEM=="leds", KERNEL=="green:wan", ACTION=="add", ATTR{trigger}="netdev", ATTR{device_name}="eth2", ATTR{link}="1" ATTR{rx}="1" ATTR{tx}="1"' > /etc/udev/rules.d/10-nanopi-led.rules
+	echo 'SUBSYSTEM=="leds", KERNEL=="green:lan1", ACTION=="add", ATTR{trigger}="netdev", ATTR{device_name}="eth0", ATTR{link}="1" ATTR{rx}="1" ATTR{tx}="1"' >> /etc/udev/rules.d/10-nanopi-led.rules
+	echo 'SUBSYSTEM=="leds", KERNEL=="green:lan2", ACTION=="add", ATTR{trigger}="netdev", ATTR{device_name}="eth1", ATTR{link}="1" ATTR{rx}="1" ATTR{tx}="1"' >> /etc/udev/rules.d/10-nanopi-led.rules
+fi
+}
+
+router_ifupdown (){
+if [[ "$BOARD" =~ ^(bananapif3|bananapim2s|orangepir1|nanopir1|nanopir3s|nanopir3slts|dfa)$ ]]; then
+	if [[ -f "/etc/network/interfaces" ]]; then
+		sed -i 's/#allow-hotplug eth1/allow-hotplug eth1/g' /etc/network/interfaces
+		sed -i 's/#iface eth1 inet dhcp/iface eth1 inet dhcp/g' /etc/network/interfaces
+	fi
+fi
+if [[ "$BOARD" == "nanopir5s" ]]; then
+	if [[ -f "/etc/network/interfaces" ]]; then
+		sed -i 's/#allow-hotplug eth1/allow-hotplug eth1/g' /etc/network/interfaces
+		sed -i 's/#iface eth1 inet dhcp/iface eth1 inet dhcp/g' /etc/network/interfaces
+		sed -i 's/#allow-hotplug eth2/allow-hotplug eth2/g' /etc/network/interfaces
+		sed -i 's/#iface eth2 inet dhcp/iface eth2 inet dhcp/g' /etc/network/interfaces
+	fi
+fi
+}
+
+ifupdown_setup (){
+rm -f /etc/network/interfaces
+if [[ "$DISTRO_VERSION" == "jammy" ]]; then
+	# /etc/network/if-down.d/resolved: 12: mystatedir: not found
+	# /etc/network/if-up.d/resolved: 12: mystatedir: not found
+	if [[ -e "/etc/network/if-down.d/resolved" ]]; then
+		sed -i 's/mystatedir statedir ifindex interface/#mystatedir statedir ifindex interface/g' /etc/network/if-down.d/resolved
+		sed -i 's/return/exit 0/g' /etc/network/if-down.d/resolved
+	fi
+	if [[ -e "/etc/network/if-up.d/resolved" ]]; then
+		sed -i 's/mystatedir statedir ifindex interface/#mystatedir statedir ifindex interface/g' /etc/network/if-up.d/resolved
+		sed -i 's/return/exit 0/g' /etc/network/if-up.d/resolved
+	fi
+fi
+# ifupdown interfaces and wpa_supplicant files
+tee /etc/network/interfaces <<EOF
+# Interfaces
+source /etc/network/interfaces.d/*
+
+# Loopback network interface
+auto lo
+iface lo inet loopback
+
+# Ethernet
+allow-hotplug eth0
+iface eth0 inet dhcp
+	#address 10.0.0.10
+	#netmask 255.255.255.0
+	#gateway 10.0.0.1
+	#dns-nameservers 8.8.8.8 8.8.4.4
+	
+#allow-hotplug eth1
+#iface eth1 inet dhcp
+	#address 10.0.0.10
+	#netmask 255.255.255.0
+	#gateway 10.0.0.1
+	#dns-nameservers 8.8.8.8 8.8.4.4
+
+#allow-hotplug eth2
+#iface eth2 inet dhcp
+	#address 10.0.0.10
+	#netmask 255.255.255.0
+	#gateway 10.0.0.1
+	#dns-nameservers 8.8.8.8 8.8.4.4
+
+# Mobile tether
+#allow-hotplug usb0
+#iface usb0 inet dhcp
+
+# Wireless
+allow-hotplug wlan0
+iface wlan0 inet dhcp
+	wireless-power off
+	#address 10.0.0.10
+	#netmask 255.255.255.0
+	#gateway 10.0.0.1
+	#dns-nameservers 8.8.8.8 8.8.4.4
+	wpa-conf /etc/wpa_supplicant/wpa_supplicant.conf
+EOF
+
+tee /etc/wpa_supplicant/wpa_supplicant.conf <<EOF
+ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
+update_config=1
+country=US
+
+network={
+	ssid="mywifissid"
+	scan_ssid=1
+	key_mgmt=WPA-PSK
+	psk="wifipasskey"
+}
+EOF
+}
+
+networkmanager_setup (){
+mkdir -p /etc/network
+rm -f /etc/network/interfaces
+tee /etc/network/interfaces <<EOF
+source /etc/network/interfaces.d/*
+
+auto lo
+iface lo inet loopback
+EOF
+mkdir -p /etc/wpa_supplicant
+echo "ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev" > /etc/wpa_supplicant/wpa_supplicant.conf
+rm -f /usr/lib/NetworkManager/conf.d/10-globally-managed-devices.conf
+rm -f /etc/NetworkManager/conf.d/default-wifi-powersave-on.conf
+echo "[connection]" > /etc/NetworkManager/conf.d/default-wifi-powersave-on.conf
+echo "wifi.powersave = 2" >> /etc/NetworkManager/conf.d/default-wifi-powersave-on.conf
+}
+
+ifupdown_credentials (){
+if [[ -f "/root/ifupdown.credentials" ]]; then
+	CURRENT_HOSTNAME=`cat /etc/hostname | sed -n '1p'`
+	mv -f /root/ifupdown.credentials /usr/local/bin/credentials
+	chmod +x /usr/local/bin/credentials
+	chown root:root /usr/local/bin/credentials
+	rm -f /root/networkmanager.credentials
+	cat <<EOF > /boot/credentials.txt
+# Enable service
+ENABLE="false"
+
+# Input credentials
+SSID=""
+PASSKEY=""
+COUNTRYCODE=""
+# Set static ip address
+MANUAL="false"
+IPADDR=""
+NETMASK=""
+GATEWAY=""
+NAMESERVERS=""
+
+# Change hostname
+HOSTNAME="$CURRENT_HOSTNAME"
+EOF
+fi
+}
+
+networkmanager_credentials (){
+if [[ -f "/root/networkmanager.credentials" ]]; then
+	CURRENT_HOSTNAME=`cat /etc/hostname | sed -n '1p'`
+	mv -f /root/networkmanager.credentials /usr/local/bin/credentials
+	chmod +x /usr/local/bin/credentials
+	chown root:root /usr/local/bin/credentials
+	rm -f /root/ifupdown.credentials
+	cat <<EOF > /boot/credentials.txt
+# Enable service
+ENABLE="false"
+
+# Input credentials
+SSID=""
+PASSKEY=""
+COUNTRYCODE=""
+# Set static ip address
+MANUAL="false"
+IPADDR=""
+GATEWAY=""
+DNS=""
+
+# Change hostname
+HOSTNAME="$CURRENT_HOSTNAME"
+EOF
+fi
+}

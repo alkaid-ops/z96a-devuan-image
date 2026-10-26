@@ -1,0 +1,89 @@
+#!/bin/bash
+
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+DISTRO=`cat /etc/os-release | grep -w NAME | sed 's/NAME=//g' | sed 's/"//g' | sed 's/ GNU\/Linux//g'`
+if [[ -f "/etc/opt/board.txt" ]]; then . /etc/opt/board.txt; fi
+
+ROOTFS=`findmnt -v -n -o SOURCE /`
+BLOCK=`findmnt -v -n -o SOURCE / | sed 's/\/dev\///' | sed 's/..$//'`
+PART=`findmnt -v -n -o SOURCE / | sed 's/.*\(.\)/\1/'`
+FSTYPE=`findmnt -v -n -o FSTYPE /`
+
+# expand root filesystem
+if [[ "$DISTRO" == "Devuan" ]]; then
+	echo ""
+	echo -e " \033[1mExpanding root filesystem\033[0m ..."
+fi
+if [[ `findmnt -v -n -o SOURCE / | grep "mmc"` ]] || [[ `findmnt -v -n -o SOURCE / | grep "nvme"` ]]; then
+	NODE=`findmnt -v -n -o SOURCE / | sed 's/..$//'`
+fi
+if [[ `findmnt -v -n -o SOURCE / | grep "sd"` ]]; then
+	NODE=`findmnt -v -n -o SOURCE / | sed 's/.$//'`
+fi
+bash growpart $NODE $PART
+sleep .50
+if [[ "$FSTYPE" == "ext4" ]]; then resize2fs $ROOTFS; fi
+if [[ "$FSTYPE" == "btrfs" ]]; then btrfs filesystem resize max /; fi
+if [[ "$FSTYPE" == "xfs" ]]; then xfs_growfs -d /; fi
+# reboot if read-only root partition detected
+if [[ ! -z `mount | grep "on / type ext4 (ro,"` ]]; then
+	echo ""
+	echo -e "WARNING: The ROOT partition went into read-only mode."
+	sleep 2.25
+	echo -e "Rebooting ..."
+	sleep 2.25
+	reboot
+fi
+
+# fix PARTUUID
+PARTUUID=$(blkid -o export -- $ROOTFS | sed -ne 's/^PARTUUID=//p')
+if [[ -f "/etc/opt/board.txt" ]] && [[ "$ARCH" == "arm" ]]; then
+	sleep .25
+	if [[ -f "/boot/extlinux/extlinux.conf" ]]; then
+		sed -i "s,root=PARTUUID=[^ ]*,root=PARTUUID=${PARTUUID}," /boot/extlinux/extlinux.conf
+	fi
+	if [[ -f "/boot/boot.ini" ]]; then
+		sed -i '3s/.*/setenv uuid "'"root=PARTUUID=${PARTUUID}"'"/' /boot/boot.ini
+	fi
+fi
+
+# fsck fat partition
+if [[ `findmnt -v -n /boot | grep -w "vfat"` ]]; then
+	BOOT=`findmnt -v -n -o SOURCE /boot`
+	umount /boot
+	sleep .50
+	bash fsck.fat -trawl $BOOT > /dev/null 2>&1
+	sleep .50
+	mount /boot
+fi
+if [[ `findmnt -v -n /boot/efi | grep -w "vfat"` ]]; then
+	BOOT=`findmnt -v -n -o SOURCE /boot/efi`
+	umount /boot/efi
+	sleep .50
+	bash fsck.fat -trawl $BOOT > /dev/null 2>&1
+	sleep .50
+	mount /boot/efi
+fi
+if [[ `findmnt -v -n /boot/broadcom | grep -w "vfat"` ]]; then
+	BOOT=`findmnt -v -n -o SOURCE /boot/broadcom`
+	umount /boot/broadcom
+	sleep .50
+	bash fsck.fat -trawl $BOOT > /dev/null 2>&1
+	sleep .50
+	mount /boot/broadcom
+fi
+
+# clean
+if [[ "$DISTRO" == "Devuan" ]]; then
+	update-rc.d firstboot remove
+	rm -f /etc/init.d/firstboot
+else
+	systemctl disable firstboot
+fi
+rm -f /var/cache/debconf/*
+
+# Allow the unit to rest before proceeding 
+sleep 3
+
+exit 0

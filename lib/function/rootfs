@@ -1,0 +1,116 @@
+#!/bin/bash
+
+sysroot_partition (){
+truncate -s ${IMGSIZE} "${ROOTFS_FOLDER}${RELEASE_TARBALL}"
+parted --script "${ROOTFS_FOLDER}${RELEASE_TARBALL}" \
+mklabel msdos \
+mkpart primary ext2 1MiB 100%
+IMAGE_LOOP_DEV="$(losetup --show -P -f ${ROOTFS_FOLDER}${RELEASE_TARBALL})"
+IMAGE_LOOP_DEV_ROOTFS="${IMAGE_LOOP_DEV}p1"
+partprobe "${IMAGE_LOOP_DEV}"
+sleep 1 # stabilize
+mkfs.ext4 -L ROOTFS "${IMAGE_LOOP_DEV_ROOTFS}"
+mkdir -p ${P_VALUE}
+mount "${IMAGE_LOOP_DEV_ROOTFS}" ${P_VALUE}
+sync
+umount ${P_VALUE}
+mount -o defaults,noatime "${IMAGE_LOOP_DEV_ROOTFS}" ${P_VALUE}
+}
+
+sysroot_setup (){
+mkdir -p ${P_VALUE}/etc/apt/apt.conf.d ${P_VALUE}/etc/dpkg/dpkg.cfg.d
+echo "force-unsafe-io" > "${P_VALUE}/etc/dpkg/dpkg.cfg.d/dpkg-unsafe-io"
+if [ $VERBOSE -eq 1 ]; then choose_release; else choose_release > /dev/null 2>&1; fi
+}
+
+bianbu_keyring (){
+URL="http://archive.spacemit.com/bianbu/bianbu-archive-keyring.gpg"
+FILE="/usr/share/keyrings/bianbu-archive-keyring.gpg"
+if [[ ! -f "${FILE}" ]]; then wget -O- ${URL} | gpg --dearmor | tee ${FILE} > /dev/null; fi
+}
+
+devuan_keyring (){
+URL="https://pkgmaster.devuan.org/devuan/pool/main/d/devuan-keyring/"
+FILE="devuan-keyring_2025.08.09_all.deb"
+if [[ `dpkg -l | grep "devuan-keyring"` ]]; then
+	if [[ `dpkg -l | grep "devuan-keyring" | tr -d -c 0-9` == "20250809" ]]; then
+		:;
+	else
+		apt purge -y devuan-keyring
+		wget -cq --show-progress ${URL}${FILE}; dpkg -i ${FILE}; rm -f ${FILE}
+	fi
+else
+	wget -cq --show-progress ${URL}${FILE}; dpkg -i ${FILE}; rm -f ${FILE}
+fi
+}
+
+kali_keyring (){
+URL="http://http.kali.org/pool/main/k/kali-archive-keyring/"
+FILE="kali-archive-keyring_2025.1_all.deb"
+if [[ `dpkg -l | grep "kali-archive-keyring"` ]]; then
+	if [[ `dpkg -l | grep "kali-archive-keyring" | tr -d -c 0-9` == "20251" ]]; then
+		:;
+	else
+		apt purge -y kali-archive-keyring
+		wget -cq --show-progress ${URL}${FILE}; dpkg -i ${FILE}; rm -f ${FILE}
+	fi
+else
+	wget -cq --show-progress ${URL}${FILE}; dpkg -i ${FILE}; rm -f ${FILE}
+fi
+}
+
+raspbian_keyring (){
+if [[ -f "/usr/share/keyrings/raspbian-archive-keyring.gpg" ]]; then
+	:;
+else
+	curl -sS http://archive.raspbian.org/raspbian.public.key | gpg --dearmor | tee /usr/share/keyrings/raspbian-archive-keyring.gpg > /dev/null 2>&1
+fi
+}
+
+ubuntu_keyring (){
+URL="https://github.com/pyavitz/debian-image-builder/releases/download/dpkg/"
+FILE1="ubuntu-keyring_2023.11.28.1-0.2_all.deb"
+FILE2="ubuntu-archive-keyring_2023.11.28.1-0.2_all.deb"
+if [[ `dpkg -l | grep "ubuntu-keyring"` ]]; then
+	if [[ `dpkg -l | grep "ubuntu-keyring" | tr -d -c 0-9` == "20231128102" ]]; then
+		:;
+	else
+		apt purge -y ubuntu-keyring 
+		if [[ `dpkg -l | grep "ubuntu-archive-keyring"` ]]; then apt purge -y ubuntu-archive-keyring; fi
+		if [[ `dpkg -l | grep "ubuntu-dbgsym-keyring"` ]]; then apt purge -y ubuntu-dbgsym-keyring; fi
+		if [[ `dpkg -l | grep "ubuntu-cloud-keyring"` ]]; then apt purge -y ubuntu-cloud-keyring; fi
+		wget -cq --show-progress ${URL}${FILE1}; wget -cq --show-progress ${URL}${FILE2}
+		dpkg -i *.deb; rm -f *.deb
+	fi
+else
+	wget -cq --show-progress ${URL}${FILE1}; wget -cq --show-progress ${URL}${FILE2}
+	dpkg -i *.deb; rm -f *.deb
+fi
+}
+
+debootstrap_script (){
+DEBOOTSTRAP_DIR="/usr/share/debootstrap/scripts"
+if [[ -f "${DEBOOTSTRAP_DIR}/${DISTRO_VERSION}" ]]; then
+	SPOOF_SCRIPT="false"
+else
+	ln -sr ${DEBOOTSTRAP_DIR}/${DEBOOTSTRAP_SCRIPT} ${DEBOOTSTRAP_DIR}/${DISTRO_VERSION}
+	SPOOF_SCRIPT="true"
+	sleep .50
+fi
+}
+
+run_debootstrap (){
+KEY="/usr/share/keyrings/${DISTRO}-archive-keyring.gpg"
+if [[ "$DISTRO" =~ ^(debian|devuan)$ ]]; then DEBOOTSTRAP_SCRIPT="sid"; debootstrap_script; fi
+if [[ "$DISTRO" =~ ^(bianbu|ubuntu)$ ]]; then DEBOOTSTRAP_SCRIPT="gutsy"; debootstrap_script; fi
+if [[ "$MMDEBSTRAP" == "true" ]]; then
+	mkdir -p ${P_VALUE}/etc/apt/sources.list.d/
+	touch ${P_VALUE}/etc/apt/sources.list # prevent duplicates
+	if [ $VERBOSE -eq 1 ]; then choose_release; else choose_release > /dev/null 2>&1; fi
+	mmdebstrap --skip=check/empty --arch=${ARCH_EXT} --keyring=${KEY} ${DISTRO_VERSION} ${P_VALUE}
+else
+	debootstrap --arch ${ARCH_EXT} --foreign --force-check-gpg --keyring=${KEY} ${DISTRO_VERSION} ${P_VALUE} ${MIRROR}
+	chroot ${P_VALUE} /debootstrap/debootstrap --second-stage
+	echo "" > ${P_VALUE}/etc/apt/sources.list # clear file
+fi
+}

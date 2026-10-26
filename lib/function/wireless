@@ -1,0 +1,212 @@
+#!/bin/bash
+
+driver_download (){
+if [[ -d "${DRIVER}" ]]; then
+	echo -en "${DRIVER_INFO}:"
+	cd ${DRIVER}
+	git config pull.rebase false
+	echo -en " Pulling"
+	git pull -q
+	cd ..
+	echo -e ", done."
+else
+	echo -en "${DRIVER_INFO}:"
+	echo -en " Cloning"
+	git clone -q ${DRIVER_URL} ${DRIVER}
+	echo -e ", done."
+fi
+}
+
+extra_wireless (){
+report_error
+# AIC8800
+if [[ "$FAMILY" =~ ^(allwinner|rockchip)$ ]] && [[ "$EXTRA_WIFI" == "true" ]]; then
+	DRIVER_INFO="Aicsemi aic8800"
+	DRIVER="aic8800"
+	DRIVER_URL="https://github.com/radxa-pkg/${DRIVER}.git"
+	WL_COMMIT="7af8ef10bd0222a4e1ee54c25904d5e0e3ca37f7"
+	driver_download
+	cd ${DRIVER}; git checkout -q ${WL_COMMIT}; series_patching; cd ..
+	rm -fdr ${KERNEL}/drivers/net/wireless/${DRIVER}_sdio
+	cp -fr ${DRIVER}/src/SDIO/driver_fw/driver/${DRIVER} ${KERNEL}/drivers/net/wireless/${DRIVER}_sdio
+	cd ${DRIVER}; git reset -q --hard; git checkout -q main; cd ..
+	sed -i 's/MAKEFLAGS +=-j$(shell nproc)/#MAKEFLAGS +=-j$(shell nproc)/g' ${KERNEL}/drivers/net/wireless/${DRIVER}_sdio/Makefile
+	sed -i 's/CONFIG_GPIO_WAKEUP = n/CONFIG_GPIO_WAKEUP = y/g' ${KERNEL}/drivers/net/wireless/${DRIVER}_sdio/Makefile
+	sed -i 's/CONFIG_SDIO_PWRCTRL := y/CONFIG_SDIO_PWRCTRL := n/g' ${KERNEL}/drivers/net/wireless/${DRIVER}_sdio/${DRIVER}_bsp/Makefile
+	sed -i '/obj-$(CONFIG_WLAN_VENDOR_ADMTEK) += admtek/a obj-$(CONFIG_AIC_WLAN_SUPPORT) += aic8800_sdio/' \
+		"${KERNEL}/drivers/net/wireless/Makefile"
+	sed -i '/source "drivers\/net\/wireless\/admtek\/Kconfig"/a source "drivers\/net\/wireless\/aic8800_sdio\/Kconfig"' \
+		"${KERNEL}/drivers/net/wireless/Kconfig"
+	cat <<EOF > ${KERNEL}/drivers/net/wireless/${DRIVER}_sdio/Kconfig
+config AIC_WLAN_SUPPORT
+	bool "AIC wireless SDIO Support"
+	default m
+	help
+	  This is support for aic wireless SDIO chips.
+
+config AIC_FW_PATH
+	depends on AIC_WLAN_SUPPORT
+	string "Firmware & config file path"
+	default "/lib/firmware/aic8800_sdio"
+	help
+	  Path to the firmware & config file.
+
+source "drivers/net/wireless/aic8800_sdio/aic8800_fdrv/Kconfig"
+source "drivers/net/wireless/aic8800_sdio/aic8800_btlpm/Kconfig"
+EOF
+	cat <<EOF > ${KERNEL}/drivers/net/wireless/${DRIVER}_sdio/${DRIVER}_fdrv/Kconfig
+config AIC8800_WLAN_SUPPORT
+	tristate "AIC8800 wlan Support"
+	default m
+	help
+	  This is support for aic wifi driver.
+EOF
+	cat <<EOF > ${KERNEL}/drivers/net/wireless/${DRIVER}_sdio/${DRIVER}_btlpm/Kconfig
+config AIC8800_BTLPM_SUPPORT
+	tristate "AIC8800 bluetooth Support"
+	default m
+	help
+	  This is support for aic bluetooh driver.
+EOF
+fi
+
+# RTL8189ES
+if [[ "$BOARD" == "orangepir1" ]] && [[ "$EXTRA_WIFI" == "true" ]]; then
+	DRIVER_INFO="Realtek 8189ES"
+	DRIVER="rtl8189es"
+	DRIVER_URL="https://github.com/jwrdegoede/${DRIVER}_linux.git"
+	driver_download
+	rm -fdr ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}
+	mkdir -p ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}
+	cp -fr ${DRIVER}/{core,hal,include,os_dep,platform} ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}
+	cp -fr ${DRIVER}/{Kconfig,Makefile} ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}/
+	echo "obj-\$(CONFIG_RTL8189ES) += rtl8189es/" >> ${KERNEL}/drivers/net/wireless/realtek/Makefile
+	cat <<EOF > ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}/Kconfig
+config RTL8189ES
+	tristate "Realtek 8189E SDIO support"
+	depends on USB
+	default m
+	help
+	  Help message of RTL8189ES
+EOF
+	sed -i '/source "drivers\/net\/wireless\/realtek\/rtl818x\/Kconfig"/a source "drivers\/net\/wireless\/realtek\/rtl8189es\/Kconfig"' \
+		"${KERNEL}/drivers/net/wireless/realtek/Kconfig"
+fi
+
+# RTL8189FS
+if [[ "$FAMILY" =~ ^(amlogic)$ ]] && [[ "$EXTRA_WIFI" == "true" ]]; then
+	DRIVER_INFO="Realtek 8189FS"
+	DRIVER="rtl8189fs"
+	DRIVER_URL="-b ${DRIVER} https://github.com/jwrdegoede/rtl8189ES_linux.git"
+	driver_download
+	rm -fdr ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}
+	mkdir -p ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}
+	cp -fr ${DRIVER}/{core,hal,include,os_dep,platform} ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}
+	cp -fr ${DRIVER}/{Kconfig,Makefile} ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}/
+	echo "obj-\$(CONFIG_RTL8189FS) += rtl8189fs/" >> ${KERNEL}/drivers/net/wireless/realtek/Makefile
+	sed -i "s/^CONFIG_RTW_DEBUG.*/CONFIG_RTW_DEBUG = n/" "${KERNEL}/drivers/net/wireless/realtek/rtl8189fs/Makefile"
+	cat <<EOF > ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}/Kconfig
+config RTL8189FS
+	tristate "Realtek 8189F SDIO support"
+	depends on USB
+	default m
+	help
+	  Help message of RTL8189FS
+EOF
+	sed -i '/source "drivers\/net\/wireless\/realtek\/rtl818x\/Kconfig"/a source "drivers\/net\/wireless\/realtek\/rtl8189fs\/Kconfig"' \
+		"${KERNEL}/drivers/net/wireless/realtek/Kconfig"
+fi
+
+# RTL8723DS
+if [[ "$FAMILY" =~ ^(amlogic)$ ]] && [[ "$EXTRA_WIFI" == "true" ]]; then
+	DRIVER_INFO="Realtek 8723DS"
+	DRIVER="rtl8723ds"
+	DRIVER_URL="https://github.com/armbian/rtl8723ds.git"
+	driver_download
+	rm -fdr ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}
+	mkdir -p ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}
+	cp -fr ${DRIVER}/{core,hal,include,os_dep,platform} ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}
+	cp -fr ${DRIVER}/{Kconfig,Makefile} ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}/
+	echo "obj-\$(CONFIG_RTL8723DS) += rtl8723ds/" >> ${KERNEL}/drivers/net/wireless/realtek/Makefile
+	sed -i "s/^CONFIG_RTW_DEBUG.*/CONFIG_RTW_DEBUG = n/" "${KERNEL}/drivers/net/wireless/realtek/rtl8723ds/Makefile"
+	cat <<EOF > ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}/Kconfig
+config RTL8723DS
+	tristate "Realtek 8723D SDIO support"
+	depends on USB
+	default m
+	help
+	  Help message of RT8723DS
+EOF
+	sed -i '/source "drivers\/net\/wireless\/realtek\/rtl818x\/Kconfig"/a source "drivers\/net\/wireless\/realtek\/rtl8723ds\/Kconfig"' \
+		"${KERNEL}/drivers/net/wireless/realtek/Kconfig"
+fi
+
+# RTL8821CU
+#if [[ "$FAMILY" =~ ^(allwinner)$ ]] && [[ "$EXTRA_WIFI" == "true" ]]; then
+#	DRIVER_INFO="Realtek 8821CU"
+#	DRIVER="rtl8821cu"
+#	DRIVER_URL="https://github.com/morrownr/8821cu-20210916.git"
+#	driver_download
+#	rm -fdr ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}
+#	mkdir -p ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}
+#	cp -fr ${DRIVER}/{core,hal,include,os_dep,platform} ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}
+#	cp -fr ${DRIVER}/{Kconfig,Makefile,halmac.mk,rtl8821c.mk} ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}
+#	echo "obj-\$(CONFIG_RTL8821CU) += rtl8821cu/" >> ${KERNEL}/drivers/net/wireless/realtek/Makefile
+#	cat <<EOF > ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}/Kconfig
+#config RTL8821CU
+#	tristate "Realtek 8821C USB support"
+#	depends on USB
+#	default m
+#	help
+#	  Help message of RTL8821CU
+#EOF
+#	sed -i "s/CONFIG_RTW_DEBUG = y/CONFIG_RTW_DEBUG = n/g" ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}/Makefile
+#	sed -i '/source "drivers\/net\/wireless\/realtek\/rtl818x\/Kconfig"/a source "drivers\/net\/wireless\/realtek\/rtl8821cu\/Kconfig"' \
+#		"${KERNEL}/drivers/net/wireless/realtek/Kconfig"
+#fi
+
+# RTW88 DEVEL
+if [[ "$RTW88_DEVEL" == "true" ]] && [[ "$EXTRA_WIFI" == "true" ]]; then
+	DRIVER_INFO="Realtek WiFi 5"
+	DRIVER="rtw88"
+	DRIVER_URL="https://github.com/lwfinger/${DRIVER}.git"
+	driver_download
+	rm -fdr ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}
+	mkdir -p ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}
+	cp -fr ${DRIVER}/* ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}/
+	rm -fdr ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}/{alt_rtl8821ce,README.md}
+	cp -fr ../${WIRELESSPATCHES}/rtw88/{Kconfig,Makefile} ${KERNEL}/drivers/net/wireless/realtek/${DRIVER}/
+fi
+
+# SWT6621S
+if [[ "$BOARD" =~ ^(kickpik2b-v2)$ ]] && [[ "$EXTRA_WIFI" == "true" ]]; then
+	rm -rf ${KERNEL}/drivers/net/wireless/vs6621s
+	mkdir -p ${KERNEL}/drivers/net/wireless/vs6621s
+	cp -fr ../patches/wireless/vs6621s/vs6621s ${KERNEL}/drivers/net/wireless/
+	cp -fr ../patches/wireless/vs6621s/include/linux/platform_data/* ${KERNEL}/include/linux/platform_data/
+
+	sed -i '/obj-$(CONFIG_WLAN_VENDOR_TI) += ti/a obj-$(CONFIG_WLAN_VENDOR_SWT6621S) += vs6621s/' \
+		"${KERNEL}/drivers/net/wireless/Makefile"
+	sed -i '/source "drivers\/net\/wireless\/ti\/Kconfig"/a source "drivers\/net\/wireless\/vs6621s\/Kconfig"' "${KERNEL}/drivers/net/wireless/Kconfig"
+fi
+}
+
+report_error (){
+if [[ "$RTW88" == "true" ]] && [[ "$RTW88_DEVEL" == "true" ]]; then
+	echo -e "Both RTW88 and RTW88_DEVEL can not be enabled."
+	exit 1
+fi
+}
+
+series_patching (){ # AIC8800
+if [[ -f "debian/patches/series" ]] && [[ `ls debian/patches/*.patch` ]] > /dev/null 2>&1; then
+	LOG_FILE="${LOG_DIR}/${DRIVER}-patch.log"
+	LOG_TITLE="${DRIVER} ${WL_COMMIT}"
+	patch_log
+	echo "" >> ${LOG_FILE}
+	echo "# APPLYING PATCHES" >> ${LOG_FILE}
+	for series_patch in `cat debian/patches/series`
+		do for i in $series_patch; do patch -N -p1 < debian/patches/$i; done >> ${LOG_FILE}
+	done
+fi
+}

@@ -1,0 +1,58 @@
+#!/bin/bash
+
+crust_firmware (){
+CRUST_TAG="v0.6"
+GIT_CRUST_URL="https://github.com/crust-firmware/crust.git"
+if [[ -v "CRUST_DEFCONFIG" ]] && [[ ! -z "$CRUST_DEFCONFIG" ]]; then
+	if [[ `wget -S --spider https://raw.githubusercontent.com/crust-firmware/crust/refs/heads/master/Makefile 2>&1 | grep 'HTTP/1.1 200 OK'` ]]; then
+		if [[ -d "crust-${CRUST_TAG}" ]]; then
+			echo -en "Crust ${CRUST_TAG}:"
+			echo -en " Restoring"
+			rm -fdr crust
+			cd crust-${CRUST_TAG}
+			make clean > /dev/null 2>&1
+			cd ..
+			cp -r crust-${CRUST_TAG} crust
+			echo -e ", done."
+		else
+			rm -fdr crust-${CRUST_TAG} crust crust-${CRUST_TAG}.backup
+			echo -en "Crust ${CRUST_TAG}:"
+			echo -en " Cloning"
+			git clone --depth=1 -b ${CRUST_TAG} -q -c advice.detachedHead=false ${GIT_CRUST_URL} crust-${CRUST_TAG}
+			if [[ -d "crust-${CRUST_TAG}" ]]; then
+				cd crust-${CRUST_TAG}
+				make clean > /dev/null 2>&1
+				cd ..
+				echo -en ", preparing"
+				cp -r crust-${CRUST_TAG} crust
+				echo -e ", done."
+			else
+				echo -e ", failed."
+				exit 1
+			fi
+		fi
+	fi
+	echo ""
+	cd crust
+	if [[ -f "configs/${CRUST_DEFCONFIG}" ]]; then
+		if [ $CROSSCOMPILE -eq 1 ]; then echo -e "${GRN}  CC${FIN}"; else echo -e "${GRN}  NC${FIN}"; fi
+		make -j${CORES} ARCH=${ARCH} CROSS_COMPILE=or1k-elf- ${CRUST_DEFCONFIG}
+		make -j${CORES} ARCH=${ARCH} CROSS_COMPILE=or1k-elf-
+	else
+		echo ""
+		echo -e "${CRUST_DEFCONFIG} was not found."
+		echo -e "Check that the name is correct in the lib/boards/${BOARD} file."
+		echo -e ""
+		read -p "Press enter to continue."
+		exit 1
+	fi
+	cd ..
+	echo ""
+fi
+}
+
+report_crust_error (){
+echo "Missing crust scp.bin blob. Please report build errors."
+echo ""
+exit 1
+}

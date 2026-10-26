@@ -1,0 +1,139 @@
+#!/bin/bash
+
+custom_txt (){
+cat <<EOF > "custom.txt"
+### CUSTOMIZE IMAGE
+
+# Boot Partition
+ENABLE_BOOT_EXT4="false"
+ENABLE_BOOT_VFAT="false"
+
+# Root Filesystem Types: ext4 btrfs xfs
+FSTYPE="ext4"
+
+# Use a boot script instead of extlinux
+ENABLE_BOOTCMD="false"
+
+# Enable UEFI Boot
+ENABLE_EFI="false"
+
+# Install a generic kernel (uefi-amd64/uefi-arm64)
+GENERIC_KERNEL="false"
+
+# Write image directly to eMMC (Amlogic Only)
+AML_EMMC="false"
+
+# Petitboot (AML ODROID) (obsolete)
+ENABLE_PETITBOOT="false"
+
+# Bootstrap: if false use debootstrap
+MMDEBSTRAP="true"
+
+# Create minimal rootfs tarball
+MINIMAL_ROOTFS="false"
+
+# Add extra firmware
+EXTRA_FIRMWARE="false"
+
+# Image Size
+IMGSIZE="4096MB" # 4GB
+#IMGSIZE="8192MB" # 8GB
+
+# Shrink Image
+ENABLE_SHRINK="true"
+
+# Compression Types: xz zst
+IMG_COMPRESSION="xz"
+
+user_function (){
+	# Example:
+	# apt update; apt install npm -y
+	# npm install -g mlab-speed-test
+	true
+}
+
+### DO NOT EDIT BELOW THIS LINE
+CUSTOM="$BUILDER"
+EOF
+}
+
+kernel_txt (){
+cat <<EOF > "kernel.txt"
+### ADVANCED KERNEL PREFERENCES
+
+# Kernel dot org
+GIT_KERNELORG="true" # false is depreciated
+#LINUX_PATCHING="false"
+
+# Github / Gitlab
+#FORCE_GIT="false"
+#GIT_OWN=""
+#GIT_REPO=""
+#GIT_BRANCH=""
+#GIT_URL=""
+#GIT_BLOB="blob"
+# Patching
+#GIT_PATCHING="false"
+#GIT_PATCHDIR="patches/git/${BOARD}/${GIT_REPO}-${GIT_BRANCH}"
+
+# Enable additional modules
+#MODULES=""
+
+# Enable additional wireless
+EXTRA_WIFI="true"
+RTW88="true"
+RTW88_DEVEL="false"
+
+# Spoof host "codename" machine (legacy packaging)
+#SPOOF_HOST="trixie"
+
+# Force legacy packaging
+#FORCE_LEGACY_PACKAGING="true"
+
+# Custom linux logo
+LINUX_LOGO="linux_clut224.ppm"
+
+### DO NOT EDIT BELOW THIS LINE
+KERNEL_PREFERENCES="$BUILDER"
+EOF
+sed -i "s/^#GIT_PATCHDIR=.*/#GIT_PATCHDIR="'"patches\/git\/${BOARD}\/${GIT_REPO}-${GIT_BRANCH}"'"/" kernel.txt
+}
+
+mirror_txt (){
+cat <<EOF > "mirror.txt"
+BIANBU_MIRROR="https://archive.spacemit.com/bianbu" # noble
+BIANBU4_MIRROR="https://archive.spacemit.com/bianbu4" # resolute
+DEBIAN_MIRROR="http://deb.debian.org/debian"
+DEVUAN_MIRROR="http://deb.devuan.org/merged"
+KALI_MIRROR="http://http.kali.org/kali"
+UBUNTU_MIRROR="http://ports.ubuntu.com/ubuntu-ports/"
+UBUNTU_AMD64_MIRROR="http://archive.ubuntu.com/ubuntu/"
+
+### DO NOT EDIT BELOW THIS LINE
+MIRROR_LIST="$BUILDER"
+EOF
+}
+
+profile_txt (){
+cat <<EOF > "profile.txt"
+### USER DEFAULTS
+
+#NAME="$MYNAME"
+#USERNAME="$USER"
+#PASSWORD="board"
+#VERSION="6.18.y"
+#COMPILER="gcc"
+#CCACHE="$CCACHE"
+#NETWORKMANAGER="$NETWORKMANAGER"
+#USERACCT="$USERACCT"
+#USER_PKGS="$USER_PKGS"
+#LOCALE="$LOCALE"
+#LOCALE_LC_ALL="$LOCALE_LC_ALL"
+#TIMEZONE="$TIMEZONE" 
+#NAMESERVER1="$NAMESERVER1"
+#NAMESERVER2="$NAMESERVER2"
+
+### DO NOT EDIT BELOW THIS LINE
+USER_PROFILE="$PROFILE"
+EOF
+}

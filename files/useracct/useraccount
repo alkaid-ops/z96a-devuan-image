@@ -1,0 +1,75 @@
+#!/bin/bash
+
+if [[ -f "/etc/opt/board.txt" ]]; then . /etc/opt/board.txt; fi
+if [[ -f "/boot/useraccount.txt" ]]; then . /boot/useraccount.txt; fi
+DISTRO=`cat /etc/os-release | grep -w NAME | sed 's/NAME=//g' | sed 's/"//g' | sed 's/ GNU\/Linux//g'`
+
+create_user (){
+if [[ ! -z "$NAME" ]]; then NAME=`echo $NAME | sed 's/ //g'`; else NAME=`echo ${DEFAULT_MOTD} | sed 's/ //g'`; fi
+if [[ ! -z "$USERNAME" ]]; then :; else USERNAME="pi"; fi
+if [[ ! -z "$PASSWORD" ]]; then :; else PASSWORD="board"; fi
+adduser ${USERNAME} --gecos ${NAME} --disabled-password
+echo "${USERNAME}:${PASSWORD}" | chpasswd
+adduser ${USERNAME} sudo
+adduser ${USERNAME} audio
+adduser ${USERNAME} dialout
+adduser ${USERNAME} video
+adduser ${USERNAME} disk
+adduser ${USERNAME} plugdev
+adduser ${USERNAME} netdev
+if [[ `grep -w "bluetooth" "/etc/group"` ]]; then
+	adduser --verbose ${USERNAME} bluetooth
+else
+	groupadd bluetooth
+	adduser --verbose ${USERNAME} bluetooth
+fi
+adduser ${USERNAME} input
+adduser ${USERNAME} tty
+adduser ${USERNAME} i2c
+if [[ `grep -w "gpio" "/etc/group"` ]]; then
+	adduser ${USERNAME} gpio
+else
+	groupadd gpio
+	adduser ${USERNAME} gpio
+fi
+if [[ `grep -w "spi" "/etc/group"` ]]; then
+	adduser ${USERNAME} spi
+else
+	groupadd spi
+	adduser ${USERNAME} spi
+fi
+}
+
+create_sudoers (){
+tee /etc/sudoers.d/010_${USERNAME}-nopasswd <<EOF
+${USERNAME} ALL=(ALL) NOPASSWD: ALL
+EOF
+}
+
+echo -en "${FAMILY}: " | sed -e 's/\(.*\)/\U\1/'
+echo -e "${DEFAULT_MOTD}" | sed -e 's/\(.*\)/\U\1/'
+echo -e ""
+echo -e "Creating a user account for: \e[1;37m${NAME}\e[0m"
+create_user
+create_sudoers
+rm -f /boot/useraccount.txt
+echo -e "Finishing ..."
+sleep .75
+
+if [[ "$DISTRO" == "Devuan" ]]; then
+	update-rc.d useraccount remove > /dev/null 2>&1
+else
+	systemctl disable useraccount > /dev/null 2>&1
+fi
+sleep .75
+if [[ -d "/home/${USERNAME}" ]]; then
+	sleep .75
+	mkdir -p /home/${USERNAME}/.config/mc/
+	mv -f /etc/opt/user-ini /home/${USERNAME}/.config/mc/ini
+	mv -f /etc/opt/nanorc-user /home/${USERNAME}/.nanorc
+	chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}
+	rm -f /etc/opt/{nanorc-user,user-ini}
+fi
+if [[ "$DISTRO" == "Devuan" ]]; then clear -x; fi
+
+exit 0

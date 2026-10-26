@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# U-BOOT
+uboot_output (){
+if [[ -f "u-boot.bin" ]]; then
+	mkdir -p ../../${OUTPUT}
+	cp -f u-boot.bin ../../${OUTPUT}/
+	if [[ "$BOARD" == "odroidxu4" ]]; then cp -fr ../../${PRECOMPILED_UBOOT_DIR}/{bl1.bin,bl2.bin,tzsw.bin} ../../${OUTPUT}/; fi
+	uboot_packaging
+else
+	report_error
+fi
+}
+
+samsung_uboot_run (){
+sources_dir
+uboot_run
+uboot_output
+}
+
+samsung_uboot_packaging (){
+cp -f u-boot.bin ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/usr/lib/${PKGNAME}/
+if [[ "$BOARD" == "odroidxu4" ]]; then
+	cp -fr ../../${PRECOMPILED_UBOOT_DIR}/{bl1.bin,bl2.bin,tzsw.bin} ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/usr/lib/${PKGNAME}/
+fi
+}
+
+# STAGE1
+flash_uboot (){
+dd if=${OUTPUT}/bl1.bin of="${IMAGE_LOOP_DEV}" seek=1 conv=fsync
+dd if=${OUTPUT}/bl2.bin of="${IMAGE_LOOP_DEV}" seek=31 conv=fsync
+dd if=${OUTPUT}/u-boot.bin of="${IMAGE_LOOP_DEV}" seek=63 conv=fsync
+dd if=${OUTPUT}/tzsw.bin of="${IMAGE_LOOP_DEV}" seek=1503 conv=fsync
+dd if=/dev/zero of="${IMAGE_LOOP_DEV}" seek=2015 bs=512 count=32 conv=fsync
+}

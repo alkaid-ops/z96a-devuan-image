@@ -1,0 +1,16 @@
+[Unit]
+Description=User Account
+After=firstboot.service network.target
+Before=sshd.service systemd-logind.service getty@tty1.service credentials.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/useraccount
+TimeoutSec=0
+#RemainAfterExit=yes
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=default.target
+RequiredBy=sshd.service systemd-logind.service getty@tty1.service

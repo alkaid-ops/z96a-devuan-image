@@ -1,0 +1,151 @@
+#!/bin/bash
+
+# compile cross or native
+compile (){
+# clang
+COMPILER_CLANG=`echo ${COMPILER} | sed 's/[0-9]//g' | sed 's/-//g'`
+if [[ "$COMPILER_CLANG" == "clang" ]]; then LEGACY_PACKAGING="true"; fi
+# cross
+if [[ "$HOST_ARCH" == "aarch64" ]] && [[ "$ARCH" =~ ^(arm|riscv)$ ]]; then CROSSCOMPILE="1"; fi
+if [[ "$HOST_ARCH" == "x86_64" ]] && [[ "$ARCH" =~ ^(arm|arm64|riscv)$ ]]; then CROSSCOMPILE="1"; fi
+# native
+if [[ "$HOST_ARCH" == "x86_64" ]] && [[ "$ARCH" == "x86" ]]; then CROSSCOMPILE="0"; fi
+if [[ "$HOST_ARCH" == "aarch64" ]] && [[ "$ARCH" == "arm64" ]]; then CROSSCOMPILE="0"; fi
+if [[ "$HOST_ARCH" == "riscv64" ]] && [[ "$ARCH" == "riscv" ]]; then CROSSCOMPILE="0"; fi
+}
+
+# x86_64 ubuntu source list
+ubuntu_cross_source (){
+echo ""
+echo "Adding source file: /etc/apt/sources.list.d/${HOST_MACHINE}-ports.sources"
+source mirror.txt
+mkdir -p /etc/apt/sources.list.d
+if [[ ! -f "/etc/apt/sources.list.d/${HOST_MACHINE}-ports.sources" ]]; then
+	tee /etc/apt/sources.list.d/${HOST_MACHINE}-ports.sources <<EOF
+Types: deb
+URIs: ${UBUNTU_MIRROR}
+Architectures: armhf arm64 riscv64
+Suites: ${HOST_CODENAME} ${HOST_CODENAME}-updates ${HOST_CODENAME}-backports
+Components: main restricted universe multiverse
+Enabled: yes
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+Types: deb
+URIs: ${UBUNTU_MIRROR}
+Architectures: armhf arm64 riscv64
+Suites: ${HOST_CODENAME}-security
+Components: main restricted universe multiverse
+Enabled: yes
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+EOF
+fi
+}
+
+# add the needed architectures for upstream linux compilation
+upstream_linux_packaging (){
+if [[ `dpkg -l | grep debhelper` ]]; then :; else apt update; apt install -y debhelper; fi
+if [[ "$HOST_ARCH" == "aarch64" ]] && [[ "$ARCH" =~ ^(arm|riscv)$ ]]; then
+	if [[ `dpkg -l | grep libssl-dev:${ARCH_EXT}` ]]; then
+		:;
+	else
+		dpkg --add-architecture ${ARCH_EXT}
+		apt update
+		apt install -y libssl-dev:${ARCH_EXT}
+	fi
+fi
+if [[ "$HOST_ARCH" == "x86_64" ]] && [[ "$ARCH" =~ ^(arm|arm64|riscv)$ ]]; then
+	if [[ `dpkg -l | grep libssl-dev:${ARCH_EXT}` ]]; then
+		:;
+	else
+		if [[ "$HOST_MACHINE" == "Ubuntu" ]]; then
+			ubuntu_cross_source
+			apt update
+			dpkg --add-architecture ${ARCH_EXT}
+			apt install -y libssl-dev:${ARCH_EXT}
+			echo "Removing source file: /etc/apt/sources.list.d/${HOST_MACHINE}-ports.sources"
+			rm -f /etc/apt/sources.list.d/${HOST_MACHINE}-ports.sources
+			echo ""
+		else
+			dpkg --add-architecture ${ARCH_EXT}
+			apt update
+			apt install -y libssl-dev:${ARCH_EXT}
+		fi
+	fi
+fi
+}
+
+uboot_compilers (){
+# install compiler
+if [ $CCACHE -eq 1 ]; then
+	if [[ `command -v ccache` ]]; then :; else apt install -y ccache; fi
+fi
+# force gnu compiler collection
+if [[ "$COMPILER_CLANG" == "clang" || "$COMPILER" == "gcc" ]]; then
+	CVER=`readlink /usr/bin/gcc | sed "s/[^0-9.]*//g" | sed 's/\.//g'`
+	if [[ `type ${FAMILY}_uboot_compiler` ]] &>/dev/null; then ${FAMILY}_uboot_compiler; else COMPILER="gcc-${CVER}"; fi
+fi
+# ccache
+if [ $CCACHE -eq 1 ]; then
+	NATIVE="ccache ${COMPILER}"
+	CROSS="ccache ${CROSS_COMPILE}${COMPILER}"
+else
+	NATIVE="${COMPILER}"
+	CROSS="${CROSS_COMPILE}${COMPILER}"
+fi
+}
+
+linux_compilers (){
+# install and setup compilers
+if [[ "$COMPILER_CLANG" == "clang" ]]; then
+	# if not the host default the user must install and define the version of choice
+	if [[ `command -v clang` ]]; then :; else apt install -y clang; fi
+	if [[ `command -v lld` ]]; then :; else apt install -y lld llvm; fi
+	# builder doesn't support compiling armel with clang
+	if [[ "$ARCH_EXT" == "armel" ]]; then COMPILER_CLANG="gcc"; COMPILER="gcc"; fi
+fi
+if [ $CCACHE -eq 1 ]; then
+	if [[ `command -v ccache` ]]; then :; else apt install -y ccache; fi
+fi
+# find compiler version
+if [[ "$COMPILER" =~ ^(clang|gcc)$ ]]; then
+	CVER=`readlink /usr/bin/${COMPILER} | sed "s/[^0-9.]*//g" | sed 's/\.//g'`
+	COMPILER="${COMPILER}-${CVER}"
+	if [[ `type ${FAMILY}_linux_compiler` ]] &>/dev/null; then ${FAMILY}_linux_compiler; fi
+fi
+# clang
+if [[ "$COMPILER_CLANG" == "clang" ]]; then
+	CLANG="1"
+	CLANG_LLVM=`echo LLVM=${COMPILER} LLVM_IAS=1 | sed 's/clang//g'`
+else
+	CLANG="0"	
+fi
+# ccache
+if [ $CCACHE -eq 1 ]; then
+	NATIVE="ccache ${COMPILER}"
+	if [ $CLANG -eq 1 ]; then CROSS="ccache ${COMPILER}"; else CROSS="ccache ${CROSS_COMPILE}${COMPILER}"; fi
+else
+	NATIVE="${COMPILER}"
+	if [ $CLANG -eq 1 ]; then CROSS="${COMPILER}"; else CROSS="${CROSS_COMPILE}${COMPILER}"; fi
+fi
+}
+
+ubuild (){
+if [ $CROSSCOMPILE -eq 1 ]; then
+	make -j${CORES} CC="${CROSS}" CROSS_COMPILE=${CROSS_COMPILE} $1
+else
+	make -j${CORES} CC="${NATIVE}" $1
+fi
+}
+
+kbuild (){
+if [ $CLANG -eq 1 ]; then CLANG_FLAGS="${CLANG_LLVM}"; fi
+if [ $CROSSCOMPILE -eq 1 ]; then
+	make -j${CORES} KBUILD_DEBARCH=${DEBARCH} ARCH=${ARCH} CC="${CROSS}" CFLAGS="${CFLAGS}" CROSS_COMPILE=${CROSS_COMPILE} ${CLANG_FLAGS} $1
+else
+	if [[ ! "$ARCH" == "x86" ]]; then
+		make -j${CORES} KBUILD_DEBARCH=${DEBARCH} ARCH=${ARCH} CC="${NATIVE}" CFLAGS="${CFLAGS}" ${CLANG_FLAGS} $1
+	elif [[ "$ARCH" == "x86" ]]; then
+		make -j${CORES} KBUILD_DEBARCH=${DEBARCH} ARCH=${ARCH} CC="${NATIVE}" ${CLANG_FLAGS} $1
+	fi	
+fi
+}

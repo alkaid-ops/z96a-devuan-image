@@ -1,0 +1,52 @@
+#!/bin/bash
+
+opensbi_firmware (){
+if [[ -d "${FAMILY}-opensbi-${OPENSBI_TAG}" ]]; then
+	if [[ ! `git -C ${FAMILY}-opensbi-${OPENSBI_TAG} remote -v | grep "${OPENSBI_URL}"` ]]; then
+		rm -fdr opensbi ${FAMILY}-opensbi-${OPENSBI_TAG}; fi
+fi
+if [[ -d "${FAMILY}-opensbi-${OPENSBI_TAG}" ]]; then
+	echo -en "${FAMILY}-opensbi-${OPENSBI_TAG}:"
+	echo -en " Restoring"
+	rm -fdr opensbi
+	cd ${FAMILY}-opensbi-${OPENSBI_TAG}
+	make clean
+	cd ..
+	cp -r ${FAMILY}-opensbi-${OPENSBI_TAG} opensbi
+	echo -e ", done."
+else
+	if [[ `wget -S --spider ${OPENSBI_URL} 2>&1 | grep 'HTTP/1.1 200 OK'` ]]; then
+		rm -fdr ${FAMILY}-opensbi-${OPENSBI_TAG} opensbi
+		git clone -c advice.detachedHead=false --depth=1 ${OPENSBI_URL} -b ${OPENSBI_TAG} ${FAMILY}-opensbi-${OPENSBI_TAG}
+		if [[ -d "${FAMILY}-opensbi-${OPENSBI_TAG}" ]]; then
+			cd ${FAMILY}-opensbi-${OPENSBI_TAG}
+			make clean
+			cd ..
+			echo -en "${FAMILY}-opensbi-${OPENSBI_TAG}:"
+			echo -en " Preparing"
+			cp -r ${FAMILY}-opensbi-${OPENSBI_TAG} opensbi
+			echo -e ", done."
+		else
+			echo -e ", failed."
+			exit 1
+		fi
+	fi
+fi
+cd opensbi
+opensbi_patching
+if [ $CROSSCOMPILE -eq 1 ]; then echo -e "${GRN}  CC${FIN}"; else echo -e "${GRN}  NC${FIN}"; fi
+if [[ -v "OPENSBI_DEFCONFIG" ]] && [[ ! -z "$OPENSBI_DEFCONFIG" ]]; then
+	ubuild "PLATFORM=${OPENSBI_PLATFORM} PLATFORM_DEFCONFIG=${OPENSBI_DEFCONFIG}"
+else
+	ubuild "PLATFORM=${OPENSBI_PLATFORM}"
+fi
+if [[ -f "${OPENSBI_FIRMWARE}" ]]; then :; else report_opensbi_error; fi
+cd ..
+echo ""
+}
+
+report_opensbi_error (){
+echo "Missing firmware ${OPENSBI_FIRMWARE}. Please report build errors."
+echo ""
+exit 1
+}

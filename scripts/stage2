@@ -1,0 +1,518 @@
+#!/usr/bin/env bash
+source /root/userdata.txt
+if [ $VERBOSE -eq 1 ]; then set -x; fi
+source /root/source.txt
+source /root/board.txt
+source /root/services.txt
+source /root/${FAMILY}.txt
+source /root/networking.txt
+SCRIPTS_URL="https://raw.githubusercontent.com/pyavitz/scripts/master/"
+
+set -o errexit
+set -o pipefail
+set -o nounset
+
+mount -t proc proc proc/
+mount -t sysfs sys sys/
+
+export DEBIAN_FRONTEND="noninteractive"
+
+if [[ "$DISTRO" =~ ^(bianbu|ubuntu)$ ]]; then rm -f /etc/resolv.conf; fi
+echo "nameserver ${NAMESERVER1}" > /etc/resolv.conf
+echo "nameserver ${NAMESERVER2}" >> /etc/resolv.conf
+
+if [ $NETWORKMANAGER -eq 0 ] && [[ "$DISTRO_VERSION" == "jammy" ]]; then
+	# systemd-resolved breaks static ip when using ifupdown, disable on jammy jellyfish
+	unlink /etc/resolv.conf
+	rm -f /etc/resolv.conf
+	systemctl disable systemd-resolved
+	echo "nameserver ${NAMESERVER1}" > /etc/resolv.conf
+	echo "nameserver ${NAMESERVER2}" >> /etc/resolv.conf
+fi
+
+# dpkg: error: failed to open package info file '/var/lib/dpkg/available' for reading: No such file or directory
+if [[ "$DISTRO_VERSION" == "focal" ]]; then dpkg --clear-avail; fi
+
+apt-get update
+apt-get install -y apt-utils
+
+# locales
+apt install -y locales
+export LANGUAGE=${LOCALE}
+export LANG=${LOCALE}
+export LC_ALL=${LOCALE_LC_ALL}
+locale-gen ${LOCALE}
+
+# timezone
+ln -snf /usr/share/zoneinfo/${TIMEZONE} /etc/localtime
+echo -n "${TIMEZONE}" > /etc/timezone
+
+apt upgrade -y
+apt dist-upgrade -y
+if [[ "$MINIMAL_ROOTFS" == "true" ]]; then PKGS_FULL=""; fi
+# enable firmware on uefi generic builds (force var to true)
+if [[ "$FAMILY" == "generic" ]]; then EXTRA_FIRMWARE="true"; UBUNTU_FW="linux-firmware"; fi
+# enable extra firmware via custom.txt file
+if [[ "$EXTRA_FIRMWARE" == "false" ]]; then DEBIAN_FW=""; UBUNTU_FW=""; fi
+# out of the box this firmware is not required (force var to false)
+if [[ "$FAMILY" == "broadcom" ]]; then DEBIAN_FW=""; UBUNTU_FW=""; apt_preferences; fi
+# don't autoremove packages if distro release is labeled unstable.
+if [[ "$DISTRO_VERSION" =~ ^(ceres|sid|testing|unstable)$ ]]; then :; else apt autoremove -y; fi
+# network variables
+if [[ "$DISTRO_VERSION" =~ ^(forky|testing|sid|stonking)$ ]]; then NETPLUG=""; else NETPLUG="netplug"; fi # need to rework all of this
+if [[ "$DISTRO_VERSION" =~ ^(oracular|plucky|questing|resolute|stonking)$ ]]; then WIRELESS="iw"; else WIRELESS="iw wireless-tools"; fi
+if [ $NETWORKMANAGER -eq 1 ]; then NETWORKING="network-manager ${NETPLUG}"; else NETWORKING="ifupdown ${NETPLUG}"; fi
+# variable populated by ${FAMILY}_extra_packages
+EXTRA_PKGS=""
+# extra platform package support
+if [[ `type ${FAMILY}_extra_packages` ]] &>/dev/null; then ${FAMILY}_extra_packages; fi
+# install base and extra packages
+if [[ "$DISTRO" =~ ^(debian|raspbian)$ ]]; then
+	apt install -y ${PKGS} ${USER_PKGS} ${DEBIAN_FW} ${WIRELESS} resolvconf haveged ${NETWORKING} ${PKGS_FULL} ${EXTRA_PKGS}
+fi
+if [[ "$DISTRO" == "devuan" ]]; then
+	apt install -y openssh-client openssh-server --no-install-recommends
+	apt install -y ${PKGS} ${USER_PKGS} ${DEBIAN_FW} ${WIRELESS} openresolv haveged ${NETWORKING} ${PKGS_FULL} ${EXTRA_PKGS}
+fi
+if [[ "$DISTRO" == "kali" ]]; then
+	if [[ "$ARCH" == "arm64" ]]; then KALI_PKGS="libical3"; else KALI_PKGS="libical3t64"; fi
+	apt install -y ${PKGS} ${USER_PKGS} ${DEBIAN_FW} ${WIRELESS} dbus-user-session resolvconf haveged ${KALI_PKGS} ${NETWORKING} ${PKGS_FULL} ${EXTRA_PKGS}
+fi
+if [[ "$DISTRO" =~ ^(bianbu|ubuntu)$ ]]; then
+	if [[ "$DISTRO_VERSION" == "focal" || "$ARCH" == "arm" ]] || [[ "$ARCH" == "riscv" ]]; then UBUNTU_FW=""; fi
+	if [[ "$DISTRO_VERSION" =~ ^(focal|jammy)$ ]]; then RESOLV="resolvconf"; else RESOLV="systemd-resolved"; fi
+	apt install -y ${PKGS} ${USER_PKGS} ${RESOLV} ${WIRELESS} rng-tools5 ${UBUNTU_FW} ${NETWORKING} ${PKGS_FULL} ${EXTRA_PKGS}
+	if [ $NETWORKMANAGER -eq 0 ] && [[ "$DISTRO_VERSION" == "jammy" ]]; then
+		# disable systemd-networkd and mask systemd-networkd-wait-online
+		systemctl disable systemd-networkd
+		systemctl mask systemd-networkd-wait-online
+	fi
+fi
+# apt clean
+if [[ "$DISTRO" =~ ^(bianbu|ubuntu)$ ]]; then
+	if [[ -f "/etc/update-motd.d/88-esm-announce" ]]; then
+		rm -f /etc/update-motd.d/88-esm-announce
+		echo '#!/bin/sh' > /etc/update-motd.d/88-esm-announce
+		chmod +x /etc/update-motd.d/88-esm-announce
+	fi
+	if [[ -f "/etc/update-motd.d/91-contract-ua-esm-status" ]]; then
+		rm -f /etc/update-motd.d/91-contract-ua-esm-status
+		echo '#!/bin/sh' > /etc/update-motd.d/91-contract-ua-esm-status
+		chmod +x /etc/update-motd.d/91-contract-ua-esm-status
+	fi
+	if [[ -f "/etc/apt/apt.conf.d/20apt-esm-hook.conf" ]]; then
+		rm -f /etc/apt/apt.conf.d/20apt-esm-hook.conf
+		touch /etc/apt/apt.conf.d/20apt-esm-hook.conf
+	fi
+	# remove ubuntu pro adverts apt hook
+	echo 'DPkg::Post-Invoke {"/usr/local/sbin/remove-ubuntu-advert";};' > /etc/apt/apt.conf.d/80remove-ubuntu-advert
+	cat <<EOF > "/usr/local/sbin/remove-ubuntu-advert"
+#!/bin/bash
+
+if [[ -f "/etc/update-motd.d/88-esm-announce" ]]; then
+	rm -f /etc/update-motd.d/88-esm-announce
+	echo '#!/bin/sh' > /etc/update-motd.d/88-esm-announce
+	chmod +x /etc/update-motd.d/88-esm-announce
+fi
+if [[ -f "/etc/update-motd.d/91-contract-ua-esm-status" ]]; then
+	rm -f /etc/update-motd.d/91-contract-ua-esm-status
+	echo '#!/bin/sh' > /etc/update-motd.d/91-contract-ua-esm-status
+	chmod +x /etc/update-motd.d/91-contract-ua-esm-status
+fi
+if [[ -f "/etc/apt/apt.conf.d/20apt-esm-hook.conf" ]]; then
+	rm -f /etc/apt/apt.conf.d/20apt-esm-hook.conf
+	touch /etc/apt/apt.conf.d/20apt-esm-hook.conf
+fi
+EOF
+	chmod +x /usr/local/sbin/remove-ubuntu-advert
+fi
+apt -y clean
+apt -y autoclean
+
+# hostname / username / password
+if [[ "$HOSTNAME" == "default" ]]; then
+	# default hostname
+	echo -n "${BOARD}" > /etc/hostname
+	sed -i "1 a 127.0.1.1	${BOARD}" /etc/hosts
+else
+	# custom hostname
+	echo -n "${HOSTNAME}" > /etc/hostname
+	sed -i "1 a 127.0.1.1	${HOSTNAME}" /etc/hosts
+fi
+if [ $USERACCT -eq 0 ]; then
+	# prevent build fail because of white spaces
+	NAME_FIXUP=`echo ${NAME} | sed "s/ //g"`
+	echo "";
+	adduser --verbose ${USERNAME} --gecos ${NAME_FIXUP} --disabled-password
+	echo "${USERNAME}:${PASSWORD}" | chpasswd
+	adduser --verbose ${USERNAME} sudo
+	adduser --verbose ${USERNAME} audio
+	adduser --verbose ${USERNAME} dialout
+	adduser --verbose ${USERNAME} video
+	adduser --verbose ${USERNAME} disk
+	adduser --verbose ${USERNAME} plugdev
+	adduser --verbose ${USERNAME} netdev
+	if [[ `grep -w "bluetooth" "/etc/group"` ]]; then
+		adduser --verbose ${USERNAME} bluetooth
+	else
+		groupadd bluetooth
+		adduser --verbose ${USERNAME} bluetooth
+	fi
+	adduser --verbose ${USERNAME} input
+	adduser --verbose ${USERNAME} tty
+	adduser --verbose ${USERNAME} i2c
+	groupadd gpio
+	groupadd spi
+	adduser --verbose ${USERNAME} gpio
+	adduser --verbose ${USERNAME} spi
+fi
+if [ $USERACCT -eq 1 ]; then
+	mkdir -p /boot;
+	mkdir -p /usr/local/sbin;
+	mv -f /root/useracct/useraccount /usr/local/sbin/;
+	chmod +x /usr/local/sbin/useraccount;
+	mv -f /root/{nanorc-user,user-ini} /etc/opt/;
+	mv -f /root/useracct/useraccount.txt /boot/useraccount.txt;
+	if [[ "$DISTRO" == "devuan" ]]; then
+		mkdir -p /etc/init.d;
+		mv -f /root/useracct/useraccount.init /etc/init.d/useraccount;
+		chmod +x /etc/init.d/useraccount;
+		update-rc.d useraccount defaults 5;
+		rm -fdr /root/useracct;
+	else
+		mkdir -p /etc/systemd/system/;
+		mv -f /root/useracct/useraccount.service /etc/systemd/system/;
+		systemctl enable useraccount > /dev/null 2>&1;
+		rm -fdr /root/useracct;
+	fi
+fi
+# set root:toor password
+if [ $ROOTPASSWD -eq 1 ]; then echo "root:toor" | chpasswd; fi
+
+# user scripts stage2
+if [ $USCRIPTS -eq 1 ]; then uscripts_stage2; fi
+cd ~
+
+# user function
+if [[ `type user_function` ]] &>/dev/null; then user_function; fi
+
+# alsa asound.state file
+if [[ -f "/root/asound.state" ]]; then
+	mkdir -p /var/lib/alsa
+	mv -f /root/asound.state /var/lib/alsa/asound.state
+fi
+if [[ -f "/root/asound.conf" ]]; then mv -f /root/asound.conf /etc/asound.conf; fi
+
+# led triggers
+if [[ -f "/root/led-trigger" ]]; then
+	mv -f /root/led-trigger /usr/local/sbin/led-trigger
+fi
+
+# bluetooth helper
+if [[ "$DISTRO" =~ ^(bianbu|debian|ubuntu|kali)$ ]]; then rfkill_unblock_all_service > /dev/null 2>&1; fi
+if [[ `type ${FAMILY}_bluetooth` ]] &>/dev/null; then ${FAMILY}_bluetooth; fi
+
+# linux modules
+if [[ -v "MODULES_LOAD" ]] && [[ ! -z "$MODULES_LOAD" ]]; then
+	mkdir -p /etc/modules-load.d
+	echo "# LOAD MODULES" > /etc/modules-load.d/${BOARD}.conf
+	echo "$MODULES_LOAD" | tr ' ' '\n' | tee -a /etc/modules-load.d/${BOARD}.conf > /dev/null 2>&1
+fi
+if [[ -v "MODULES_BLACKLIST" ]] && [[ ! -z "$MODULES_BLACKLIST" ]]; then
+	mkdir -p /etc/modprobe.d
+	echo "# BLACKLIST MODULES" > /etc/modprobe.d/blacklist-$BOARD.conf
+	echo "$MODULES_BLACKLIST" | tr ' ' '\n' | sed 's/^/blacklist /' | tee -a /etc/modprobe.d/blacklist-${BOARD}.conf > /dev/null 2>&1
+fi
+
+# board information
+if [[ -f "/etc/opt/board.txt" ]]; then :; else mkdir -p /etc/opt; cp /root/board.txt /etc/opt/; fi
+
+# write2mmc script
+cd ~
+mv -f write2mmc /usr/local/bin/
+echo 'DISCLAIMER="true"' | tee /etc/default/write2mmc > /dev/null 2>&1
+echo 'VERBOSITY="0"' | tee -a /etc/default/write2mmc > /dev/null 2>&1
+chmod +x /usr/local/bin/write2mmc
+chown root:root /usr/local/bin/write2mmc
+
+# scripts
+sleep .50
+mkdir -p /usr/local/bin
+mkdir -p /usr/local/sbin
+mv -f {add-overlay,bootcmd,menu-config,menu-config-update,setup,smon,sysinfo} /usr/local/bin/
+if [[ "$SERIES" =~ ^(meson-g12a|meson-g12b|meson-sm1)$ ]]; then mv -f amlmixer /usr/local/bin/; fi
+# tweaks
+if [[ -f "/usr/bin/tweaks" ]]; then tweaks_service > /dev/null 2>&1; fi
+if [ $NETWORKMANAGER -eq 0 ]; then wget -cq ${SCRIPTS_URL}swh -P /usr/local/bin/; fi
+wget -cq ${SCRIPTS_URL}governor -P /usr/local/bin/
+if [[ "$FAMILY" == "broadcom" ]]; then
+	if [[ "$ARCH" == "arm64" ]]; then wget -cq ${SCRIPTS_URL}deb-eeprom -P /usr/local/bin/; fi
+	mv -f transfer /usr/local/bin/
+else
+	rm -f transfer
+fi
+if [[ -v "GOVERNOR" && ! -z "$GOVERNOR" ]]; then echo GOVERNOR='"'${GOVERNOR}'"' > /etc/default/governor; fi
+mv -f growpart /usr/bin/
+mv -f firstboot /usr/local/sbin/
+chmod +x /usr/local/sbin/firstboot
+chmod +x /usr/bin/growpart
+chmod +x /usr/local/bin/*
+chown -R root:root /usr/local/bin/
+chown -R root:root /usr/local/sbin/
+if [[ "$DISTRO" == "devuan" ]]; then
+	mkdir -p /etc/init.d;
+	mv -f firstboot.init /etc/init.d/firstboot
+	mv -f leds.init /etc/init.d/leds
+	mv -f credentials.init /etc/init.d/credentials
+	mv -f governor.init /etc/init.d/governor
+	mv -f zramswap.init /etc/init.d/zramswap
+	mv -f bthelper.init /etc/init.d/bthelper
+fi
+
+# motd
+mkdir -p /etc/update-motd.d
+rm -f /etc/update-motd.d/{00-header,10-uname}
+if [[ -f "/etc/update-motd.d/10-help-text" ]]; then
+	rm -f /etc/update-motd.d/10-help-text
+	echo '#!/bin/sh' > /etc/update-motd.d/10-help-text
+	chmod +x /etc/update-motd.d/10-help-text
+fi
+mv -f {00-header,15-brand,20-sysinfo,90-dynamic-motd} /etc/update-motd.d/
+chmod +x /etc/update-motd.d/*
+cat <<EOF > "/etc/default/dynamic-motd"
+# DYNAMIC MOTD VARIABLES
+
+# alternative banner
+BRANDING="false"
+T_FONT="small"
+T_FILTER="metal"
+
+# banner
+B_POS="-r"
+B_FONT="term"
+B_FONT_STYLE="\033[1m"
+
+# custom
+C_BRAND="false"
+C_MOTD="${DEFAULT_MOTD}"
+
+# header
+H_POS="-c"
+
+# helper
+MENUCONFIG="true"
+EOF
+chown -R root:root /etc/update-motd.d/{00-header,15-brand,20-sysinfo,90-dynamic-motd}
+rm -f /etc/motd
+echo "" > /etc/motd
+chown root:root /etc/motd
+
+# kali services
+if [[ "$DISTRO" == "kali" ]]; then 
+	if [ $VERBOSE -eq 1 ]; then kali_services; else kali_services > /dev/null 2>&1; fi
+fi
+
+# debian bookworm fixups
+if [[ "$DISTRO_VERSION" == "bookworm" ]]; then
+	apt install -y binfmt-support
+	mv -f /root/systemd-binfmt-fixups /usr/local/sbin/systemd-binfmt-fixups
+	chmod +x /usr/local/sbin/systemd-binfmt-fixups
+	binfmt_fixups_service > /dev/null 2>&1
+fi
+
+# clean
+rm -f {amlmixer,asound.conf,asound.state,bpi-fanctrl,*-tweaks,*-bthelper,sysinfo,20-sysinfo,write2mmc,*.init,bootcmd,add-overlay,smon,flash-recovery,rtc-ds1307,systemd-binfmt-fixups}
+
+# move mc skins
+mkdir -p /usr/share/mc/skins
+mv -f darkgreen.ini /usr/share/mc/skins/darkgreen.ini
+mv -f darkred.ini /usr/share/mc/skins/darkred.ini
+mkdir -p /root/.config/mc
+mv -f root-ini /root/.config/mc/ini
+mv -f nanorc-root /root/.nanorc
+chown -R root:root /root
+if [ $USERACCT -eq 0 ]; then
+	mkdir -p /home/${USERNAME}/.config/mc
+	mv -f user-ini /home/${USERNAME}/.config/mc/ini
+	mv -f nanorc-user /home/${USERNAME}/.nanorc
+	chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}
+fi
+
+# firmware
+if [[ ! "$FAMILY" == "generic" ]]; then
+	if [[ "$FAMILY" == "broadcom" ]]; then install_brcm_firmware; else install_firmware; fi
+fi
+if [[ `type ${FAMILY}_extra_firmware` ]] &>/dev/null; then ${FAMILY}_extra_firmware; fi
+
+# network setup
+if [ $VERBOSE -eq 1 ]; then
+	wireless_conf
+	if [ $NETWORKMANAGER -eq 1 ]; then
+		networkmanager_setup
+		networkmanager_credentials
+	else
+		ifupdown_setup
+		ifupdown_credentials
+		router_ifupdown
+	fi
+	if [[ "$DISTRO" =~ ^(bianbu|debian|kali|raspbian|ubuntu)$ ]]; then
+		credentials_service
+	fi
+else
+	wireless_conf > /dev/null 2>&1
+	if [ $NETWORKMANAGER -eq 1 ]; then
+		networkmanager_setup > /dev/null 2>&1
+		networkmanager_credentials > /dev/null 2>&1
+	else
+		ifupdown_setup > /dev/null 2>&1
+		ifupdown_credentials > /dev/null 2>&1
+		router_ifupdown > /dev/null 2>&1
+	fi
+	if [[ "$DISTRO" =~ ^(bianbu|debian|kali|raspbian|ubuntu)$ ]]; then
+		credentials_service > /dev/null 2>&1
+	fi
+fi
+
+# allocate zramswap
+if [[ -f "/etc/default/zramswap" ]]; then
+	sed -i 's/#ALLOCATION=256/ALLOCATION=1024/g' /etc/default/zramswap
+	sed -i 's/#SIZE=256/SIZE=1024/g' /etc/default/zramswap
+	sed -i 's/#PRIORITY=100/PRIORITY=100/g' /etc/default/zramswap
+fi
+
+# wireless regulatory db
+wireless_regdb
+
+# sudoers file
+mkdir -p /etc/sudoers.d
+if [ $USERACCT -eq 0 ]; then echo "${USERNAME} ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/010_${USERNAME}-nopasswd; fi
+echo 'Defaults secure_path="/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin:/usr/local/sbin"' > /etc/sudoers.d/011_secure-path
+
+# remove zstd compression (not supported by vednor kernels)
+if [[ `grep -w "COMPRESS=zstd" "/etc/initramfs-tools/initramfs.conf"` ]]; then
+	sed -i 's/COMPRESS=zstd/COMPRESS=xz/g' /etc/initramfs-tools/initramfs.conf
+fi
+
+# raspberrypi eeprom
+if [[ "$FAMILY" == "broadcom" && "$ARCH" == "arm64" ]]; then eeprom_support; fi
+#if [[ ! [[ "$DISTRO" =~ ^(bianbu|ubuntu)$ ]] && "$FAMILY" == "broadcom" ]]; then eeprom_support; else apt install -y libraspberrypi-bin rpi-eeprom; fi
+
+# uimage
+if [[ "$BOARD" == "odroidc1" ]]; then make_uimage; fi
+
+# u-boot and kernel packages
+echo ""
+apt update
+apt upgrade -y
+if [[ "$EFI" == "true" ]]; then
+	apt install -y grub-efi
+	# bianbu grub fixup
+	if [[ $DISTRO == "bianbu" ]] && [[ -f "/root/10_linux-${DISTRO_VERSION}" ]]; then
+		rm -f /etc/grub.d/10_linux
+		mv /root/10_linux-${DISTRO_VERSION} /etc/grub.d/10_linux
+	fi
+fi
+if [[ "$GENERIC_KERNEL" == "true" ]] && [[ "$FAMILY" == "generic" ]]; then
+	if [[ `type ${FAMILY}_linux_image` ]] &>/dev/null; then ${FAMILY}_linux_image; fi
+else
+	apt -y clean
+	apt -y autoclean
+	sleep .50
+	cd ~
+	dpkg -i *.deb
+	rm -f *.deb
+	sleep .50
+fi
+if [[ "$EFI" == "true" ]]; then
+	mkdir -p /boot/efi/EFI/BOOT
+	if [[ "$DISTRO" =~ ^(bianbu|ubuntu)$ ]]; then
+	if [[ "$ARCH" == "x86" ]]; then ARCH="x86_64"; fi
+	if [[ "$ARCH" == "riscv" ]]; then ARCH="riscv64"; fi
+		grub-install --target=${ARCH}-efi --efi-directory=/boot/efi --bootloader-id=ubuntu
+	else
+		grub-install --removable
+	fi
+	sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="'"${CONSOLE} ${LOGLEVEL} ${EXTRA}"'"/' /etc/default/grub
+	sed -i 's/^#GRUB_DISABLE_OS_PROBER=false.*/GRUB_DISABLE_OS_PROBER=true/' /etc/default/grub
+	# create custom grub menu entry with device tree variable
+	if [[ ! "$FAMILY" == "generic" ]]; then board_09; fi
+	update-grub
+	if [[ "$ARCH" == "x86_64" ]]; then ARCH="x86"; fi
+	if [[ "$ARCH" == "riscv64" ]]; then ARCH="riscv"; fi
+fi
+# take note of linux kernel release
+if [[ -f "/usr/src/linux-headers-*/include/config/kernel.release" ]]; then
+	KERNEL_RELEASE=`cat /usr/src/linux-headers-*/include/config/kernel.release`
+else
+	KERNEL_RELEASE=`ls /boot/config-* | sed 's/\/boot\/config-//g'`
+fi
+echo -e INSTALLED_KERNEL='"'$KERNEL_RELEASE'"' > /root/kernel.release
+
+# system.journal corrupted or uncleanly shut down, renaming and replacing
+if [[ -f "/etc/systemd/journald.conf" ]]; then
+	sed -i 's/#Storage=auto/Storage=volatile/g' /etc/systemd/journald.conf
+	sed -i 's/#SystemMaxFileSize=/SystemMaxFileSize=50M/g' /etc/systemd/journald.conf
+	sed -i 's/#SystemMaxFiles=100/SystemMaxFiles=5/g' /etc/systemd/journald.conf
+	sed -i 's/#SystemMaxUse=/SystemMaxUse=500M/g' /etc/systemd/journald.conf
+fi
+
+# whiptail color palette
+if [[ "$DISTRO" =~ ^(bianbu|ubuntu)$ ]]; then
+	mkdir -p /etc/newt
+	cat <<EOF > "/etc/newt/palette.dark"
+root=,black
+checkbox=,black
+entry=,black
+label=black,
+actlistbox=,black
+helpline=,black
+roottext=lightgray,black
+emptyscale=black
+disabledentry=black,
+EOF
+	ln -sf /etc/newt/palette.dark  /etc/alternatives/newt-palette
+fi
+
+# Add color to serial console
+if [[ -f "/etc/bash.bashrc" ]]; then
+	echo "export TERM=xterm-256color" >> /etc/bash.bashrc
+	echo 'export PS1="\[\033[1;38;5;196m\]\h\[\033[1;48;5;11;38;5;17m\]\u\[\033[0;32m\]\w\[\033[0m\]: "' >> /etc/bash.bashrc
+fi
+
+# udev rules
+if [[ `type ${BOARD}_udev_rules` ]] &>/dev/null; then ${BOARD}_udev_rules; fi
+if [[ `type ${FAMILY}_udev_rules` ]] &>/dev/null; then ${FAMILY}_udev_rules > /dev/null 2>&1; fi
+if [[ `type ${FAMILY_EXT}_udev_rules` ]] &>/dev/null; then ${FAMILY_EXT}_udev_rules > /dev/null 2>&1; fi
+router_udev_rules
+
+# Not sure why this is needed any longer?
+if [[ "$FAMILY" == "rockchip" ]] && [[ -f "/etc/default/haveged" ]]; then
+	sed -i 's/#DAEMON_ARGS=""/DAEMON_ARGS="-w 1024"/g' /etc/default/haveged
+fi
+
+# services
+if [[ "$DISTRO" == "devuan" ]]; then
+	enable_sysvinit
+else
+	firstboot_service > /dev/null 2>&1
+	governor_service > /dev/null 2>&1
+	led_service > /dev/null 2>&1
+	if [[ "$BOARD" =~ ^(bananapim2zero|bananapim4zero|khadasvim4|radxazero)$ ]]; then disable_wifi_powersave_service > /dev/null 2>&1; fi
+	if [[ ! -f "/usr/local/sbin/led-trigger" ]]; then systemctl disable leds > /dev/null 2>&1; fi
+	rc-local_service > /dev/null 2>&1
+	enable_systemd > /dev/null 2>&1
+fi
+
+# own it
+if [ $USERACCT -eq 0 ]; then chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}; fi
+chmod +x /usr/local/bin/*
+chown -R root:root /usr/local/bin/
+chmod +x /usr/local/sbin/*
+chown -R root:root /usr/local/sbin/
+
+# finish
+rm -f /etc/apt/apt.conf.d/71debconf
+rm -fdr /*usr-is-merged*
+if [[ "$DISTRO" =~ ^(bianbu|ubuntu)$ ]]; then rm -f /etc/resolv.conf; fi
+sleep .50
+umount /proc /sys

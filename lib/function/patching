@@ -1,0 +1,218 @@
+#!/bin/bash
+LOG_DIR="../../output/${BOARD}/logs"
+
+# check log and report
+check_log (){
+if [[ -f "${LOG_FILE}" ]]; then
+	PATHTOFILE=`echo ${LOG_FILE} | sed 's/..\/..\///g'`
+	if [[ `grep "Skipping patch" "${LOG_FILE}"` ]]; then
+		SKIPPING="true"
+		grep "Skipping patch" "${LOG_FILE}" | echo -en ", Skipping (`wc -l`)"
+	else
+		SKIPPING="false"
+	fi
+	if [[ `grep "FAILED" "${LOG_FILE}"` ]]; then
+		FAILED="true"
+		grep "FAILED" "${LOG_FILE}" | echo -en ", Failed (`wc -l`)"
+		if [[ "$FAILED" == "true" ]]; then echo -en " ${WHT}log: ${PATHTOFILE}${FIN}"; exit 1; fi
+	else
+		FAILED="false"
+	fi
+	if [[ "$SKIPPING" == "true" || "$SKIPPING" == "false" ]] && [[ "$FAILED" == "false" ]]; then
+		echo -en ", done."
+	fi
+	echo -en " ${WHT}log: ${PATHTOFILE}${FIN}"
+	echo -e ""
+fi
+}
+
+# log patching
+patch_log (){
+if [[ -f "${LOG_FILE}" ]]; then
+	mv -f ${LOG_FILE} ${LOG_FILE}.1
+	echo "${LOG_TITLE}" > ${LOG_FILE}
+	echo `date` >> ${LOG_FILE}
+else
+	mkdir -p ${LOG_DIR}
+	echo "${LOG_TITLE}" > ${LOG_FILE}
+	echo `date` >> ${LOG_FILE}
+fi
+}
+
+# atf patching
+atf_patching (){
+if [[ -d "../../patches/atf" ]]; then
+	if [[ `ls ../../patches/atf/*.patch` ]] > /dev/null 2>&1; then for i in ../../patches/atf/*.patch; do patch -N -p1 < $i; done; fi
+fi
+}
+
+# opensbi patching
+opensbi_patching (){
+if [[ -v "OPENSBI_PATCHDIR" ]] && [[ ! -z "${OPENSBI_PATCHDIR}" ]] && [[ -d "../../${OPENSBI_PATCHDIR}" ]]; then
+	LOG_FILE="${LOG_DIR}/${BOARD}-opensbi-patch.log"
+	LOG_TITLE="Opensbi ${OPENSBI_TAG}"
+	patch_log
+	echo "" >> ${LOG_FILE}
+	echo "# APPLYING PATCHES" >> ${LOG_FILE}
+	echo -en "Patches: Applying"
+	if [[ `ls ../../${OPENSBI_PATCHDIR}/*.patch` ]] > /dev/null 2>&1; then
+		for i in ../../${OPENSBI_PATCHDIR}/*.patch; do patch -N -p1 < $i; done >> ${LOG_FILE}
+	fi
+fi
+# check log and report
+check_log
+# clean
+if [[ `find . -name '*.orig'` ]]; then find . -name '*.orig' -delete; fi
+if [[ `find . -name '*.rej'` ]]; then find . -name '*.rej' -delete; fi
+echo -e ""
+}
+
+# u-boot patching
+uboot_patching (){
+if [[ -d "../../${UBOOT_PATCHDIR}/${UBOOT_VERSION}/${BOARD}" ]] || \
+	[[ -d "../../${UBOOT_PATCHDIR}/${UBOOT_VERSION}/${FAMILY_EXT}" ]] || \
+		[[ -d "../../${UBOOT_PATCHDIR}/${UBOOT_VERSION}/${SERIES}" ]] || \
+			[[ `ls ../../${UBOOT_PATCHDIR}/${UBOOT_VERSION}/all/*.patch` ]] > /dev/null 2>&1; then
+	LOG_FILE="${LOG_DIR}/${BOARD}-u-boot-patch.log"
+	LOG_TITLE="U-Boot ${UBOOT_VERSION}"
+	patch_log
+	echo "" >> ${LOG_FILE}
+	echo "# APPLYING PATCHES" >> ${LOG_FILE}
+	echo -en "Patches: Applying"
+	if [[ `ls ../../${UBOOT_PATCHDIR}/${UBOOT_VERSION}/${BOARD}/*.patch` ]] > /dev/null 2>&1; then
+		for i in ../../${UBOOT_PATCHDIR}/${UBOOT_VERSION}/${BOARD}/*.patch; do patch -N -p1 < $i; done >> ${LOG_FILE}	
+	elif [[ `ls ../../${UBOOT_PATCHDIR}/${UBOOT_VERSION}/${FAMILY}/*.patch` ]] > /dev/null 2>&1; then
+		for i in ../../${UBOOT_PATCHDIR}/${UBOOT_VERSION}/${FAMILY}/*.patch; do patch -N -p1 < $i; done >> ${LOG_FILE}
+	elif [[ `ls ../../${UBOOT_PATCHDIR}/${UBOOT_VERSION}/${FAMILY_EXT}/*.patch` ]] > /dev/null 2>&1; then
+		for i in ../../${UBOOT_PATCHDIR}/${UBOOT_VERSION}/${FAMILY_EXT}/*.patch; do patch -N -p1 < $i; done >> ${LOG_FILE}
+	elif [[ `ls ../../${UBOOT_PATCHDIR}/${UBOOT_VERSION}/${SERIES}/*.patch` ]] > /dev/null 2>&1; then
+		for i in ../../${UBOOT_PATCHDIR}/${UBOOT_VERSION}/${SERIES}/*.patch; do patch -N -p1 < $i; done >> ${LOG_FILE}
+	fi
+	if [[ `ls ../../${UBOOT_PATCHDIR}/${UBOOT_VERSION}/all/*.patch` ]] > /dev/null 2>&1; then
+		for i in ../../${UBOOT_PATCHDIR}/${UBOOT_VERSION}/all/*.patch; do patch -N -p1 < $i; done >> ${LOG_FILE}
+	fi
+fi
+# check log and report
+check_log
+# clean
+if [[ `find . -name '*.orig'` ]]; then find . -name '*.orig' -delete; fi
+if [[ `find . -name '*.rej'` ]]; then find . -name '*.rej' -delete; fi
+echo -e ""
+}
+
+# user patches
+user_patches (){
+if [[ `ls ../../${USERPATCHES}/*.patch` ]] > /dev/null 2>&1; then
+	LOG_FILE="${LOG_DIR}/${BOARD}-user-patch.log"
+	LOG_TITLE="Linux ${VERSION}"
+	patch_log
+	echo "" >> ${LOG_FILE}
+	echo "# APPLYING USER PATCHES" >> ${LOG_FILE}
+	echo -en "${WHT}User Patches: Applying"
+	for i in ../../${USERPATCHES}/*.patch; do patch -N -p1 -F100 < $i; done >> ${LOG_FILE}
+	check_log
+fi
+}
+
+# linux apply patches
+apply (){
+LOG_FILE="${LOG_DIR}/${BOARD}-linux-patch.log"
+LOG_TITLE="Linux ${VERSION}"
+patch_log
+echo "" >> ${LOG_FILE}
+echo "# APPLYING PATCHES" >> ${LOG_FILE}
+echo -en "Patches: Applying"
+if [[ -d "../../${LPATCHESALL}/${LINUX_VERSION}" ]]; then
+	if [[ `ls ../../${LPATCHESALL}/${LINUX_VERSION}/*.patch` ]] > /dev/null 2>&1; then
+		for i in ../../${LPATCHESALL}/${LINUX_VERSION}/*.patch; do patch -N -p1 < $i; done >> ${LOG_FILE}
+	fi
+fi
+# wireless
+if [[ "$RTW88" == "true" ]] && [[ -d "../../${WIRELESSPATCHES}/rtw88/${LINUX_VERSION}" ]]; then
+	if [[ `ls ../../${WIRELESSPATCHES}/rtw88/${LINUX_VERSION}/*.patch` ]] > /dev/null 2>&1; then
+		echo "# ${WIRELESSPATCHES}/rtw88/${LINUX_VERSION}" | sed -e 's/\(.*\)/\U\1/' >> ${LOG_FILE}
+		for i in ../../${WIRELESSPATCHES}/rtw88/${LINUX_VERSION}/*.patch; do patch -N -p1 < $i; done >> ${LOG_FILE}
+	fi
+	rm -fdr drivers/net/wireless/realtek/rtw88.bak
+fi
+if [[ "$RTW88" == "true" ]] || [[ "$RTW88_DEVEL" == "true" ]]; then
+	if [[ `ls ../../${WIRELESSPATCHES}/rtw88/hack/*.patch` ]] > /dev/null 2>&1; then
+		echo "# ${WIRELESSPATCHES}/rtw88/hack" | sed -e 's/\(.*\)/\U\1/' >> ${LOG_FILE}
+		for i in ../../${WIRELESSPATCHES}/rtw88/hack/*.patch; do patch -N -p1 < $i; done >> ${LOG_FILE}
+	fi
+fi
+# wireless (board specific)
+if [[ `type ${FAMILY}_extra_wireless` ]] &>/dev/null; then ${FAMILY}_extra_wireless; fi
+# general
+if [[ -d "../../${LINUX_PATCHDIR}/${LINUX_VERSION}" ]]; then
+	if [[ `ls ../../${LINUX_PATCHDIR}/${LINUX_VERSION}/*.patch` ]] > /dev/null 2>&1; then
+		echo "# ${LINUX_PATCHDIR}/${LINUX_VERSION}" | sed -e 's/\(.*\)/\U\1/' >> ${LOG_FILE}
+		for i in ../../${LINUX_PATCHDIR}/${LINUX_VERSION}/*.patch; do patch -N -p1 < $i; done >> ${LOG_FILE}
+	fi
+fi
+# platform specific patching
+if [[ `type ${FAMILY}_extra_patching` ]] &>/dev/null; then ${FAMILY}_extra_patching; fi
+# overlays
+if [[ -f "arch/${ARCH}/boot/dts/Makefile" ]] && [[ `ls ../../${OVERLAYPATCHES}/${ARCH}/{Makefile,*.dts}` ]] > /dev/null 2>&1; then
+	echo "" >> "arch/${ARCH}/boot/dts/Makefile"
+	echo "subdir-y += overlays" >> "arch/${ARCH}/boot/dts/Makefile"
+	mkdir -p arch/${ARCH}/boot/dts/overlays
+	echo "# ${OVERLAYPATCHES}/${ARCH}" | sed -e 's/\(.*\)/\U\1/' >> ${LOG_FILE}
+	ls ../../${OVERLAYPATCHES}/${ARCH}/{Makefile,*.dts} | sed 's/..\/..\///g' >> ${LOG_FILE}
+	cp -fr ../../${OVERLAYPATCHES}/${ARCH}/{Makefile,*.dts} arch/${ARCH}/boot/dts/overlays/
+fi
+}
+
+git_apply (){
+LOG_FILE="${LOG_DIR}/${BOARD}-${GIT_OWN}-${GIT_REPO}-patch.log"
+LOG_TITLE="${GIT_URL}/${GIT_OWN}/${GIT_REPO}.git ${GIT_REPO}-${GIT_BRANCH}"
+patch_log
+echo "" >> ${LOG_FILE}
+echo "# APPLYING PATCHES" >> ${LOG_FILE}
+echo -en "Patches: Applying"
+if [[ -d "../../${GIT_PATCHDIR}" ]]; then
+	if [[ `ls ../../${GIT_PATCHDIR}/*.patch` ]] > /dev/null 2>&1; then
+		for i in ../../${GIT_PATCHDIR}/*.patch; do patch -N -p1 < $i; done >> ${LOG_FILE}
+	fi
+fi
+# platform specific patching
+if [[ `type ${FAMILY}_extra_git_patching` ]] &>/dev/null; then ${FAMILY}_extra_git_patching; fi
+# overlays
+if [[ -f "arch/${ARCH}/boot/dts/Makefile" ]] && [[ `ls ../../${GIT_PATCHDIR}/overlays/{Makefile,*.dts}` ]] > /dev/null 2>&1; then
+	echo "" >> "arch/${ARCH}/boot/dts/Makefile"
+	echo "subdir-y += overlays" >> "arch/${ARCH}/boot/dts/Makefile"
+	mkdir -p arch/${ARCH}/boot/dts/overlays
+	echo "# ${GIT_PATCHDIR}/overlays" | sed -e 's/\(.*\)/\U\1/' >> ${LOG_FILE}
+	ls ../../${GIT_PATCHDIR}/overlays/{Makefile,*.dts} | sed 's/..\/..\///g' >> ${LOG_FILE}
+	cp -fr ../../${GIT_PATCHDIR}/overlays/{Makefile,*.dts} arch/${ARCH}/boot/dts/overlays/
+fi
+}
+
+linux_patching (){
+# packaging
+if [[ "$DEFAULT_PACKAGING" == "true" ]]; then linux_packaging; fi
+# patching
+if [[ "$LINUX_PATCHING" == "true" ]] && [[ "$FORCE_GIT" == "false" ]] && [[ "$GIT_PATCHING" == "false" ]]; then
+	apply; check_log
+fi
+if [[ "$LINUX_PATCHING" == "false" ]] && [[ "$FORCE_GIT" == "true" ]] && [[ "$GIT_PATCHING" == "true" ]]; then
+	git_apply; check_log
+fi
+user_patches
+# clean
+if [[ `find . -name '*.orig'` ]]; then find . -name '*.orig' -delete; fi
+if [[ `find . -name '*.rej'` ]]; then find . -name '*.rej' -delete; fi
+# add dtclist and initrd
+if [[ "$DEFAULT_PACKAGING" == "true" ]] && [[ -f "../../dtclist.txt" ]] && [[ -f "../../packaging/initrd" ]]; then
+	mv ../../dtclist.txt dtclist.txt
+	cp -f ../../packaging/initrd .
+	sed -i 's/^ARCH=.*/ARCH="'"${ARCH}"'"/' initrd
+fi
+# Add headers-byteshift.patch (legacy packaging)
+if [[ "$LEGACY_PACKAGING" == "true" ]]; then cp -f ../../packaging/legacy/headers-byteshift.patch .; fi
+# custom linux logo
+if [[ -v "LINUX_LOGO" ]] && [[ ! -z "$LINUX_LOGO" ]]; then
+	if [[ -f "../../packaging/logo/${LINUX_LOGO}" ]]; then cp -f "../../packaging/logo/${LINUX_LOGO}" "drivers/video/logo/logo_linux_clut224.ppm"; fi
+fi
+echo ""
+}

@@ -1,0 +1,38 @@
+#!/bin/bash
+### BEGIN INIT INFO
+# Provides: tweaks
+# Required-Start:
+# Required-Stop:
+# Default-Start: 2
+# Default-Stop:
+# Short-Description: Tweaks system
+# Description:
+### END INIT INFO
+
+# chmod +x /etc/init.d/tweaks
+# update-rc.d tweaks defaults 2
+
+. /lib/lsb/init-functions
+
+case "$1" in
+	start)
+		log_daemon_msg "Tweaks"
+		if [ -f /usr/bin/tweaks ]; then
+			/usr/bin/tweaks 2>/dev/null;
+		fi
+		log_end_msg $?
+		exit 0
+		;;
+	restart)
+		log_daemon_msg "Restarting Tweaks"
+		if [ -f /usr/bin/restart-tweaks ]; then
+			/usr/bin/restart-tweaks 2>/dev/null;
+		fi
+		log_end_msg $?
+		exit 0
+		;;
+	*)
+		echo "Usage: $0 start" >&2
+		exit 3
+		;;
+esac

@@ -1,0 +1,74 @@
+#!/bin/bash
+source lib/function/echoes
+source lib/source
+validation
+source packaging/pkgvars
+source lib/function/linux
+source lib/function/git
+source lib/function/compilers
+source userdata.txt
+if [[ -f "board.txt" ]]; then . board.txt; else noboard; fi
+source kernel.txt
+source lib/function/patching
+# ignore board and userdata file
+if [[ -f "ignore.txt" ]]; then . ignore.txt; rm -f ignore.txt; fi
+# debug switch
+if [ $VERBOSE -eq 1 ]; then set -x; fi
+if [[ -v "SPOOF_HOST" && ! -z "$SPOOF_HOST" ]]; then HOST_CODENAME="${SPOOF_HOST}"; fi
+source lib/function/${FAMILY}
+if [[ -f "lib/function/${SERIES}" ]]; then . lib/function/${SERIES}; fi
+source lib/function/wireless
+# override userdata file
+if [[ "$FORCE_VERSION" == "true" ]]; then
+	if [ ! -z $FORCE_LINUX_VERSION ]; then VERSION="${FORCE_LINUX_VERSION}"; fi
+fi
+if [[ "$FORCE_GIT" == "false" ]]; then
+	if [[ "$VERSION" =~ ^([0-9].[0-9].y|[0-9].[0-9][0-9].y|next|stable|rc)$ ]]; then resolve_version; fi
+fi
+if [[ `type ${FAMILY}_bsp` ]] &>/dev/null; then ${FAMILY}_bsp; fi
+# compile native or cross
+compile
+if [[ -v "FORCE_LEGACY_PACKAGING" && ! -z "$FORCE_LEGACY_PACKAGING" ]]; then LEGACY_PACKAGING="${FORCE_LEGACY_PACKAGING}"; fi
+# upstream kernel packaging
+if [[ "$LEGACY_PACKAGING" == "false" ]]; then upstream_linux_packaging; fi
+LINUX_VERSION=`echo "$VERSION" | sed -e 's/^\(.\{4\}\).*/\1/' | sed 's/-//g' | sed -r 's/\.$//'`
+# compiler
+linux_compilers
+# sources directory
+sources_dir
+# download source
+if [[ "$FORCE_GIT" == "true" ]]; then git_download; else download; extra_wireless; fi
+# setup
+if [[ "$FORCE_GIT" == "true" ]]; then git_setup; else setup; fi
+# patching
+if [[ ! -z $FAMILY ]]; then linux_patching; fi
+# firmware
+if [[ -v "LINUX_EXTRA_FIRMWARE" ]] && [[ ! -z "$LINUX_EXTRA_FIRMWARE" ]]; then mkdir -p firmware; cp -fr ../../${LINUX_EXTRA_FIRMWARE} firmware/; fi
+# defconfig
+if [ $CUSTOM_DEFCONFIG -eq 1 ]; then cconfig; else bconfig; fi
+# menuconfig
+if [ $MENUCONFIG -eq 1 ]; then menuconfig; fi
+# builddeb
+builddeb
+echo ""
+# finish
+cd ..
+rm -f {*linux-image-dbg*.deb,linux-libc-dev*.deb,*.buildinfo,*.changes}
+if [[ `ls *linux*.deb` ]] > /dev/null 2>&1; then
+	if [[ `ls ../${OUTPUT}/*linux*.deb` ]] > /dev/null 2>&1; then
+		mkdir -p ../${OUTPUT}/tmp
+		mv -f ../${OUTPUT}/{*linux-image*.deb,*linux-headers*.deb} ../${OUTPUT}/tmp
+	fi
+	mkdir -p ../${OUTPUT}
+	mv -f *.deb ../${OUTPUT}/
+	rm -f ../dtclist.txt
+	echo -e "Done."
+	exit 0
+else
+	echo ""
+	if [[ "$FORCE_GIT" == "true" ]]; then echo -e "${GIT_REPO} ${GIT_BRANCH} [FAILED]"; else echo -e "${KERNEL} ${VERSION} [FAILED]"; fi
+	rm -f ../dtclist.txt
+	read -p "Press enter to continue."
+	exit 1
+fi
+exit 0

@@ -1,0 +1,329 @@
+#!/bin/bash
+
+# DOWNLOAD
+download_fip (){
+if [[ -d "amlogic-boot-fip" ]]; then
+	if [[ ! `git -C amlogic-boot-fip branch  | grep "* pyavitz"` ]]; then rm -fdr amlogic-boot-fip; fi
+fi
+if [[ -d "amlogic-boot-fip" ]]; then
+	echo -en "Firmware Image Package:"
+	cd amlogic-boot-fip
+	git config pull.rebase false
+	echo -en " Pulling"
+	git pull -q
+	cd ..
+	echo -e ", done."
+else
+	echo -en "Firmware Image Package:"
+	echo -en " Cloning"
+	git clone -q -b pyavitz https://github.com/pyavitz/amlogic-boot-fip.git
+	if [[ -d "amlogic-boot-fip" ]]; then
+		echo -e ", done."
+	else
+		echo -e ", failed."
+		exit 1
+	fi
+fi
+}
+
+# FIRMWARE IMAGE PACKAGE
+meson-g12a (){
+$FIPDIR/blx_fix.sh \
+	fip/bl30.bin \
+	fip/zero_tmp \
+	fip/bl30_zero.bin \
+	fip/bl301.bin \
+	fip/bl301_zero.bin \
+	fip/bl30_new.bin \
+	bl30
+
+$FIPDIR/blx_fix.sh \
+	fip/bl2.bin \
+	fip/zero_tmp \
+	fip/bl2_zero.bin \
+	fip/acs.bin \
+	fip/bl21_zero.bin \
+	fip/bl2_new.bin \
+	bl2
+
+$FIPDIR/aml_encrypt_g12a --bl30sig --input fip/bl30_new.bin \
+					--output fip/bl30_new.bin.g12a.enc \
+					--level v3
+$FIPDIR/aml_encrypt_g12a --bl3sig --input fip/bl30_new.bin.g12a.enc \
+					--output fip/bl30_new.bin.enc \
+					--level v3 --type bl30
+$FIPDIR/aml_encrypt_g12a --bl3sig --input fip/bl31.img \
+					--output fip/bl31.img.enc \
+					--level v3 --type bl31
+$FIPDIR/aml_encrypt_g12a --bl3sig --input fip/bl33.bin --compress lz4 \
+					--output fip/bl33.bin.enc \
+					--level v3 --type bl33 --compress lz4
+$FIPDIR/aml_encrypt_g12a --bl2sig --input fip/bl2_new.bin \
+					--output fip/bl2.n.bin.sig
+$FIPDIR/aml_encrypt_g12a --bootmk \
+		--output fip/u-boot.bin \
+		--bl2 fip/bl2.n.bin.sig \
+		--bl30 fip/bl30_new.bin.enc \
+		--bl31 fip/bl31.img.enc \
+		--bl33 fip/bl33.bin.enc \
+		--ddrfw1 fip/ddr4_1d.fw \
+		--ddrfw2 fip/ddr4_2d.fw \
+		--ddrfw3 fip/ddr3_1d.fw \
+		--ddrfw4 fip/piei.fw \
+		--ddrfw5 fip/lpddr4_1d.fw \
+		--ddrfw6 fip/lpddr4_2d.fw \
+		--ddrfw7 fip/diag_lpddr4.fw \
+		--ddrfw8 fip/aml_ddr.fw \
+		--ddrfw9 fip/lpddr3_1d.fw \
+		--level v3
+}
+
+meson-g12b-a311d (){
+$FIPDIR/blx_fix.sh \
+	fip/bl30.bin \
+	fip/zero_tmp \
+	fip/bl30_zero.bin \
+	fip/bl301.bin \
+	fip/bl301_zero.bin \
+	fip/bl30_new.bin \
+	bl30
+
+$FIPDIR/blx_fix.sh \
+	fip/bl2.bin \
+	fip/zero_tmp \
+	fip/bl2_zero.bin \
+	fip/acs.bin \
+	fip/bl21_zero.bin \
+	fip/bl2_new.bin \
+	bl2
+
+$FIPDIR/aml_encrypt_g12b --bl30sig --input fip/bl30_new.bin \
+					--output fip/bl30_new.bin.g12b.enc \
+					--level v3
+$FIPDIR/aml_encrypt_g12b --bl3sig --input fip/bl30_new.bin.g12b.enc \
+					--output fip/bl30_new.bin.enc \
+					--level v3 --type bl30
+$FIPDIR/aml_encrypt_g12b --bl3sig --input fip/bl31.img \
+					--output fip/bl31.img.enc \
+					--level v3 --type bl31
+$FIPDIR/aml_encrypt_g12b --bl3sig --input fip/bl33.bin --compress lz4 \
+					--output fip/bl33.bin.enc \
+					--level v3 --type bl33 --compress lz4
+$FIPDIR/aml_encrypt_g12b --bl2sig --input fip/bl2_new.bin \
+					--output fip/bl2.n.bin.sig
+$FIPDIR/aml_encrypt_g12b --bootmk \
+		--output fip/u-boot.bin \
+		--bl2 fip/bl2.n.bin.sig \
+		--bl30 fip/bl30_new.bin.enc \
+		--bl31 fip/bl31.img.enc \
+		--bl33 fip/bl33.bin.enc \
+		--ddrfw1 fip/ddr4_1d.fw \
+		--ddrfw2 fip/ddr4_2d.fw \
+		--ddrfw3 fip/ddr3_1d.fw \
+		--ddrfw4 fip/piei.fw \
+		--ddrfw5 fip/lpddr4_1d.fw \
+		--ddrfw6 fip/lpddr4_2d.fw \
+		--ddrfw7 fip/diag_lpddr4.fw \
+		--ddrfw8 fip/aml_ddr.fw \
+		--ddrfw9 fip/lpddr3_1d.fw \
+		--level v3
+}
+
+meson-g12b-s922x (){
+$FIPDIR/blx_fix.sh \
+	fip/bl30.bin \
+	fip/zero_tmp \
+	fip/bl30_zero.bin \
+	fip/bl301.bin \
+	fip/bl301_zero.bin \
+	fip/bl30_new.bin \
+	bl30
+
+$FIPDIR/blx_fix.sh \
+	fip/bl2.bin \
+	fip/zero_tmp \
+	fip/bl2_zero.bin \
+	fip/acs.bin \
+	fip/bl21_zero.bin \
+	fip/bl2_new.bin \
+	bl2
+
+$FIPDIR/aml_encrypt_g12b --bl30sig --input fip/bl30_new.bin \
+					--output fip/bl30_new.bin.g12a.enc \
+					--level v3
+$FIPDIR/aml_encrypt_g12b --bl3sig --input fip/bl30_new.bin.g12a.enc \
+					--output fip/bl30_new.bin.enc \
+					--level v3 --type bl30
+$FIPDIR/aml_encrypt_g12b --bl3sig --input fip/bl31.img \
+					--output fip/bl31.img.enc \
+					--level v3 --type bl31
+$FIPDIR/aml_encrypt_g12b --bl3sig --input fip/bl33.bin --compress lz4 \
+					--output fip/bl33.bin.enc \
+					--level v3 --type bl33 --compress lz4
+$FIPDIR/aml_encrypt_g12b --bl2sig --input fip/bl2_new.bin \
+					--output fip/bl2.n.bin.sig
+$FIPDIR/aml_encrypt_g12b --bootmk \
+		--output fip/u-boot.bin \
+		--bl2 fip/bl2.n.bin.sig \
+		--bl30 fip/bl30_new.bin.enc \
+		--bl31 fip/bl31.img.enc \
+		--bl33 fip/bl33.bin.enc \
+		--ddrfw1 fip/ddr4_1d.fw \
+		--ddrfw2 fip/ddr4_2d.fw \
+		--ddrfw3 fip/ddr3_1d.fw \
+		--ddrfw4 fip/piei.fw \
+		--ddrfw5 fip/lpddr4_1d.fw \
+		--ddrfw6 fip/lpddr4_2d.fw \
+		--ddrfw7 fip/diag_lpddr4.fw \
+		--ddrfw8 fip/aml_ddr.fw \
+		--ddrfw9 fip/lpddr3_1d.fw \
+		--level v3
+}
+
+meson-axg (){
+$FIPDIR/blx_fix.sh \
+	fip/bl30.bin \
+	fip/zero_tmp \
+	fip/bl30_zero.bin \
+	fip/bl301.bin \
+	fip/bl301_zero.bin \
+	fip/bl30_new.bin \
+	bl30
+
+python $FIPDIR/acs_tool.py fip/bl2.bin fip/bl2_acs.bin fip/acs.bin 0
+
+$FIPDIR/blx_fix.sh \
+	fip/bl2_acs.bin \
+	fip/zero_tmp \
+	fip/bl2_zero.bin \
+	fip/bl21.bin \
+	fip/bl21_zero.bin \
+	fip/bl2_new.bin \
+	bl2
+
+$FIPDIR/aml_encrypt_axg --bl3sig --input fip/bl30_new.bin \
+				--output fip/bl30_new.bin.enc \
+				--level v3 --type bl30
+
+$FIPDIR/aml_encrypt_axg --bl3sig --input fip/bl31.img \
+				--output fip/bl31.img.enc \
+				--level v3 --type bl31
+
+$FIPDIR/aml_encrypt_axg --bl3sig --input fip/bl33.bin --compress lz4 \
+				--output fip/bl33.bin.enc \
+				--level v3 --type bl33
+
+$FIPDIR/aml_encrypt_axg --bl2sig --input fip/bl2_new.bin \
+				--output fip/bl2.n.bin.sig
+
+$FIPDIR/aml_encrypt_axg --bootmk \
+	--output fip/u-boot.bin \
+	--bl2 fip/bl2.n.bin.sig \
+	--bl30 fip/bl30_new.bin.enc \
+	--bl31 fip/bl31.img.enc \
+	--bl33 fip/bl33.bin.enc --level v3
+}
+
+meson-gxl (){
+AMLBLX="../../files/boot/amlogic-blx"
+ACSTOOL="python3 $FIPDIR/acs_tool.py"
+# bullseye / focal
+#ACSTOOL="$FIPDIR/acs_tool.pyc"
+cp -fr ${AMLBLX}/gxl/{acs_tool.py,aml_encrypt_gxl} fip/
+$FIPDIR/blx_fix.sh \
+	fip/bl30.bin \
+	fip/zero_tmp \
+	fip/bl30_zero.bin \
+	fip/bl301.bin \
+	fip/bl301_zero.bin \
+	fip/bl30_new.bin \
+	bl30
+
+${ACSTOOL} \
+	fip/bl2.bin \
+	fip/bl2_acs.bin \
+	fip/acs.bin 0
+
+$FIPDIR/blx_fix.sh \
+	fip/bl2_acs.bin \
+	fip/zero_tmp \
+	fip/bl2_zero.bin \
+	fip/bl21.bin \
+	fip/bl21_zero.bin \
+	fip/bl2_new.bin \
+	bl2
+
+if [[ -f "${AMLBLX}/${BOARD}/bl30_new.bin" ]]; then cp -f ${AMLBLX}/${BOARD}/bl30_new.bin fip/; fi
+$FIPDIR/aml_encrypt_gxl --bl3enc \
+	--input fip/bl30_new.bin
+
+if [[ -f "${AMLBLX}/${BOARD}/bl31.img" ]]; then cp -f ${AMLBLX}/${BOARD}/bl31.img fip/; fi
+$FIPDIR/aml_encrypt_gxl --bl3enc \
+	--input fip/bl31.img
+
+$FIPDIR/aml_encrypt_gxl --bl3enc \
+	--input fip/bl33.bin
+
+if [[ -f "${AMLBLX}/${BOARD}/bl2_new.bin" ]]; then cp -f ${AMLBLX}/${BOARD}/bl2_new.bin fip/; fi
+$FIPDIR/aml_encrypt_gxl --bl2sig \
+	--input fip/bl2_new.bin \
+	--output fip/bl2.n.bin.sig
+
+$FIPDIR/aml_encrypt_gxl --bootmk \
+	--output fip/u-boot.bin \
+	--bl2 fip/bl2.n.bin.sig \
+	--bl30 fip/bl30_new.bin.enc \
+	--bl31 fip/bl31.img.enc \
+	--bl33 fip/bl33.bin.enc
+}
+
+meson-sm1 (){
+$FIPDIR/blx_fix.sh \
+	fip/bl30.bin \
+	fip/zero_tmp \
+	fip/bl30_zero.bin \
+	fip/bl301.bin \
+	fip/bl301_zero.bin \
+	fip/bl30_new.bin \
+	bl30
+
+$FIPDIR/blx_fix.sh \
+	fip/bl2.bin \
+	fip/zero_tmp \
+	fip/bl2_zero.bin \
+	fip/acs.bin \
+	fip/bl21_zero.bin \
+	fip/bl2_new.bin \
+	bl2
+
+$FIPDIR/aml_encrypt_g12a --bl30sig --input fip/bl30_new.bin \
+					--output fip/bl30_new.bin.g12a.enc \
+					--level v3
+$FIPDIR/aml_encrypt_g12a --bl3sig --input fip/bl30_new.bin.g12a.enc \
+					--output fip/bl30_new.bin.enc \
+					--level v3 --type bl30
+$FIPDIR/aml_encrypt_g12a --bl3sig --input fip/bl31.img \
+					--output fip/bl31.img.enc \
+					--level v3 --type bl31
+$FIPDIR/aml_encrypt_g12a --bl3sig --input fip/bl33.bin --compress lz4 \
+					--output fip/bl33.bin.enc \
+					--level v3 --type bl33 --compress lz4
+$FIPDIR/aml_encrypt_g12a --bl2sig --input fip/bl2_new.bin \
+					--output fip/bl2.n.bin.sig
+$FIPDIR/aml_encrypt_g12a --bootmk \
+		--output fip/u-boot.bin \
+		--bl2 fip/bl2.n.bin.sig \
+		--bl30 fip/bl30_new.bin.enc \
+		--bl31 fip/bl31.img.enc \
+		--bl33 fip/bl33.bin.enc \
+		--ddrfw1 fip/ddr4_1d.fw \
+		--ddrfw2 fip/ddr4_2d.fw \
+		--ddrfw3 fip/ddr3_1d.fw \
+		--ddrfw4 fip/piei.fw \
+		--ddrfw5 fip/lpddr4_1d.fw \
+		--ddrfw6 fip/lpddr4_2d.fw \
+		--ddrfw7 fip/diag_lpddr4.fw \
+		--ddrfw8 fip/aml_ddr.fw \
+		--ddrfw9 fip/lpddr3_1d.fw \
+		--level v3
+}

@@ -1,0 +1,206 @@
+#!/bin/bash
+source lib/function/echoes
+source lib/source
+validation
+source lib/function/release
+source custom.txt
+source lib/function/staging
+source lib/function/shrink
+sleep 1
+source userdata.txt
+if [[ "$USERNAME" == "root" ]]; then
+	echo -e "The username $USERNAME is not viable, choose another."
+	echo -e ""
+	read -p "Press enter to continue."
+	exit 0
+fi
+# check user data file
+if [ $USERACCT -eq 0 ]; then
+	# prevent build fail because of white spaces
+	NAME_FIXUP=`echo ${NAME} | sed "s/ //g"`
+	if [ -z $NAME_FIXUP ] && [ -z $USERNAME ] && [ -z $PASSWORD ]; then
+		echo -e "Name, Username or Password field is empty?"
+		echo -e "Enable the user account service or input your"
+		echo -e "information into the userdata.txt file."
+		echo -e ""
+		read -p "Press enter to continue."
+		exit 0
+	fi
+fi
+# customize image
+customize_image > /dev/null 2>&1
+# user scripts pre-stage1
+if [ $USCRIPTS -eq 1 ]; then uscripts_pre-stage1; fi
+# source board and family
+if [[ -f "board.txt" ]]; then . board.txt; else noboard; fi
+source lib/function/${FAMILY}
+# clean
+if [[ -d "sysroot" ]] || [[ -d "p1" ]] || [[ -d "BOOT" ]] || [[ -f "shrink.img" ]]; then make clean; clear -x; fi
+# verbosity
+if [ $VERBOSE -eq 1 ]; then set -eux -o pipefail; else set -eu -o pipefail; fi
+mirrors
+# check output
+if [[ "$GENERIC_KERNEL" == "true" ]] && [[ "$BOARD" =~ ^(uefi-amd64|uefi-arm64) ]]; then
+	:; # bypass custom kernel debs
+else
+	check_output
+fi
+# check tvbox output
+if [[ "$FAMILY_EXT" == "ac2xx" ]]; then
+	if [[ -f "${OUTPUT}/chainload.bin" ]]; then
+		:;
+	else
+		echo -e "Missing ${OUTPUT}/chainload.bin binary"
+		echo -e ""
+		read -p "Press enter to continue."
+		exit 0
+	fi
+fi
+# check partitions and fstype
+if [[ "$P_VALUE" == "p1" ]] && [[ "$FSTYPE" =~ ^(btrfs|xfs)$ ]]; then
+	echo "The $FSTYPE filesystem requires a boot partition."
+	echo -e ""
+	read -p "Press enter to continue."
+	exit 0
+fi
+# check for qemu
+qemu_user_static
+# start
+CAP_DISTRO=`echo "${DISTRO}" | sed -e "s/\b\(.\)/\u\1/g"`
+CAP_RELEASE=`echo "${DISTRO_VERSION}" | sed -e "s/\b\(.\)/\u\1/g"`
+echo -e "${DEFAULT_MOTD}"
+echo -e "Distribution: ${CAP_DISTRO} ${CAP_RELEASE}"
+RAM=0
+PROXY=""
+IMAGE_FOLDER="img/"
+DEVICE_SOC="${DTB}"
+IMAGE_DATE="$(date +%F)"
+if [[ "$MINIMAL_ROOTFS" == "false" ]]; then
+	IMAGE_FILE_NAME="${DEVICE_SOC}-${DISTRO}-${DISTRO_VERSION}-${IMAGE_DATE}.img"
+else
+	IMAGE_FILE_NAME="${DEVICE_SOC}-${DISTRO}-minimal-${DISTRO_VERSION}-${IMAGE_DATE}.img"
+fi
+if [ $RAM -ne 0 ]; then IMAGE_FOLDER="ram/"; fi
+mkdir -p "$IMAGE_FOLDER"
+if [ $RAM -ne 0 ]; then mount -t tmpfs -o size=4G tmpfs $IMAGE_FOLDER; fi
+sources_list # apt distro.sources list
+setup
+# setup stage2
+files
+# user scripts stage1
+if [ $USCRIPTS -eq 1 ]; then uscripts_stage1; fi
+echo ""
+# mount and chroot p1
+if [[ "$P_VALUE" == "p1" ]]; then
+	mount -o bind /dev p1/dev
+	mount -o bind /dev/pts p1/dev/pts
+	chroot p1 /root/stage2
+	# unmount
+	umount p1/dev/pts
+	umount p1/dev
+	if [[ -f "p1/usr/bin/${STATIC}" ]]; then rm -f p1/usr/bin/${STATIC}; fi
+	cp -f p1/root/kernel.release .
+	rm p1/root/stage2
+	rm -f p1/root/{*.txt,kernel.release}
+	rm -fdr p1/var/cache/debconf/*
+	# user scripts fin-stage1
+	if [ $USCRIPTS -eq 1 ]; then uscripts_fin-stage1; fi
+	if [ -n "$PROXY" ]; then rm p1/etc/apt/apt.conf.d/30proxy; fi
+	rm p1/etc/dpkg/dpkg.cfg.d/dpkg-unsafe-io
+	if [[ -f "kernel.release" ]]; then source kernel.release; fi
+	if [ $VERBOSE -eq 1 ]; then e4defrag -c ${P_VALUE}; else e4defrag -c ${P_VALUE} > /dev/null 2>&1; fi
+	if [[ "$EXTLINUX" == "true" ]] && [[ "$EFI" == "false" ]]; then extlinux > /dev/null 2>&1; fi
+	if [[ "$BOOTCMD" == "true" || "$BOOTINI" == "true" ]] && [[ "$EFI" == "false" ]]; then bootcmdini > /dev/null 2>&1; fi
+	umount p1
+	echo ""
+	# finish
+	losetup -d "${IMAGE_LOOP_DEV}"
+	mv "${IMAGE_FOLDER}${IMAGE_FILE_NAME}" "${IMAGE_FILE_NAME}"
+	if [ $RAM -ne 0 ]; then umount "${IMAGE_FOLDER}"; fi
+	rmdir "${IMAGE_FOLDER}"
+	rmdir p1
+	if [[ "$ENABLE_SHRINK" == "true" ]]; then shrink; else echo ""; echo -en "Shrink, disabled."; fi
+	if [[ `type flash_tool_part` ]] &>/dev/null; then
+		if [ $VERBOSE -eq 1 ]; then flash_tool_part; else flash_tool_part > /dev/null 2>&1; fi
+	fi
+	finish_image
+	rm -f {part-uuid.txt,board.txt,kernel.release}
+	exit 0
+fi
+
+# mount and chroot p2
+if [[ "$P_VALUE" == "p2" ]]; then
+	if [[ "$FAMILY" == "broadcom" ]]; then
+		P_BRCM="p2/boot/broadcom"
+		mkdir -p ${P_BRCM}
+		mount -o bind p1 ${P_BRCM}
+	elif [[ "$EFI" == "true" ]]; then
+		P_EFI="p2/boot/efi"
+		mkdir -p ${P_EFI}
+		mount -o bind p1 ${P_EFI}
+	else
+		P_NORM="p2/boot"
+		mkdir -p ${P_NORM}
+		mount -o bind p1 ${P_NORM}
+	fi
+	mount -o bind /dev p2/dev
+	mount -o bind /dev/pts p2/dev/pts
+	chroot p2 /root/stage2
+	# unmount
+	umount p2/dev/pts
+	umount p2/dev
+	if [[ "$FAMILY" == "broadcom" ]]; then
+		umount ${P_BRCM}
+	elif [[ "$EFI" == "true" ]]; then
+		umount ${P_EFI}
+	else
+		umount ${P_NORM}
+	fi
+	if [[ -f "p2/usr/bin/${STATIC}" ]]; then rm -f p2/usr/bin/${STATIC}; fi
+	cp -f p2/root/kernel.release .
+	rm p2/root/stage2
+	rm -f p2/root/{*.txt,kernel.release}
+	rm -fdr p2/var/cache/debconf/*
+	# user scripts fin-stage1
+	if [ $USCRIPTS -eq 1 ]; then uscripts_fin-stage1; fi
+	if [ -n "$PROXY" ]; then rm p2/etc/apt/apt.conf.d/30proxy; fi
+	rm p2/etc/dpkg/dpkg.cfg.d/dpkg-unsafe-io
+	if [[ -f "kernel.release" ]]; then source kernel.release; fi
+	if [ $VERBOSE -eq 1 ]; then
+		if [[ "$FSTYPE" == "ext4" ]]; then e4defrag -c ${P_VALUE}; fi
+		if [[ "$FSTYPE" == "btrfs" ]]; then btrfs filesystem defragment -f -r ${P_VALUE}; fi
+		if [[ "$FSTYPE" == "xfs" ]]; then xfs_fsr ${P_VALUE}; fi
+	else
+		if [[ "$FSTYPE" == "ext4" ]]; then e4defrag -c ${P_VALUE} > /dev/null 2>&1; fi
+		if [[ "$FSTYPE" == "btrfs" ]]; then btrfs filesystem defragment -f -r ${P_VALUE} > /dev/null 2>&1; fi
+		if [[ "$FSTYPE" == "xfs" ]]; then xfs_fsr ${P_VALUE} > /dev/null 2>&1; fi
+	fi
+	if [[ "$EXTLINUX" == "true" ]] && [[ "$EFI" == "false" ]]; then extlinux > /dev/null 2>&1; fi
+	if [[ "$BOOTCMD" == "true" || "$BOOTINI" == "true" ]] && [[ "$EFI" == "false" ]]; then bootcmdini > /dev/null 2>&1; fi
+	if [[ "$PETITBOOT" == "true" ]] && [[ "$EFI" == "false" ]]; then odroid_bootcmd > /dev/null 2>&1; fi
+	if [[ "$FAMILY" == "broadcom" ]] && [[ "$EFI" == "false" ]]; then brcm_cmdline; config_dot_txt; fi
+	if [[ "$FAMILY_EXT" == "ac2xx" ]] && [[ "$AML_EMMC" == "false" ]]; then
+		cp -f ${OUTPUT}/chainload.bin p1/
+		cp -fr files/boot/scripts/{aml_autoscript.cmd,s905_autoscript.cmd} p1/
+		mkimage -C none -A ${ARCH} -T script -d p1/aml_autoscript.cmd p1/aml_autoscript > /dev/null 2>&1
+		mkimage -C none -A ${ARCH} -T script -d p1/s905_autoscript.cmd p1/s905_autoscript > /dev/null 2>&1
+	fi
+	umount p2
+	umount p1
+	echo ""
+	# finish
+	losetup -d "${IMAGE_LOOP_DEV}"
+	mv "${IMAGE_FOLDER}${IMAGE_FILE_NAME}" "${IMAGE_FILE_NAME}"
+	if [ $RAM -ne 0 ]; then umount "${IMAGE_FOLDER}"; fi
+	rmdir "${IMAGE_FOLDER}"
+	rmdir p1 p2
+	if [[ "$ENABLE_SHRINK" == "true" ]]; then shrink; else echo ""; echo -en "Shrink, disabled."; fi
+	if [[ `type flash_tool_part` ]] &>/dev/null; then
+		if [ $VERBOSE -eq 1 ]; then flash_tool_part; else flash_tool_part > /dev/null 2>&1; fi
+	fi
+	finish_image
+	rm -f {part-uuid.txt,board.txt,kernel.release}
+	exit 0
+fi
+
+exit 0

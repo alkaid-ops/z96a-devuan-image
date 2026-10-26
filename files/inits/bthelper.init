@@ -1,0 +1,36 @@
+#!/bin/bash
+### BEGIN INIT INFO
+# Provides: bthelper
+# Required-Start: bluetooth
+# Required-Stop:
+# Default-Start: 2
+# Default-Stop:
+# Short-Description: Bluetooth helper
+# Description:
+### END INIT INFO
+
+# chmod +x /etc/init.d/bthelper
+# update-rc.d bthelper defaults 2
+
+. /lib/lsb/init-functions
+. /etc/opt/board.txt
+
+case "$1" in
+	start)
+		if [ -f /usr/local/sbin/bthelper ]; then
+			log_daemon_msg "$DEFAULT_MOTD Bluetooth helper"
+			if [[ "$BOARD" == "nanopineoplus2" ]]; then
+				/usr/local/sbin/bthelper start 2>/dev/null
+			else
+				/usr/local/sbin/bthelper 2>/dev/null
+			fi
+			log_end_msg $?
+			/usr/sbin/rfkill unblock all
+		fi
+		exit 0
+		;;
+	*)
+		echo "Usage: $0 start" >&2
+		exit 3
+		;;
+esac

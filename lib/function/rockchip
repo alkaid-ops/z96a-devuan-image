@@ -1,0 +1,140 @@
+#!/bin/bash
+
+# ATF BINARY
+atf_bl31 (){ # place bl31 file.
+if [[ "$ATF_EN" == "true" ]]; then
+	if [[ -f "../arm-trusted-firmware/build/${ATF_PLAT}/release/bl31/bl31.elf" ]]; then
+		cp ../arm-trusted-firmware/build/${ATF_PLAT}/release/bl31/bl31.elf bl31.elf
+		cp ../arm-trusted-firmware/build/${ATF_PLAT}/release/bl31/bl31.elf atf-bl31
+	else
+			report_atf_error
+	fi
+fi
+if [[ "$ATF_EN" == "true" ]] && [[ -f "${RKBIN_ELF}" ]] && [[ -f "../${RKBIN_DIR}/${RKBIN_RAM}" ]]; then
+	export BL31="${RKBIN_ELF}" # ATF elf
+	export ROCKCHIP_TPL="../${RKBIN_DIR}/${RKBIN_RAM}"
+elif [[ "$ATF_EN" == "false" ]] && [[ -f "../${RKBIN_DIR}/${RKBIN_ELF}" ]] && [[ -f "../${RKBIN_DIR}/${RKBIN_RAM}" ]]; then
+	export BL31="../${RKBIN_DIR}/${RKBIN_ELF}" # RKBIN elf
+	export ROCKCHIP_TPL="../${RKBIN_DIR}/${RKBIN_RAM}"
+else
+		report_error
+fi
+}
+
+# RKBIN RKBIN_COMMIT
+rockchip_loader_binaries (){
+GIT_RKBIN_URL="https://github.com/rockchip-linux/rkbin.git"
+rkbin_download
+}
+
+# RKBIN DOWNLOAD
+rkbin_download (){
+if [[ `wget -S --spider https://github.com/rockchip-linux/rkbin/blob/master/README.md 2>&1 | grep 'HTTP/1.1 200 OK'` ]]; then
+	if [[ -d "rkbin-${RKBIN_COMMIT}" ]]; then
+		echo -en "RKBIN ${RKBIN_COMMIT}"
+		echo -e ", found."
+	else
+		echo -en "RKBIN ${RKBIN_COMMIT}:"
+		echo -en " Cloning"
+		git clone -q -c advice.detachedHead=false ${GIT_RKBIN_URL} rkbin-${RKBIN_COMMIT}
+		if [[ -d "rkbin-${RKBIN_COMMIT}" ]]; then
+			cd rkbin-${RKBIN_COMMIT}; git checkout -q ${RKBIN_COMMIT}; cd ..
+			echo -e ", done."
+		else
+			echo -e ", failed."
+			exit 1
+		fi
+	fi
+else
+	echo -e "Something went wrong? Check URL ${GIT_RKBIN_URL}."
+	exit 1
+fi
+}
+
+# U-BOOT
+rockchip_uboot_config (){
+if [[ "$FAMILY_EXT" == "rk356x" ]] && [[ -f "configs/${UBOOT_DEFCONFIG}" ]]; then
+	echo "CONFIG_BOOTMETH_SCRIPT=y" >> configs/${UBOOT_DEFCONFIG}
+	echo "CONFIG_OF_LIBFDT_OVERLAY=y" >> configs/${UBOOT_DEFCONFIG}
+	echo "CONFIG_DM_VIDEO=y" >> configs/${UBOOT_DEFCONFIG}
+fi
+}
+
+uboot_output (){
+if [[ "$UBOOT_RK_BIN" == "true" ]] && [[ -f "u-boot-rockchip.bin" ]]; then
+	mkdir -p ../../${OUTPUT}
+	cp -f u-boot-rockchip.bin ../../${OUTPUT}/
+	uboot_packaging
+elif [[ -f "idbloader.img" ]] && [[ -f "u-boot.itb" ]]; then
+	mkdir -p ../../${OUTPUT}
+	cp -f idbloader.img ../../${OUTPUT}/idbloader.bin
+	cp -f u-boot.itb ../../${OUTPUT}/u-boot.bin
+	uboot_packaging
+else
+	report_error
+fi
+}
+
+rockchip_uboot_run (){
+sources_dir
+if [[ "$FAMILY_EXT" =~ ^(rk356x|rk358x)$ ]]; then rockchip_loader_binaries; fi
+if [[ "$ATF_EN" == "true" ]]; then RKBIN_ELF="bl31.elf"; arm_trusted_firmware; fi
+uboot_run
+uboot_output
+}
+
+rockchip_uboot_packaging (){
+if [[ "$UBOOT_RK_BIN" == "true" ]]; then
+	cp -f u-boot-rockchip.bin ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/usr/lib/${PKGNAME}/
+else
+	cp -f idbloader.img ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/usr/lib/${PKGNAME}/idbloader.bin
+	cp -f u-boot.itb ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/usr/lib/${PKGNAME}/u-boot.bin
+fi
+}
+
+# LINUX
+rockchip_extra_patching (){
+if [[ -d "../../${LINUX_PATCHDIR}/${LINUX_VERSION}/dts/${ARCH}" ]]; then
+	if [[ `ls ../../${LINUX_PATCHDIR}/${LINUX_VERSION}/dts/${ARCH}/{Makefile,*.dts}` ]] > /dev/null 2>&1; then
+		echo "# ${LINUX_PATCHDIR}/${LINUX_VERSION}/dts/${ARCH}" | sed -e 's/\(.*\)/\U\1/' >> ${LOG_FILE}
+		ls ../../${LINUX_PATCHDIR}/${LINUX_VERSION}/dts/${ARCH}/*.dts* | sed 's/..\/..\///g' >> ${LOG_FILE}
+		cp -fr ../../${LINUX_PATCHDIR}/${LINUX_VERSION}/dts/${ARCH}/*.dts* arch/${ARCH}/boot/dts/${PLATFORM}
+		echo "" >> arch/${ARCH}/boot/dts/${PLATFORM}/Makefile
+		cat ../../${LINUX_PATCHDIR}/${LINUX_VERSION}/dts/${ARCH}/Makefile >> arch/${ARCH}/boot/dts/${PLATFORM}/Makefile
+	fi
+fi
+}
+
+#rockchip_extra_wireless (){
+#
+#}
+
+# STAGE1
+flash_uboot (){
+if [[ "$UBOOT_RK_BIN" == "true" ]]; then
+	dd if="${OUTPUT}/u-boot-rockchip.bin" of="${IMAGE_LOOP_DEV}" seek=64
+else
+	dd if="${OUTPUT}/idbloader.bin" of="${IMAGE_LOOP_DEV}" seek=64
+	dd if="${OUTPUT}/u-boot.bin" of="${IMAGE_LOOP_DEV}" seek=16384
+fi
+}
+
+# STAGE2
+rockchip_extra_firmware (){
+if [[ -f "/lib/firmware/brcm/brcmfmac4356-sdio.bin" ]] && [[ -f "/lib/firmware/brcm/brcmfmac4356-sdio.txt" ]]; then
+	ln -s /lib/firmware/brcm/brcmfmac4356-sdio.bin /lib/firmware/brcm/brcmfmac4356-sdio.friendlyarm,nanopc-t4.bin
+	ln -s /lib/firmware/brcm/brcmfmac4356-sdio.txt /lib/firmware/brcm/brcmfmac4356-sdio.friendlyarm,nanopc-t4.txt
+fi
+}
+
+rockchip_bluetooth (){
+if [[ "$BOARD" =~ ^(radxazero3w)$ ]]; then
+	mv -f aic-bthelper /usr/local/sbin/bthelper
+	chmod +x /usr/local/sbin/bthelper
+	if [[ "$DISTRO" =~ ^(debian|ubuntu|kali)$ ]]; then aic_bt_service > /dev/null 2>&1; fi
+fi
+}
+
+rockchip_udev_rules (){
+echo '#SUBSYSTEM=="rtc", KERNEL=="rtc1", SYMLINK+="rtc" OPTIONS+="link_priority=-100"' | tee /etc/udev/rules.d/10-${FAMILY}-rtc.rules
+}

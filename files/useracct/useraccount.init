@@ -1,0 +1,27 @@
+#!/bin/bash
+### BEGIN INIT INFO
+# Provides: User Account
+# Required-Start: $all
+# Required-Stop:
+# Default-Start: 2 3 4 5
+# Default-Stop: 0 6
+# Short-Description: Creates a user account on firstboot
+# Description:
+### END INIT INFO
+
+# chmod +x /etc/init.d/useraccount
+# update-rc.d useraccount defaults 5
+
+. /lib/lsb/init-functions
+. /boot/useraccount.txt
+
+case "$1" in
+	start)
+	/usr/local/sbin/useraccount
+	exit 0
+	;;
+	*)
+	echo "Usage: $0 start" >&2
+	exit 3
+	;;
+esac

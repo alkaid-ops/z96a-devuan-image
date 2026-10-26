@@ -1,0 +1,714 @@
+#!/bin/bash
+# DEBIAN IMAGE BUILDER: SYSTEM MENU INTERFACE
+# Description: SYSTEM MENU INTERFACE
+# Destination: /usr/local/bin/menu-config
+DISTRO=`cat /etc/os-release | grep -w NAME | sed 's/NAME=//g' | sed 's/"//g' | sed 's/ GNU\/Linux//g'`
+DISTRO_CODENAME=`cat /etc/os-release | grep -w "VERSION_CODENAME" | sed 's/VERSION_CODENAME=//g'`
+if [[ -e "/proc/device-tree/model" ]]; then
+	MODEL=$(tr -d '\0' </proc/device-tree/model)
+else
+	MODEL=""
+fi
+if [[ -f "/etc/opt/board.txt" ]]; then
+	. /etc/opt/board.txt
+else
+	export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray'
+	whiptail --msgbox "    Your board is not supported." 0 0
+	exit 0
+fi
+if [[ -f "/etc/opt/overclock.txt" ]]; then :; else echo 'overclock="0"' | sudo tee /etc/opt/overclock.txt; fi
+if [[ -f "/etc/default/menu-config" ]]; then
+	. /etc/default/menu-config
+else
+	echo 'VERBOSITY="0"' | sudo tee /etc/default/menu-config
+	. /etc/default/menu-config
+fi
+
+# developer debug switch
+if [ $VERBOSITY -eq 1 ]; then set -x; fi
+
+# functions
+supported_list(){
+DISCOVER=`echo $BOARD`
+if [[ "$DISCOVER" == "$BOARD" ]]; then
+	# overclocking
+	if [[ "$BOARD" =~ ^(cubietruck|cuboxi|orangepi3|orangepi3lts|radxazero)$ ]] \
+	|| [[ "$FAMILY_EXT" =~ ^(ac2xx|bananapi|odroid)$ ]]; then
+	#|| [[ "$SERIES" =~ ^(rk3566)$ ]]; then
+		SUPPORTED_OC="1"; else SUPPORTED_OC="0"; fi
+	# amlogic g12/sm1 series hdmi audio
+	if [[ "$FAMILY_EXT" =~ ^(ac2xx|bananapi|odroid)$ ]] || [[ "$BOARD" == "radxazero" ]]; then
+		HDMI_AUDIO="1"; else HDMI_AUDIO="0"; fi
+	# amlogic g12/sm1 series analog audio
+	if [[ "$BOARD" =~ ^(odroidn2|odroidn2plus|bananapim5)$ ]] || [[ "$FAMILY_EXT" == "ac2xx" ]]; then
+		JACK_AUDIO="1"; else JACK_AUDIO="0"; fi
+	# amlogic g12/sm1 series analog audio
+	if [[ "$FAMILY_EXT" == "ac2xx" ]]; then SPDIF_AUDIO="1"; else SPDIF_AUDIO="0"; fi
+	# fan control
+	if [[ "$BOARD" =~ ^(bananapicm4|odroidn2l|odroidn2plus|odroidxu4)$ ]]; then
+		FAN_CTRL="1"; else FAN_CTRL="0"; fi
+	# fan control: gpio header fan is not supported
+	if [[ "$MODEL" == "BananaPi BPI-CM4IO Baseboard with BPI-CM4 Module" ]]; then FAN_CTRL="0"; fi
+	# home assistant
+	if [[ "$FAMILY_EXT" =~ ^(bananapi|odroid)$ ]] && [[ "$DISTRO_CODENAME" == "bookworm" ]]; then
+		SUPPORTED_HA="1"; else SUPPORTED_HA="0"; fi
+fi
+}
+
+amlogic_audio(){
+while [ 1 ]
+do
+SOUND_MIXER=$(
+export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray'
+whiptail --backtitle "AMLOGIC: Audio Output" --title "Choose" --menu "" --nocancel 0 0 0 \
+	"1)" "HDMI                      HDMI Audio" \
+	"2)" "Analog                    3.5mm Jack Audio" \
+	"3)" "SPDIF                     Digital Optical Audio" \
+	"E)" "Exit .." 3>&2 2>&1 1>&3
+)
+case $SOUND_MIXER in
+	"1)")
+		supported_list
+		if [ $HDMI_AUDIO -eq 1 ]; then
+			export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray'
+			if (whiptail --backtitle "HDMI AUDIO" --title "Confirm" --yesno "    Apply HDMI Audio Settings?" 0 0); then
+				amlmixer hdmi
+				whiptail --backtitle "HDMI AUDIO" --title "Confirmation" --msgbox "    Applied successfully." 0 0
+			else
+				whiptail --title "Cancelled" --msgbox "    Hit enter to return to menu." 0 0
+			fi
+		else
+			export NEWT_COLORS='root=,black'
+			whiptail --msgbox "    Your board is not supported." 0 0
+		fi
+		;;
+	"2)")
+		supported_list
+		if [ $JACK_AUDIO -eq 1 ]; then
+			export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray'
+			if (whiptail --backtitle "3.5MM JACK AUDIO" --title "Confirm" --yesno "    Apply Analog Audio Settings?" 0 0); then
+				amlmixer analog
+				whiptail --backtitle "3.5MM JACK AUDIO" --title "Confirmation" --msgbox "    Applied successfully." 0 0
+			else
+				whiptail --title "Cancelled" --msgbox "    Hit enter to return to menu." 0 0
+			fi
+		else
+			export NEWT_COLORS='root=,black'
+			whiptail --msgbox "    Your board is not supported." 0 0
+		fi
+		;;
+	"3)")
+		supported_list
+		if [ $SPDIF_AUDIO -eq 1 ]; then
+			export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray'
+			if (whiptail --backtitle "Digital Optical Audio" --title "Confirm" --yesno "    Apply SPDIF Audio Settings?" 0 0); then
+				amlmixer spdif
+				whiptail --backtitle "Digital Optical Audio" --title "Confirmation" --msgbox "    Applied successfully." 0 0
+			else
+				whiptail --title "Cancelled" --msgbox "    Hit enter to return to menu." 0 0
+			fi
+		else
+			export NEWT_COLORS='root=,black'
+			whiptail --msgbox "    Your board is not supported." 0 0
+		fi
+		;;
+	"E)")
+		break
+		;;
+	esac
+done
+}
+
+overclock(){
+if [ $CURRENT_CLOCK -eq 0 ]; then
+	echo 'overclock="1"' | sudo tee /etc/opt/overclock.txt
+else
+	echo 'overclock="0"' | sudo tee /etc/opt/overclock.txt
+fi
+sudo service tweaks restart
+}
+
+overclocking(){
+CURRENT_CLOCK=`cat /etc/opt/overclock.txt | sed 's/overclock=//g' | sed 's/"//g'`
+if [ $CURRENT_CLOCK -eq 0 ]; then
+	CLK_QUESTION="Overclock"
+	CLOCKING="Overclocking"
+else
+	CLK_QUESTION="Downclock"
+	CLOCKING="Downclocking"
+fi
+if [ $SUPPORTED_OC -eq 1 ] > /dev/null 2>&1; then
+	if (whiptail --backtitle "Board: $DEFAULT_MOTD" --title "$DEFAULT_MOTD" --yesno "   ${CLK_QUESTION}?" 0 0); then
+		echo ""
+		echo -e "${CLOCKING}: $DEFAULT_MOTD "
+		echo ""
+		echo -en "Running service: "
+		overclock > /dev/null 2>&1
+		sleep 1s
+		echo -e "[done]"
+		echo ""
+		echo -e "Cores:" $(sudo cat /sys/devices/system/cpu/cpu*/cpufreq/cpuinfo_cur_freq)
+		echo ""
+		read -p "You may need to reboot for it to take effect"
+		clear -x
+	fi
+else
+	whiptail --msgbox "    Your board is not supported." 0 0
+fi
+}
+
+change_password(){
+while true; do
+	export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray';
+	PASSWD1=$(whiptail --backtitle "Menu Interface: User Password" --title "User: $USER" --passwordbox "Enter new password" --nocancel 8 78 3>&1 1>&2 2>&3)
+	if [[ ! -z "$PASSWD1" ]]; then
+		:;
+	else
+		export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray'
+		whiptail --backtitle "" --msgbox "    Field is blank? Try again." 0 0
+		continue
+	fi
+	PASSWD2=$(whiptail --backtitle "Menu Interface: User Password" --title "User: $USER" --passwordbox "Enter new password (again)" --nocancel 8 78 3>&1 1>&2 2>&3)
+	if [ "$PASSWD1" = "$PASSWD2" ]; then
+		PASSWORD="${PASSWD1}"
+		export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray'
+		if (whiptail --backtitle "Menu Interface: User Password: Confirm" --title "Confirm" --yesno "    Set the new password?" 0 0); then
+			echo "$PASSWORD" | sed 's/.*/\0\n\0/' | sudo passwd -q $USER 2> /dev/null
+			whiptail --backtitle "Menu Interface: User Password: Confirmation" --title "Confirmation" --msgbox "    Password changed successfully." 0 0
+		else
+			whiptail --title "Cancelled" --msgbox "    Hit enter to return to menu." 0 0
+		fi
+	else
+		export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray'
+		whiptail --backtitle "" --msgbox "    Passwords don't match? Try again." 0 0
+		continue
+	fi
+	break
+	clear -x
+done
+}
+
+change_sudo(){
+if [[ "$SUDOERS" == "true" ]]; then STATUS="enabled"; else STATUS="disabled"; fi
+CONFIRM=`echo "${STATUS}" | sed -e "s/\b\(.\)/\u\1/g"`
+US_QUESTION=`echo "${STATUS}" | sed -e "s/\b\(.\)/\u\1/g" | sed 's/d//g'`
+export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray'
+if (whiptail --backtitle "Sudo: $US_QUESTION Security" --title "Confirm" --yesno "    $US_QUESTION require password?" 0 0); then
+	if [[ $SUDOERS == "true" ]]; then
+		sudo rm -f /etc/sudoers.d/010_${USER}-nopasswd
+	else
+		echo "$USER ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/010_${USER}-nopasswd
+	fi
+	whiptail --backtitle "Sudo: $CONFIRM Security" --title "Confirmation" --msgbox "    $CONFIRM successfully." 0 0
+else
+	whiptail --title "Cancelled" --msgbox "    Hit enter to return to menu." 0 0
+fi
+}
+
+user_security(){
+USERNAME=`echo "${USER}" | sed -e "s/\b\(.\)/\u\1/g"`
+if [[ -f "/etc/sudoers.d/010_$USER-nopasswd" ]]; then
+	SUDOERS="true"
+	STATUS="disabled"
+else
+	SUDOERS="false"
+	STATUS="enabled"
+fi
+while [ 1 ]
+do
+SECURITY=$(
+export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray'
+whiptail --backtitle "Security Settings: $USERNAME" --title "Choose" --menu "" --nocancel 0 0 0 \
+	"1)" "Password          Change user password" \
+	"2)" "Sudo              Require password (${STATUS})" \
+	"E)" "Exit .." 3>&2 2>&1 1>&3
+)
+case $SECURITY in
+	"1)")
+		change_password
+		;;
+	"2)")
+		change_sudo
+		break
+		;;
+	"E)")
+		clear -x
+		break
+		;;
+	esac
+done
+}
+
+change_hostname(){
+CURRENT_HOSTNAME=`cat /etc/hostname | sed -n '1p'`
+export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray'
+NEWHOST=$(whiptail --backtitle "Menu Interface: Hostname" --title "Current: $CURRENT_HOSTNAME" --inputbox "Enter new hostname" --nocancel 8 78 3>&1 1>&2 2>&3)
+HOSTNAME="${NEWHOST}"
+export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray'
+if (whiptail --backtitle "Hostname: Confirm" --title "Confirm" --yesno "    Apply new hostname? ${HOSTNAME}" 0 0); then
+	sudo sed -i "s/${CURRENT_HOSTNAME}/${HOSTNAME}/g" /etc/hostname
+	sudo sed -i "s/${CURRENT_HOSTNAME}/${HOSTNAME}/g" /etc/hosts
+	if [[ "$DISTRO" == "Devuan" ]]; then
+		sudo service hostname.sh --full-restart
+		sudo service avahi-daemon restart
+	else
+		sudo hostnamectl set-hostname $HOSTNAME
+		sudo systemctl restart avahi-daemon
+	fi
+	whiptail --backtitle "Hostname: Confirmation" --title "Confirmation" --msgbox "    ${HOSTNAME} applied successfully." 0 0
+else
+	whiptail --title "Cancelled" --msgbox "    Hit enter to return to menu." 0 0
+fi
+clear -x
+}
+
+install_fanctrl(){
+if [[ `command -v fan-ctrl` ]]; then
+	# remove old fan-ctrl script
+	echo -e "Removing old fan-ctrl script"
+	sudo rm -f $(command -v fan-ctrl)
+fi
+if [[ `command -v fanctrl` ]]; then
+	:;
+else
+	sudo wget -cq --show-progress https://raw.githubusercontent.com/pyavitz/scripts/master/fanctrl -P /usr/local/bin
+	sudo chmod +x $(command -v fanctrl)
+	sudo fanctrl run
+fi
+}
+
+systemd_fanctrl(){
+if [[ -f "/etc/systemd/system/fan-ctrl.service" ]]; then
+	# remove old fan-ctrl service
+	echo -e "Removing old systemd service"
+	sudo systemctl stop fan-ctrl
+	sudo systemctl disable fan-ctrl
+	sudo rm -f "/etc/systemd/system/fan-ctrl.service"
+	sleep .25
+	sudo systemctl daemon-reload
+	sleep .50
+fi
+if [[ -f "/etc/systemd/system/fanctrl.service" ]]; then
+	:;
+else
+	sudo tee /etc/systemd/system/fanctrl.service <<EOF
+[Unit]
+Description=Fan Control
+ConditionPathExists=/usr/local/bin/fanctrl
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/sleep 5
+ExecStart=/usr/local/bin/fanctrl run > /dev/null 2>&1
+TimeoutSec=0
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+	sudo systemctl enable fanctrl
+fi
+}
+
+sysvinit_fanctrl(){
+if [[ -f "/etc/init.d/fan-ctrl" ]]; then
+	# remove old fan-ctrl init
+	echo -e "Removing old service init"
+	sudo update-rc.d -f fan-ctrl remove
+	sleep .25
+	sudo rm -f "/etc/init.d/fan-ctrl"
+	sleep .50
+fi
+if [[ -f "/etc/init.d/fanctrl" ]]; then
+	:;
+else
+	sudo wget -cq https://raw.githubusercontent.com/pyavitz/scripts/master/fanctrl.init -P /etc/init.d -O /etc/init.d/fanctrl
+	sudo chmod +x /etc/init.d/fanctrl
+	sudo update-rc.d fanctrl defaults 2
+fi
+}
+
+systemd_binfmt_fixups (){
+if [[ -f "/etc/systemd/system/binfmt-fixups.service" ]]; then
+	echo ""
+	echo -e "Binfmt fixups service is already installed."
+	echo ""
+	read -p "Press enter to continue."
+	clear -x
+else
+	if [[ -f "/usr/local/sbin/systemd-binfmt-fixups" ]]; then sudo rm -f /usr/local/sbin/systemd-binfmt-fixups; fi
+	echo -e "Installing binfmt-support ...";
+	sudo apt install -y binfmt-support
+	sleep .75
+	sudo wget -cq https://raw.githubusercontent.com/pyavitz/debian-image-builder/feature/files/scripts/systemd-binfmt-fixups -P /usr/local/sbin
+	sudo chmod +x /usr/local/sbin/systemd-binfmt-fixups
+	sudo tee /etc/systemd/system/binfmt-fixups.service <<EOF
+[Unit]
+Description=Systemd Binfmt Fixups
+ConditionFileIsExecutable=/usr/local/sbin/systemd-binfmt-fixups
+After=rc-local.service
+
+[Service]
+Type=forking
+ExecStart=/usr/local/sbin/systemd-binfmt-fixups
+TimeoutSec=0
+RemainAfterExit=yes
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target
+EOF
+	sudo systemctl enable binfmt-fixups.service
+	sudo systemctl start binfmt-fixups.service
+	clear -x
+fi
+}
+
+HA_NOTES="The following install has been tested on the Odroid N2+ and Raspberry Pi 4B. \
+An individual also reported success on Banana Pi M5 by selecting odroid N2 in response \
+to the actual HA supervisor install script. I do not use audio out of my smart home \
+controller, so I have not vailidated that the HA audio container works correctly. Other \
+than that, this will give you a good platform for HA. If you use this install on the \
+Raspberry Pi, I'd recommend using an "A1" SDCARD. On the Odroid N2+ I recommend \
+using an eMMC. The OS is arm64, which matters when the final HA install script \
+runs and you are asked to select the platform."
+
+homeAssistant(){
+clear -x
+echo "Installing Home Assistant ..."
+
+if [ $HDMI_AUDIO -eq 1 ]; then amlmixer hdmi; fi
+
+# install HA required packages
+sudo apt -y install jq libglib2.0-bin udisks2 systemd-resolved libpam-systemd systemd-journal-remote cifs-utils lsb-release network-manager nfs-common 
+
+# enabed service required by HA
+sudo systemctl enable systemd-resolved.service
+sudo systemctl restart systemd-resolved.service
+
+# give time for resolved to restart
+sleep 2
+
+# install docker
+curl -fsSL get.docker.com | sh
+
+sudo apt-get update; sudo apt-get -y upgrade
+
+# sadly at this time we now have to downgrade docker to work with HA
+apt install -y --allow-downgrades docker-ce=5:24.0.7-1~debian.12~bookworm
+
+# install agent required by hA
+wget -cq --show-progress \
+https://github.com/home-assistant/os-agent/releases/download/1.6.0/os-agent_1.6.0_linux_aarch64.deb
+sudo dpkg -i os-agent_1.6.0_linux_aarch64.deb
+
+# need to fake grub so HA will install
+sudo touch /etc/default/grub
+echo '#!/bin/bash' | sudo tee /usr/bin/update-grub
+echo 'echo got it' | sudo tee -a /usr/bin/update-grub
+sudo chmod 755 /usr/bin/update-grub
+
+# enable use of GPIO pins
+sudo apt install -y gpiod python3-libgpiod
+echo 'KERNEL=="gpiochip0", MODE="0666"' | sudo tee -a /etc/udev/rules.d/99-perm.rules 
+echo 'KERNEL=="gpiochip1", MODE="0666"' | sudo tee -a /etc/udev/rules.d/99-perm.rules 
+
+# install tools useful for sensor scripts that communicate with HA mosquitto broker
+sudo apt -y install netcat-openbsd mosquitto-clients
+
+# install tools that allow for using usb nic for backup communication path
+sudo apt -y install networkd-dispatcher ifmetric
+
+# remove avahi-daemon as it's not required
+sudo apt -y remove --purge avahi-daemon
+
+# add some kernel arguments, some that are required, some that look to make system more stable
+if [[ -f "/boot/extlinux/extlinux.conf" ]]; then
+	sudo sed -i '/append / s/$/ systemd.unified_cgroup_hierarchy=false systemd.legacy_systemd_cgroup_controller=false usbcore.autosuspend=-1 usbcore.autosuspend=-1 clk_ignore_unused cgroup_enable=cpuset apparmor=1 security=apparmor/' /boot/extlinux/extlinux.conf;
+fi
+if [[ -f "/boot/${FAMILY}/extlinux/extlinux.conf" ]]; then
+	sudo sed -i '/append / s/$/ systemd.unified_cgroup_hierarchy=false systemd.legacy_systemd_cgroup_controller=false usbcore.autosuspend=-1 usbcore.autosuspend=-1 clk_ignore_unused cgroup_enable=cpuset apparmor=1 security=apparmor/' /boot/${FAMILY}/extlinux/extlinux.conf;
+fi
+
+# grab the HA supervisor package which will install HA
+wget -cq --show-progress homeassistant-supervised.deb https://github.com/home-assistant/supervised-installer/releases/latest/download/homeassistant-supervised.deb
+sudo dpkg -i homeassistant-supervised.deb
+
+# clean
+sleep 2s
+sudo apt autoremove -y
+if [ -f os-agent_1.2.2_linux_aarch64.deb ]; then rm -f os-agent_1.2.2_linux_aarch64.deb; fi
+if [ -f homeassistant-supervised.deb ]; then rm -f homeassistant-supervised.deb; fi
+
+# finish
+echo ""
+if [[ "$PETITBOOT" == "true" ]]; then
+	echo -e "You need to add the following kernel params to: /boot/config.ini"
+	echo -e ""
+	echo -e "systemd.unified_cgroup_hierarchy=false systemd.legacy_systemd_cgroup_controller=false usbcore.autosuspend=-1 cgroup_enable=cpuset apparmor=1 security=apparmor"
+	echo -e ""
+fi
+read -p "Press enter to continue."
+}
+
+# main menu
+while [ 1 ]
+do
+if [[ `command -v nmtui` ]]; then
+	CHOICE=$(
+	export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray'
+	whiptail --backtitle "${DISTRO}: System Settings" --title "Menu Config" --menu "" --nocancel 0 25 0 \
+		"N)" "Networking        Configure network interfaces" \
+		"" "" \
+		"1)" "Security          User security management" \
+		"2)" "Hostname          System hostname" \
+		"3)" "Keyboard          Keyboard layout" \
+		"4)" "Locales           Language settings" \
+		"5)" "Timezone          Regional settings" \
+		"6)" "Console           Font and keymap setup" \
+		"" "" \
+		"7)" "Governor          Dynamic frequency scaling" \
+		"8)" "Overclock         CPU operating speed" \
+		"" "" \
+		"S)" "Software          Third-party software installers" \
+		"M)" "Miscellaneous     System settings" \
+		"" "" \
+		"K)" "Kernel            Edit boot environment" \
+		"U)" "Update            Menu interface configuration tool" \
+		"Q)" "Quit .." 3>&2 2>&1 1>&3
+	)
+else
+	CHOICE=$(
+	export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray'
+	whiptail --backtitle "${DISTRO}: System Settings" --title "Menu Config" --menu "" --nocancel 0 25 0 \
+		"N)" "Networking        Configure wireless interface" \
+		"" "" \
+		"1)" "Security          User security management" \
+		"2)" "Hostname          System hostname" \
+		"3)" "Keyboard          Keyboard layout" \
+		"4)" "Locales           Language settings" \
+		"5)" "Timezone          Regional settings" \
+		"6)" "Console           Font and keymap setup" \
+		"" "" \
+		"7)" "Governor          Dynamic frequency scaling" \
+		"8)" "Overclock         CPU operating speed" \
+		"" "" \
+		"S)" "Software          Third-party software installers" \
+		"M)" "Miscellaneous     System settings" \
+		"" "" \
+		"K)" "Kernel            Edit boot environment" \
+		"U)" "Update            Menu interface configuration tool" \
+		"Q)" "Quit .." 3>&2 2>&1 1>&3
+	)
+fi
+case $CHOICE in
+	"N)")
+		clear -x
+		if [[ `command -v nmtui` ]]; then sudo nmtui; else swh -m; fi
+		;;
+	"")
+		;;
+	"1)")
+		clear -x
+		user_security
+		;;
+	"2)")
+		clear -x
+		change_hostname
+		;;
+	"3)")
+		clear -x
+		sudo dpkg-reconfigure keyboard-configuration
+		;;
+	"4)")
+		clear -x
+		sudo dpkg-reconfigure locales
+		;;
+	"5)")
+		clear -x
+		sudo dpkg-reconfigure tzdata
+		;;
+	"6)")
+		clear -x
+		sudo dpkg-reconfigure console-setup
+		if [[ "$DISTRO" == "Devuan" ]]; then
+			sudo service console-setup.sh restart
+		else
+			sudo service console-setup restart
+		fi
+		;;
+	"")
+		;;
+	"7)")
+		clear -x
+		governor -m
+		;;
+	"8)")
+		clear -x
+		export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray'
+		supported_list
+		overclocking
+		;;
+	"")
+		;;
+	"S)")
+		while [ 1 ]
+		do
+		SOFTWARE=$(
+		export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray'
+		whiptail --backtitle "Third-party: Applications" --title "Install" --menu "" --nocancel 0 0 0 \
+			"HA)" "Home Assistant           Home automation software" \
+			"E)" "Exit .." 3>&2 2>&1 1>&3
+		)
+		case $SOFTWARE in
+			"HA)")
+				export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray'
+				supported_list
+				if [[ $SUPPORTED_HA -eq 1 ]]; then
+					if (whiptail --backtitle "Third-party: Home Assistant" --title "Install" --yesno "$HA_NOTES" 0 0); then
+						homeAssistant
+					else
+						whiptail --msgbox "    Hit enter to return to menu." 0 0
+					fi
+				else
+					whiptail --msgbox "    HA install not currently supported on this platform." 0 0;
+				fi
+				;;
+			"E)")
+				break
+				;;
+			esac
+		done
+		;;
+	"M)")
+		while [ 1 ]
+		do
+		MISC=$(
+		export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray'
+		whiptail --backtitle "Miscellaneous Options" --title "Miscellaneous" --menu "" --nocancel 0 0 0 \
+			"AA)" "Amlogic Audio            Amlogic audio mixer settings" \
+			"BF)" "Binfmt Support           Debian Bookworm systemd fixups" \
+			"DC)" "Debconf                  Reconfigure ${DISTRO} configuration system" \
+			"FC)" "Fan Control              Install fanctrl script and service" \
+			"E)" "Exit .." 3>&2 2>&1 1>&3
+		)
+		case $MISC in
+			"AA)")
+				clear -x
+				supported_list
+				amlogic_audio
+				;;
+			"BF)")
+				if [[ "$DISTRO_CODENAME" == "bookworm" ]]; then
+					if [[ `curl -I https://github.com 2>&1 | grep 'HTTP/2 200'` ]]; then
+						clear -x
+						systemd_binfmt_fixups
+					else
+						export NEWT_COLORS='root=,black'
+						whiptail --msgbox "    This requires a internet connection." 0 0
+					fi
+				else
+					export NEWT_COLORS='root=,black'
+					whiptail --msgbox "    $DISTRO $DISTRO_CODENAME is not supported." 0 0
+				fi
+				;;
+			"DC)")
+				if [[ `curl -I https://github.com 2>&1 | grep 'HTTP/2 200'` ]]; then
+					clear -x
+					echo -e "Reconfiguring ...";
+					if [[ `command -v tasksel` ]]; then
+						:;
+					else
+						sudo apt update
+						sudo apt install -y tasksel
+					fi
+					sleep .75
+					sudo apt-get update
+					sudo apt-get install --reinstall debconf
+					sudo dpkg-reconfigure tasksel
+					echo ""
+					echo -e "To use tasksel, run 'sudo tasksel --new-install' in a terminal"
+					echo ""
+					read -p "Press enter to continue."
+					clear -x
+				else
+					export NEWT_COLORS='root=,black'
+					whiptail --msgbox "    This requires a internet connection." 0 0
+				fi
+				;;
+			"FC)")
+				if [[ `curl -I https://github.com 2>&1 | grep 'HTTP/2 200'` ]]; then
+					clear -x
+					supported_list
+					if [ $FAN_CTRL -eq 1 ] > /dev/null 2>&1; then
+						if [[ "$DISTRO" =~ ^(Debian|Kali|Ubuntu|Raspbian)$ ]]; then
+							if [[ `command -v fanctrl` ]]; then
+								echo ""
+								echo -e "Fan control is already installed. Run 'fanctrl' in a terminal for options."
+								echo ""
+								read -p "Press enter to continue."
+								clear -x
+							else
+								install_fanctrl
+								systemd_fanctrl
+								echo ""
+								echo -e "Run 'fanctrl' in a terminal for options."
+								echo ""
+								read -p "Press enter to continue."
+								clear -x
+							fi
+						fi
+						if [[ "$DISTRO" == "Devuan" ]]; then
+							if [[ `command -v fanctrl` ]]; then
+								fanctrl menu
+							else
+								install_fanctrl
+								sysvinit_fanctrl
+								fanctrl menu
+							fi
+						fi
+					else
+						export NEWT_COLORS='root=,black'
+						whiptail --msgbox "    Your board is not supported." 0 0
+					fi
+				else
+					export NEWT_COLORS='root=,black'
+					whiptail --msgbox "    This requires a internet connection." 0 0
+				fi
+				;;
+			"E)")
+				break
+				;;
+			esac
+		done
+		;;
+	"")
+		;;
+	"K)")
+		if [[ -f "/boot/extlinux/extlinux.conf" ]]; then sudo nano /boot/extlinux/extlinux.conf;
+		elif [[ -f "/boot/${FAMILY}Env.txt" ]]; then sudo nano /boot/${FAMILY}Env.txt;
+		elif [[ -f "/boot/uconfig.txt" ]]; then sudo nano /boot/uconfig.txt;
+		elif [[ -f "/boot/broadcom/config.txt" ]]; then sudo nano /boot/broadcom/config.txt;
+		elif [[ -f "/etc/default/grub" ]]; then sudo nano /etc/default/grub; fi
+		;;
+	"U)")
+		MENUDIR="/usr/local/bin/"
+		MCU="${MENUDIR}menu-config-update"
+		if [[ -f "$MCU" ]]; then
+			sudo mv -f $MCU $MCU.orig
+		fi
+		sudo wget -cq https://raw.githubusercontent.com/pyavitz/debian-image-builder/feature/files/scripts/menu-config-update -P $MENUDIR
+		sleep .75
+		sudo chmod +x $(command -v menu-config-update)
+		if [[ -f "$MCU" ]]; then sudo rm -f $MCU.orig; else sudo mv -f $MCU.orig $MCU > /dev/null 2>&1; fi
+		menu-config-update
+		exec menu-config
+		exit 0
+		;;
+	"Q)")
+		echo "Program terminated."
+		exit 0
+		;;
+	esac
+done

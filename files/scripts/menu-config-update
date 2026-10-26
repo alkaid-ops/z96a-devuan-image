@@ -1,0 +1,129 @@
+#!/bin/bash
+# Destination: /usr/local/bin/menu-config-update
+
+#github sites supporting scripts for distro are pulled from
+
+REPO_INFO=("files/scripts@https://github.com/pyavitz/debian-image-builder" \
+            "-@https://github.com/pyavitz/scripts")
+
+
+# location for pulling down scripts from github
+WORKING_DIR="/var/tmp"
+
+# We use git to pull files out of git so it's not installed, install it
+if [[ ! `dpkg --list |grep "^ii\s*git\s"` ]]; then
+    echo Installing git
+    sudo apt -qq -y install git
+fi
+
+default_IFS="$IFS"
+for str in ${REPO_INFO[@]}; do
+  # Get in directory where we'll temporarily store things. 
+  cd $WORKING_DIR
+  IFS='@'                   # set separator to split REPO_INFO column
+  read -ra items <<< "$str" # Slit into an array
+  IFS=$default_IFS          # set back to orginal value as it's used below
+  url=${items[1]}           # Second element is url 
+  repo_dir=$(basename $url)
+  #echo repo_dir = $repo_dir
+  directory=${items[0]}     # first element is directory
+  if [[ "$directory" == "-" ]]
+  then
+    directory=""  # change to null string as variable is used later for a file path
+    #echo Need to clone complete structure for $url
+    git clone -q $url &> /dev/null
+  else
+    #echo pull $directory from $url
+    git clone -q -n --depth=1 --filter=tree:0 $url &> /dev/null
+    cd $repo_dir
+    git sparse-checkout set --no-cone $directory &> /dev/null
+    git checkout &> /dev/null
+    cd ..
+  fi
+
+  path_to_files=$WORKING_DIR/$repo_dir/$directory
+  #echo file location is $path_to_files
+
+  # only do the work if we've pulled some files 
+  if [ -d $path_to_files ]; then 
+    updates=() 
+    for filename in $path_to_files/*; do
+      #echo filename is $filename
+
+      # Script needs to include location being updated to be worked
+      dest=`grep "^#\sDestination" $filename | cut -d ":" -f 2 | xargs`
+      if [ ! -z "$dest" ]; then
+        #echo File $filename has a destination so could be update to dest $dest !!!!!!
+
+        # Script must already installed to be updated
+        if [ -f "$dest" ]; then
+
+          #file must have changed if we're to update 
+          oldmd5=`md5sum $dest|cut -d " " -f 1`
+          newmd5=`md5sum $filename| cut -d " " -f 1`
+          if [ $oldmd5 != $newmd5 ]; then
+
+            # As we're only updating distro scripts make sure file 
+            # isn't from a debian package
+            pkg=`dpkg -S "$dest" 2>/dev/null |grep "no path"`
+            if [ -z "$pkg" ]; then
+
+              desc=`grep "^#\sDescription" $filename|cut -d ":" -f 2- |xargs`
+              # add file to list that uses select to identify file to be updated
+              updates+=( "$dest" "$desc" "off" )
+              #echo Update canidate: "$dest" - "$desc" - "off"
+            fi
+          fi
+        fi
+      fi
+
+    done
+
+    if [ ! -z "$updates" ]; then 
+      hadUpdates=True
+      export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray';
+      choices=($(whiptail --title "Available updates" --checklist "Select items to update" 22 80 15  "${updates[@]}" 3>&1 1>&2 2>&3))
+      #echo selected $choices
+      if [ ! -z "$choices" ]; then
+        for dest in "${choices[@]}"; do
+          # remove quotes from start and end of dest
+          dest="${dest#\"}"
+          dest="${dest%\"}"
+          filename=$(basename $dest)
+          src=$path_to_files/$(basename $filename)
+          #echo Source when making move is $src
+	  echo Moving $src to $dest
+          sudo mv $src $dest
+          sudo chown root: $dest
+          sudo chmod +x $dest 
+
+          # see if this is a service file that needs restared
+          serv=`grep "^#\sService" $dest | cut -d ":" -f 2 | xargs`
+          if [ ! -z "$serv" ]; then
+             # just incase it was the service file that was updated do reload
+             sudo systemctl daemon-reload
+             # only restart if service is enabled
+             isEnabled=`systemctl is-enabled $serv`
+             if [ "$isEnabled" = "enabled" ]; then
+               echo restarting service $serv
+               sudo systemctl restart $serv
+             fi
+          fi
+        done
+      fi
+    fi
+    # remove all the remaining files that we pulled that we didn't just install
+    rm -r -f $WORKING_DIR/$repo_dir
+  else
+    # git didn't pull anything
+    echo $path_to_files doesnt exist
+  fi
+done
+
+if [ -z $hadUpdates ]; then
+  export NEWT_COLORS='root=,black roottext=lightgray,black title=black,lightgray';
+  whiptail --msgbox "    No updates available." 0 0;
+fi
+#echo -e "[done]"
+#clear -x
+exit 0

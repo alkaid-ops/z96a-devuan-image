@@ -1,0 +1,5 @@
+# Input user information
+
+NAME=""
+USERNAME=""
+PASSWORD=""

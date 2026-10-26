@@ -1,0 +1,137 @@
+#!/bin/bash
+
+source lib/source
+
+bullseye-ccompile (){
+sudo debconf-apt-progress -- apt install -y \
+	build-essential bison bc git dialog patch dosfstools zip unzip qemu parted \
+	debootstrap qemu-user-static rsync kmod cpio flex libssl-dev libncurses5-dev \
+	device-tree-compiler libfdt-dev python3-distutils python3-dev swig fakeroot mmdebstrap \
+	lzop lz4 aria2 pv crossbuild-essential-arm64 crossbuild-essential-armhf u-boot-tools \
+	distro-info-data lsb-release libelf-dev fdisk kpartx ccache xz-utils gcc-9 gcc-10 \
+	python-is-python2 python-dev-is-python2 zstd gcc-arm-none-eabi gcc-9-arm-linux-gnueabihf \
+	gcc-9-aarch64-linux-gnu gcc-10-aarch64-linux-gnu gcc-10-arm-linux-gnueabihf jq mtools \
+	colorized-logs gdisk wget btrfs-progs xfsprogs gcc-9-arm-linux-gnueabi gcc-10-arm-linux-gnueabi \
+	crossbuild-essential-armel python3-setuptools python3-pyelftools curl libgnutls28-dev uuu uuid-dev \
+	gcc-9-plugin-dev gcc-10-plugin-dev figlet ccache
+}
+
+bookworm-ccompile (){
+sudo debconf-apt-progress -- apt install -y \
+	build-essential bison bc git dialog patch dosfstools zip unzip parted \
+	debootstrap qemu-user-static rsync kmod cpio flex libssl-dev libncurses5-dev \
+	device-tree-compiler libfdt-dev python3-distutils python3-dev swig fakeroot mmdebstrap \
+	lzop lz4 aria2 pv crossbuild-essential-arm64 crossbuild-essential-armhf u-boot-tools \
+	distro-info-data lsb-release libelf-dev fdisk kpartx ccache xz-utils gcc-11 gcc-12 \
+	python-is-python3 python-dev-is-python3 zstd gcc-arm-none-eabi gcc-11-arm-linux-gnueabihf \
+	gcc-11-aarch64-linux-gnu gcc-12-aarch64-linux-gnu gcc-12-arm-linux-gnueabihf \
+	colorized-logs gdisk jq wget btrfs-progs xfsprogs gcc-11-arm-linux-gnueabi \
+	gcc-12-arm-linux-gnueabi crossbuild-essential-armel python3-setuptools \
+	python3-pyelftools curl libgnutls28-dev uuu uuid-dev mtools figlet \
+	gcc-11-plugin-dev gcc-12-plugin-dev gcc-or1k-elf ccache debhelper
+}
+
+trixie-ccompile (){
+sudo debconf-apt-progress -- apt install -y \
+	build-essential bison bc git dialog patch dosfstools zip unzip parted \
+	debootstrap qemu-user-static rsync kmod cpio flex libssl-dev libncurses5-dev \
+	device-tree-compiler libfdt-dev python3-dev swig fakeroot mmdebstrap fdisk \
+	lzop lz4 aria2 pv gcc-arm-none-eabi distro-info-data lsb-release u-boot-tools \
+	python-is-python3 python-dev-is-python3 python3-distutils-extra libelf-dev kpartx \
+	crossbuild-essential-arm64 crossbuild-essential-armhf crossbuild-essential-armel \
+	gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf gcc-arm-linux-gnueabi colorized-logs \
+	gdisk jq wget btrfs-progs xfsprogs python3-setuptools python3-pyelftools curl \
+	libgnutls28-dev uuu uuid-dev mtools gcc-14-plugin-dev figlet gcc-or1k-elf \
+	gcc-riscv64-linux-gnu clang ccache xz-utils zstd gcc dh-python xxd debhelper \
+	libdw-dev
+}
+
+jammy-ccompile (){
+sudo debconf-apt-progress -- apt install -y \
+	build-essential bison bc git dialog patch dosfstools zip unzip qemu parted \
+	debootstrap qemu-user-static rsync kmod cpio flex libssl-dev libncurses5-dev \
+	device-tree-compiler libfdt-dev python3-distutils python3-dev swig fakeroot \
+	lzop lz4 zstd aria2 pv crossbuild-essential-arm64 crossbuild-essential-armhf \
+	distro-info-data lsb-release python2-dev python2 kpartx gcc-9 gcc-10 gcc-11 make \
+	gcc-9-aarch64-linux-gnu gcc-10-aarch64-linux-gnu gcc-11-aarch64-linux-gnu mmdebstrap \
+	debian-archive-keyring debian-keyring python-setuptools python3-setuptools \
+	python3-distutils-extra libelf-dev fdisk python-dev-is-python3 python2-minimal \
+	dh-python 2to3 python-is-python3 gcc-12-aarch64-linux-gnu gcc-12 gcc-arm-none-eabi \
+	gcc-9-arm-linux-gnueabihf gcc-10-arm-linux-gnueabihf gcc-11-arm-linux-gnueabihf \
+	gcc-12-arm-linux-gnueabihf colorized-logs u-boot-tools gdisk jq wget btrfs-progs xfsprogs \
+	gcc-9-arm-linux-gnueabi gcc-10-arm-linux-gnueabi gcc-11-arm-linux-gnueabi gcc-12-arm-linux-gnueabi \
+	crossbuild-essential-armel python3-pyelftools curl libgnutls28-dev uuu uuid-dev mtools \
+	gcc-9-plugin-dev gcc-10-plugin-dev gcc-11-plugin-dev gcc-12-plugin-dev figlet gcc-or1k-elf \
+	ccache
+}
+
+noble-ccompile (){
+sudo debconf-apt-progress -- apt install -y \
+	build-essential bison bc git dialog patch dosfstools zip unzip parted \
+	debootstrap qemu-user-static rsync kmod cpio flex libssl-dev libncurses5-dev \
+	device-tree-compiler libfdt-dev python3-dev swig fakeroot mmdebstrap \
+	lzop lz4 zstd aria2 pv distro-info-data lsb-release kpartx make curl \
+	libgnutls28-dev uuu debian-archive-keyring debian-keyring python3-setuptools \
+	uuid-dev python3-distutils-extra libelf-dev fdisk python-dev-is-python3 \
+	dh-python 2to3 python-is-python3 gcc-arm-none-eabi figlet gcc-or1k-elf mtools \
+	colorized-logs u-boot-tools gdisk jq wget btrfs-progs xfsprogs python3-pyelftools \
+	crossbuild-essential-arm64 crossbuild-essential-armhf crossbuild-essential-armel \
+	gcc-9-arm-linux-gnueabi gcc-10-arm-linux-gnueabi gcc-11-arm-linux-gnueabi \
+	gcc-12-arm-linux-gnueabi gcc-13-arm-linux-gnueabi gcc-14-arm-linux-gnueabi \
+	gcc-9-arm-linux-gnueabihf gcc-10-arm-linux-gnueabihf gcc-11-arm-linux-gnueabihf \
+	gcc-12-arm-linux-gnueabihf gcc-13-arm-linux-gnueabihf gcc-14-arm-linux-gnueabihf \
+	gcc-9-aarch64-linux-gnu gcc-10-aarch64-linux-gnu gcc-11-aarch64-linux-gnu \
+	gcc-12-aarch64-linux-gnu gcc-13-aarch64-linux-gnu gcc-14-aarch64-linux-gnu \
+	gcc-9-plugin-dev gcc-10-plugin-dev gcc-11-plugin-dev gcc-12-plugin-dev \
+	gcc-13-plugin-dev gcc-14-plugin-dev gcc-9 gcc-10 gcc-11 gcc-12 gcc-13 gcc-14 \
+	ccache gcc-riscv64-linux-gnu gcc-14-riscv64-linux-gnu xxd debhelper libdw-dev
+}
+
+resolute-ccompile (){
+sudo debconf-apt-progress -- apt install -y \
+	build-essential bison bc git dialog patch dosfstools zip unzip parted \
+	debootstrap qemu-user-static rsync kmod cpio flex libssl-dev libncurses5-dev \
+	device-tree-compiler libfdt-dev python3-dev swig fakeroot mmdebstrap \
+	lzop lz4 zstd aria2 pv distro-info-data lsb-release kpartx make curl \
+	libgnutls28-dev uuu debian-archive-keyring debian-keyring python3-setuptools \
+	uuid-dev python3-distutils-extra libelf-dev fdisk python-dev-is-python3 \
+	dh-python python-is-python3 gcc-arm-none-eabi figlet gcc-or1k-elf mtools \
+	colorized-logs u-boot-tools gdisk jq wget btrfs-progs xfsprogs python3-pyelftools \
+	crossbuild-essential-arm64 crossbuild-essential-armhf gcc-14-plugin-dev gcc-15-plugin-dev \
+	gcc-arm-linux-gnueabi gcc-arm-linux-gnueabihf gcc-aarch64-linux-gnu gcc-14-aarch64-linux-gnu \
+	gcc ccache clang gcc-riscv64-linux-gnu xxd debhelper binfmt-support libdw-dev
+}
+
+if [[ "$HOST_ARCH" == "aarch64" ]]; then
+	echo -e ""
+	echo -e "You are running: $HOST_ARCH"
+	echo -e "Please run: make ncompile"
+	exit 0
+fi
+
+if [[ "$HOST_CODENAME" =~ ^(bullseye|bookworm|trixie|jammy|noble|resolute)$ ]]; then
+	echo ""
+	${HOST_CODENAME}-ccompile
+	# Fixup Ubuntu Resolute binfmt support
+	if [[ "$HOST_CODENAME" =~ ^(resolute)$ ]]; then
+		# make sure the qemu-$arch.conf file is linked.
+		BINFMT_LIB_DIR="/usr/lib/binfmt.d"
+		BINFMT_SHARE_DIR="/usr/share/qemu/binfmt.d"
+		if [[ ! -f "${BINFMT_LIB_DIR}/qemu-arm.conf" ]] && [[ -f "${BINFMT_SHARE_DIR}/qemu-arm.conf" ]]; then
+			sudo ln -sv "${BINFMT_SHARE_DIR}/qemu-arm.conf" "${BINFMT_LIB_DIR}/qemu-arm.conf"
+		fi
+		if [[ ! -f "${BINFMT_LIB_DIR}/qemu-aarch64.conf" ]] && [[ -f "${BINFMT_SHARE_DIR}/qemu-aarch64.conf" ]]; then
+			sudo ln -sv "${BINFMT_SHARE_DIR}/qemu-aarch64.conf" "${BINFMT_LIB_DIR}/qemu-aarch64.conf"
+		fi
+		if [[ ! -f "${BINFMT_LIB_DIR}/qemu-riscv64.conf" ]] && [[ -f "${BINFMT_SHARE_DIR}/qemu-riscv64.conf" ]]; then
+			sudo ln -sv "${BINFMT_SHARE_DIR}/qemu-riscv64.conf" "${BINFMT_LIB_DIR}/qemu-riscv64.conf"
+		fi
+		sudo apt install -y binfmt-support qemu-user qemu-user-binfmt --reinstall
+	fi
+else
+	echo -e ""
+	echo -e "Something went wrong..?"
+	exit 0
+fi
+
+exit 0

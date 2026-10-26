@@ -1,0 +1,58 @@
+From 0140ea4b78cf3955f31510c03f79f76ebe78e7b2 Mon Sep 17 00:00:00 2001
+From: Patrick Yavitz <pyavitz@gmail.com>
+Date: Sun, 23 Aug 2026 08:20:26 -0400
+Subject: [PATCH] Khadas VIM4: Update led node and remove dup pwm_ao_cd node
+
+Signed-off-by: Patrick Yavitz <pyavitz@gmail.com>
+---
+ .../amlogic/amlogic-t7-a311d2-khadas-vim4.dts  | 18 +++++++-----------
+ 1 file changed, 7 insertions(+), 11 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/amlogic/amlogic-t7-a311d2-khadas-vim4.dts b/arch/arm64/boot/dts/amlogic/amlogic-t7-a311d2-khadas-vim4.dts
+index 916d82da3ddc..739f9281995e 100644
+--- a/arch/arm64/boot/dts/amlogic/amlogic-t7-a311d2-khadas-vim4.dts
++++ b/arch/arm64/boot/dts/amlogic/amlogic-t7-a311d2-khadas-vim4.dts
+@@ -8,6 +8,7 @@
+ #include "amlogic-t7.dtsi"
+ #include <dt-bindings/gpio/amlogic,t7-periphs-pinctrl.h>
+ #include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/leds/common.h>
+ 
+ / {
+ 	model = "Khadas VIM4";
+@@ -67,13 +68,14 @@ dc_in: regulator-dc-in {
+ 		regulator-always-on;
+ 	};
+ 
+-	pwm-leds {
+-		compatible = "pwm-leds";
++	leds {
++		compatible = "gpio-leds";
+ 
+ 		status {
+-			linux,default-trigger="heartbeat";
+-			max-brightness = <255>;
+-			pwms = <&pwm_ao_cd 0 30040 0>;
++			color = <LED_COLOR_ID_WHITE>;
++			function = LED_FUNCTION_STATUS;
++			gpios = <&gpio GPIOD_6 GPIO_ACTIVE_HIGH>;
++			linux,default-trigger = "heartbeat";
+ 		};
+ 	};
+ 
+@@ -453,12 +455,6 @@ &pwm_ab {
+ 	pinctrl-names = "default";
+ };
+ 
+-&pwm_ao_cd {
+-	status = "okay";
+-	pinctrl-0 = <&pwm_ao_c_d_pins>;
+-	pinctrl-names = "default";
+-};
+-
+ &pwm_ao_ab {
+ 	status = "okay";
+ };
+-- 
+2.53.0
+

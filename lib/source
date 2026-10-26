@@ -1,0 +1,158 @@
+#!/bin/bash
+
+# variables
+SRC="sources"
+DEF="../defconfig"
+LPATCHESALL="patches/all"
+USERPATCHES="patches/userpatches"
+OVERLAYPATCHES="patches/overlays"
+WIRELESSPATCHES="patches/wireless"
+KERNEL="linux"
+
+# host machine
+HOST_ARCH=`uname -m`
+HOST_CODENAME=`cat /etc/os-release | grep -w "VERSION_CODENAME" | sed 's/VERSION_CODENAME=//g'`
+HOST_MACHINE=`cat /etc/os-release | grep -w NAME | sed 's/NAME=//g' | sed 's/"//g' | sed 's/ GNU\/Linux//g'`
+HOST_PRETTY=`cat /etc/os-release | grep -w "PRETTY_NAME" | sed 's/PRETTY_NAME=//g' | sed 's/"//g'`
+EXPIRED="The userdata.txt file has expired. Create a new one."
+
+# validate
+validation (){
+BUILDER=`grep "BUILDER=" "userdata.txt" | sed 's/BUILDER=//g'`
+if [[ -f "userdata.txt" ]]; then
+	echo -e ""
+else 
+	echo -e ""
+	echo -e "Create a userdata.txt file"
+	while [ true ]; do
+		read -t 10 -n 1
+		if [ $? = 0 ]; then exit 0; fi
+	done
+fi
+if [[ ! "$BUILDER" == "7.11" ]]; then echo -e "${EXPIRED}"; exit 1; fi
+}
+
+# board dot txt
+noboard (){
+echo -e "board.txt was not found."
+echo -e "Run again with the correct spelling and or command."
+echo -e ""
+read -p "Press enter to continue."
+exit 0
+}
+
+# base packages
+PKGS="tzdata keyboard-configuration sudo man-db dbus initramfs-tools zip unzip \
+	e2fsprogs u-boot-tools fonty-rg patch wget apt-transport-https pciutils \
+	dirmngr rsync psmisc parted hdparm aria2 dosfstools pv fdisk ntpsec tasksel \
+	bluetooth rfkill gpiod git net-tools distro-info-data fuse3 wpasupplicant \
+	lsscsi usbutils alsa-utils wget mc nano figlet toilet curl xxd gettext \
+	dialog openssh-client openssh-server ntfs-3g zram-tools avahi-utils fake-hwclock \
+	lsb-release libell0 wireless-regdb bluez bluez-tools irqbalance ethtool i2c-tools \
+	btrfs-progs xfsprogs ir-keytable f2fs-tools kpartx mtd-utils whiptail mtools \
+	sg3-utils usb-modeswitch"
+
+PKGS_FULL="build-essential bc kmod cpio flex libncurses5-dev libelf-dev libssl-dev bison \
+	autopoint autoconf automake pkg-config libtool python-is-python3 python3 python3-setuptools \
+	python3-libgpiod"
+
+# firmware packages
+DEBIAN_FW="firmware-linux-nonfree firmware-linux bluez-firmware \
+	firmware-misc-nonfree firmware-realtek firmware-ralink \
+	firmware-qcom-soc firmware-iwlwifi"
+
+UBUNTU_FW="linux-firmware-mediatek-aiot"
+
+# board grub menu entry
+board_09 (){
+source /etc/opt/board.txt
+if [[ "$FSTYPE" == "ext4" ]]; then
+	FSMOD="ext2"
+	ROOT_FSTYPE="rootfstype=ext4"
+	CMDLINE="linux /boot/Image ${CONSOLE} rw root=PARTUUID=${ROOT_PARTUUID} rootwait ${ROOT_FSTYPE} fsck.repair=yes ${LOGLEVEL} ${EXTRA}"
+	INITRD="initrd /boot/initrd.img"
+	DEVICETREE="devicetree /boot/${FAMILY}/${DTB}.dtb"
+elif [[ "$FSTYPE" == "btrfs" ]]; then
+	FSMOD="btrfs"
+	ROOT_FSTYPE="rootfstype=btrfs rootflags=subvol=@"
+	CMDLINE="linux /@/boot/Image ${CONSOLE} rw root=PARTUUID=${ROOT_PARTUUID} rootwait ${ROOT_FSTYPE} fsck.repair=yes ${LOGLEVEL} ${EXTRA}"
+	INITRD="initrd /@/boot/initrd.img"
+	DEVICETREE="devicetree /@/boot/${FAMILY}/${DTB}.dtb"
+elif [[ "$FSTYPE" == "xfs" ]]; then
+	FSMOD="xfs"
+	ROOT_FSTYPE="rootfstype=xfs"
+	CMDLINE="linux /boot/Image ${CONSOLE} rw root=PARTUUID=${ROOT_PARTUUID} rootwait ${ROOT_FSTYPE} fsck.repair=yes ${LOGLEVEL} ${EXTRA}"
+	INITRD="initrd /boot/initrd.img"
+	DEVICETREE="devicetree /boot/${FAMILY}/${DTB}.dtb"
+fi
+if [[ "$GPT" == "true" ]]; then PTYPE="gpt"; else PTYPE="msdos"; fi
+cat <<EOF > /etc/grub.d/09_$BOARD
+#!/bin/sh
+exec tail -n +3 $0
+
+menuentry "${DEFAULT_MOTD}" {
+	insmod gzio
+	insmod part_${PTYPE}
+	insmod ${FSMOD}
+	echo "Loading kernel ..."
+	${CMDLINE}
+	echo "Loading ramdisk ..."
+	${INITRD}
+	echo "Loading devicetree ..."
+	${DEVICETREE}
+}
+EOF
+chmod +x /etc/grub.d/09_$BOARD
+# fixup exec tail
+sed -i 's/\/root\/stage2/$0/g' /etc/grub.d/09_$BOARD
+}
+
+# add support for upstream qemu-user
+qemu_user_static (){
+STATIC_NEXT=`echo $STATIC | sed 's/-static//g'`
+if [[ `command -v $STATIC_NEXT` ]] && [[ ! `command -v ${STATIC}` ]]; then STATIC="${STATIC_NEXT}"; fi
+if [[ ! `command -v ${STATIC}` ]]; then
+	echo -e "Missing depends: ${STATIC}"
+	echo -e "Run ./install.sh or create an Issue on github"
+	exit 1
+fi
+}
+
+# user scripts (stage1 and stage2)
+uscripts_pre-stage1 (){
+if [[ -f "files/userscripts/uscripts" ]]; then
+	source files/userscripts/uscripts
+	if [[ `type run_function0` ]] &>/dev/null; then run_function0; fi
+fi
+}
+
+uscripts_stage1 (){
+if [[ -f "files/userscripts/uscripts" ]]; then
+	mkdir -p ${P_VALUE}/root/userscripts;
+	cp -fr files/userscripts/* ${P_VALUE}/root/userscripts/;
+	if [[ -f "${P_VALUE}/root/userscripts/README.md" ]]; then
+		rm -f ${P_VALUE}/root/userscripts/README.md;
+	fi
+	if [[ `type run_function1` ]] &>/dev/null; then run_function1; fi
+fi
+}
+
+uscripts_stage2 (){
+if [[ -f "/root/userscripts/uscripts" ]]; then
+	source /root/userscripts/uscripts
+	if [[ `type run_function2` ]] &>/dev/null; then
+		echo ""
+		echo -e "\033[1mRunning user scripts\e[0m ..."
+		run_function2
+		echo -e "\033[1mDone\e[0m."
+	fi
+fi
+if [[ -e "/root/userscripts" ]]; then rm -fdr /root/userscripts; fi
+}
+
+uscripts_fin-stage1 (){
+if [[ -f "files/userscripts/uscripts" ]]; then
+	source files/userscripts/uscripts
+	if [[ `type run_function3` ]] &>/dev/null; then run_function3; fi
+fi
+}

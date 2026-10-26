@@ -1,0 +1,32 @@
+#!/bin/bash
+
+source lib/source
+validation
+COUNT=0
+
+# create menu
+mkdir -p .cache
+cat lib/boards/* | grep -w "DEFAULT_MOTD" | sed 's/DEFAULT_MOTD="//g' | sed 's/"//g' | sudo tee .cache/menu >/dev/null
+
+# menu list
+while IFS=$'\n' read -r opt; do
+	COUNT=$(( COUNT+1 ))
+	OPTIONS+=($COUNT "$opt" off)
+done < .cache/menu
+
+# dialog menu
+CMD=(dialog --backtitle "DEBIAN IMAGE BUILDER (v${BUILDER})" --title "B O A R D S" --cancel-label "Exit" --radiolist "" 40 40 40)
+CHOICES=($("${CMD[@]}" "${OPTIONS[@]}" 2>&1 1>/dev/tty))
+
+# selection
+for choice in "${CHOICES[@]}"; do
+	BOARD=`ls lib/boards | head -n $choice | tail -n 1`
+	chmod +x lib/dialog/general
+	./lib/dialog/general $BOARD
+done
+
+# finish
+if [[ -f ".cache/menu" ]]; then sudo rm -f .cache/menu; fi
+clear -x
+echo -e "Program terminated."
+exit 0

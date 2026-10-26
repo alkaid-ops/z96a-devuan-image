@@ -1,0 +1,75 @@
+#!/bin/bash
+if [[ -f "/etc/opt/board.txt" ]]; then
+	. /etc/opt/board.txt
+else
+	echo -e "Your board is not supported."
+	exit 0
+fi
+DISTRO=`cat /etc/os-release | grep -w NAME | sed 's/NAME=//g' | sed 's/"//g' | sed 's/ GNU\/Linux//g'`
+
+amlogic_audio (){
+echo -e "Setup audio ..?"
+echo -e ""
+read -p "Continue (y/n)?" choice
+case "$choice" in 
+	y|Y ) echo ""; amlmixer hdmi; echo "";;
+	n|N ) echo && echo -e "Skipping audio setup ..."; echo "";;
+	* ) echo && echo -e "Invalid choice."; echo ""; confirm;;
+esac
+}
+
+if [ $# -eq 0 ]; then
+	echo -e "Missing options!"
+	echo "(run $0 -h for help)"
+	echo ""
+	exit 0
+fi
+
+while getopts "rh" OPTION; do
+	case $OPTION in
+
+		r)
+			echo ""
+			echo -e "Running system setup ..."
+			sleep .75
+			sudo dpkg-reconfigure locales tzdata keyboard-configuration console-setup
+			if [[ "$DISTRO" == "Devuan" ]]; then
+				sudo service console-setup.sh restart
+			else
+				sudo service console-setup restart
+			fi
+			sleep .50
+			if [[ `curl -I https://github.com 2>&1 | grep 'HTTP/2 200'` ]]; then
+				if [[ "$DISTRO" == "Ubuntu" ]]; then echo ""; fi
+				echo "Configuring debconf ..."
+				if [[ `command -v tasksel` ]]; then
+					:;
+				else
+					sudo apt update
+					sudo apt install -y tasksel
+				fi
+				sleep .75
+				sudo apt-get update
+				sudo apt-get install --reinstall debconf
+				sudo dpkg-reconfigure tasksel
+				echo "Done."
+				echo ""
+			fi
+			sleep .50
+			if [[ "$SERIES" =~ ^(meson-g12a|meson-g12b|meson-sm1)$ ]]; then amlogic_audio; fi
+			sleep .50
+			sudo update-ca-certificates -f
+			echo ""
+			echo -e "Setup complete."
+			exit 0
+			;;
+		h)
+			echo -e ""
+			echo -e "	-r	Run"
+			echo ""
+			exit 0
+			;;
+	esac
+done
+
+exit 0

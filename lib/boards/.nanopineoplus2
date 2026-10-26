@@ -1,0 +1,98 @@
+#!/bin/bash
+
+# architecture
+ARCH="arm64"
+ARCH_EXT="arm64"
+DEBARCH=""
+CROSS_COMPILE="aarch64-linux-gnu-"
+ROOTFS_ARCH="rootfs-${ARCH_EXT}"
+STATIC="qemu-aarch64-static"
+
+# device information
+SERIES="sun50i-h5"
+FAMILY="allwinner"
+FAMILY_EXT="sun50i"
+DTB="${SERIES}-nanopi-neo-plus2"
+
+# default config
+LINUX_DEFCONFIG="sunxi64_defconfig"
+UBOOT_DEFCONFIG="nanopi_neo_plus2_defconfig"
+CRUST_DEFCONFIG="libretech_all_h3_cc_h5_defconfig"
+
+# partition scheme
+GPT="false"
+EFI="false"
+VFAT="false"
+P_VALUE="p1"
+OFFSET="4096"
+
+# boot config
+EXTLINUX="true"
+PETITBOOT="false"
+BOOTINI="false"
+BOOTCMD="false"
+
+# arm trusted firmware
+ATF_PLAT="sun50i_a64"
+ATF_EXT="PLAT=${ATF_PLAT} DEBUG=1 bl31"
+
+# output
+BOARD="nanopineoplus2"
+OUTPUT="output/${BOARD}"
+
+# extlinux and bootcmd
+BOOT_KERNEL="Image"
+BOOT_INITRD="uInitrd"
+BOOTCMD_FDTOVERLAYS=""
+EXTLINUX_FDTOVERLAYS="#fdtoverlays"
+
+# cmdline
+CONSOLE="console=ttyS0,115200n8"
+LOGLEVEL="loglevel=5"
+EXTRA="net.ifnames=0"
+
+# motd
+DEFAULT_MOTD="NanoPi NEO Plus2"
+
+# customize
+MODULES_LOAD="bluetooth hidp rfcomm bnep hci_uart"
+
+# patches
+LINUX_PATCHING="true"
+UBOOT_PATCHDIR="patches/uboot"
+LINUX_PATCHDIR="patches/${FAMILY}"
+
+# image
+IMG_EXP="${DTB}-*.img*"
+
+# uboot logo
+RANDOM_LOGO="true"
+
+# precompiled
+PRECOMPILED_UBOOT="false"
+PKGVERSION=""
+PRECOMPILED_UBOOT_DIR="files/boot/uboot/${BOARD}"
+
+# force git
+FORCE_GIT="false"
+GIT_OWN=""
+GIT_REPO=""
+GIT_BRANCH=""
+GIT_URL=""
+GIT_BLOB=""
+# git patching
+GIT_PATCHING="false"
+GIT_PATCHDIR="patches/git/${BOARD}/${GIT_REPO}-${GIT_BRANCH}"
+
+# override userdata file
+FORCE_VERSION="true"
+FORCE_LINUX_VERSION=""
+FORCE_UBOOT_VERSION="v2024.07"
+
+# devicetree and platform
+DEVICETREE="${DTB}.dtb"
+PLATFORM="${FAMILY}"
+
+# kernel package name (if shared patching set to true)
+COMMON_PKG="true"
+COMMON_PKGNAME="sunxi"

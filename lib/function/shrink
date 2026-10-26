@@ -1,0 +1,168 @@
+#!/bin/bash
+
+shrink (){
+export LC_ALL=C.UTF-8
+if [[ -f "${IMAGE_FILE_NAME}" ]]; then mv -f ${IMAGE_FILE_NAME} shrink.img; else echo "Shrink failed! Missing file ${IMAGE_FILE_NAME}."; exit 0; fi
+KPARTX="$(kpartx -av shrink.img)"
+if [[ "$HOST_MACHINE" == "Ubuntu" ]]; then
+	# snapd woes; grep for higher loop numbers.
+	LOOP=`grep -o 'loop[0-9]\+p.' <<<"$KPARTX"`
+else
+	LOOP=`grep -o 'loop.p.' <<<"$KPARTX"`
+fi
+sleep .25
+if [[ "$P_VALUE" == "p1" ]]; then shrink_p1; fi
+if [[ "$P_VALUE" == "p2" ]]; then shrink_p2; fi
+}
+
+calculate (){
+# 1. Get raw size in Megabytes (integer only)
+local du_mb
+du_mb=$(du -sm "${ROOTFS_LABEL}" | awk '{print $1}')
+# 2. Extract the first digit (your $GB logic) for the padding modifier
+local first_digit
+first_digit=$(echo "$du_mb" | head -c 1)
+# 3. Handle padding dynamically based on P_VALUE and the first digit
+local padding_mb=0
+if [[ "$P_VALUE" == "p1" ]]; then
+	case "$first_digit" in
+		1) padding_mb=500  ;; # +0.5 GB
+		2) padding_mb=600  ;; # Default fallback (+0.6 GB)
+		3) padding_mb=700  ;; # +0.7 GB
+		4) padding_mb=800  ;; # +0.8 GB
+		5) padding_mb=900  ;; # +0.9 GB
+		6) padding_mb=1000 ;; # +1.0 GB
+		7) padding_mb=1100 ;; # +1.1 GB
+		8) padding_mb=1200 ;; # +1.2 GB
+		9) padding_mb=1300 ;; # +1.3 GB
+		*) padding_mb=600  ;;
+	esac
+elif [[ "$P_VALUE" == "p2" ]]; then
+	case "$first_digit" in
+		1) padding_mb=900  ;; # +0.9 GB
+		2) padding_mb=1000 ;; # Default fallback (+1.0 GB)
+		3) padding_mb=1200 ;; # +1.2 GB
+		4) padding_mb=1300 ;; # +1.3 GB
+		5) padding_mb=1400 ;; # +1.4 GB
+		6) padding_mb=1500 ;; # +1.5 GB
+		7) padding_mb=1600 ;; # +1.6 GB
+		8) padding_mb=1700 ;; # +1.7 GB
+		9) padding_mb=1800 ;; # +1.8 GB
+		*) padding_mb=1000 ;;
+	esac
+fi
+# 4. Sum them up cleanly as standard integers
+local total_mb=$((du_mb + padding_mb))    
+# 5. Output the exact IMGSIZE string format you need
+IMGSIZE="${total_mb}MB"
+}
+
+shrink_p1 (){
+ROOTFS_LOOP="/dev/mapper/$LOOP"
+ROOTFS="${ROOTFS_LOOP}"
+if [[ "$FSTYPE" == "ext4" ]]; then fsck.${FSTYPE} -pf "$ROOTFS" > /dev/null 2>&1; fi
+mkdir -p ${ROOTFS_LABEL}
+sleep .50
+mount "${ROOTFS}" ${ROOTFS_LABEL}
+sleep 1
+calculate
+if [ $RAM -ne 0 ]; then IMAGE_FOLDER="ram/"; fi
+mkdir -p "$IMAGE_FOLDER"
+if [ $RAM -ne 0 ]; then mount -t tmpfs -o size=4G tmpfs $IMAGE_FOLDER; fi
+partition > /dev/null 2>&1
+uuid
+echo -en "Finishing"
+sleep 1
+if [ $VERBOSE -eq 1 ]; then cp -axv ${ROOTFS_LABEL}/* p1/; else cp -ax ${ROOTFS_LABEL}/* p1/; fi
+sleep .75
+echo -en " (${IMGSIZE})"
+umount ${ROOTFS_LABEL}
+sleep .75
+rm -fdr ${ROOTFS_LABEL}
+kpartx -d shrink.img
+sleep .50
+rm -f shrink.img
+if [[ "$EXTLINUX" == "true" ]] && [[ "$EFI" == "false" ]]; then extlinux > /dev/null 2>&1; fi
+if [[ "$BOOTCMD" == "true" || "$BOOTINI" == "true" ]] && [[ "$EFI" == "false" ]]; then bootcmdini > /dev/null 2>&1; fi
+p1_fstab > /dev/null 2>&1
+umount p1
+sleep .50
+if [[ "$FSTYPE" == "ext4" ]]; then fsck.${FSTYPE} -pf "${IMAGE_LOOP_DEV_ROOTFS}" > /dev/null 2>&1; fi
+losetup -d "${IMAGE_LOOP_DEV}"
+mv "${IMAGE_FOLDER}${IMAGE_FILE_NAME}" "${IMAGE_FILE_NAME}"
+if [ $RAM -ne 0 ]; then umount "${IMAGE_FOLDER}"; fi
+rmdir "${IMAGE_FOLDER}"
+rmdir p1
+echo -e ", done."
+}
+
+shrink_p2 (){
+if [[ "$EFI" == "true" ]]; then OLD_PARTUUID="$ROOT_PARTUUID"; fi
+B_LOOP=`echo "$LOOP" | sed -n '1p'`
+R_LOOP=`echo "$LOOP" | sed -n '2p'`
+BOOT_LOOP="/dev/mapper/$B_LOOP"
+ROOTFS_LOOP="/dev/mapper/$R_LOOP"
+if [[ "$EFI" == "true" ]]; then EFI_BOOT="${BOOT_LOOP}"; else BOOT="${BOOT_LOOP}"; fi
+ROOTFS="${ROOTFS_LOOP}"
+if [[ "$FSTYPE" == "ext4" ]]; then fsck.${FSTYPE} -pf "$ROOTFS" > /dev/null 2>&1; fi
+if [[ "$EFI" == "true" ]]; then mkdir -p EFI; else mkdir -p BOOT; fi
+mkdir -p ${ROOTFS_LABEL}
+sleep .50
+if [[ "$EFI" == "true" ]]; then mount "${EFI_BOOT}" EFI; else mount "${BOOT}" BOOT; fi
+sleep 1
+mount "${ROOTFS}" ${ROOTFS_LABEL}
+sleep 1
+calculate
+if [ $RAM -ne 0 ]; then IMAGE_FOLDER="ram/"; fi
+mkdir -p "$IMAGE_FOLDER"
+if [ $RAM -ne 0 ]; then mount -t tmpfs -o size=4G tmpfs $IMAGE_FOLDER; fi
+partition > /dev/null 2>&1
+uuid
+echo -en "Finishing"
+sleep 1
+if [[ "$EFI" == "true" ]] then cp -fr EFI/* p1/; else cp -fr BOOT/* p1/; fi
+if [ $VERBOSE -eq 1 ]; then
+	if [[ "$FSTYPE" == "btrfs" ]]; then cp -axv ${ROOTFS_LABEL}/@/* p2/; else cp -axv ${ROOTFS_LABEL}/* p2/; fi
+else
+	if [[ "$FSTYPE" == "btrfs" ]]; then cp -ax ${ROOTFS_LABEL}/@/* p2/; else cp -ax ${ROOTFS_LABEL}/* p2/; fi
+fi
+sleep .75
+echo -en " (${IMGSIZE})"
+if [[ "$EFI" == "true" ]]; then umount EFI; else umount BOOT; fi
+umount ${ROOTFS_LABEL}
+sleep .75
+rm -fdr BOOT EFI; rm -fdr ${ROOTFS_LABEL}
+kpartx -d shrink.img
+sleep .50
+rm -f shrink.img
+if [[ "$EXTLINUX" == "true" ]] && [[ "$EFI" == "false" ]]; then extlinux > /dev/null 2>&1; fi
+if [[ "$BOOTCMD" == "true" || "$BOOTINI" == "true" ]] && [[ "$EFI" == "false" ]]; then bootcmdini > /dev/null 2>&1; fi
+if [[ "$PETITBOOT" == "true" ]] && [[ "$EFI" == "false" ]]; then odroid_bootcmd > /dev/null 2>&1; fi
+if [[ "$FAMILY" == "broadcom" ]] && [[ "$EFI" == "false" ]]; then brcm_cmdline; config_dot_txt; fi
+if [[ "$EFI" == "true" ]]; then
+	P_EFI="${P_VALUE}/boot/efi"
+	mkdir -p ${P_EFI}
+	mount -o bind p1 ${P_EFI}
+	mount -o bind /dev ${P_VALUE}/dev
+	mount -o bind /dev/pts ${P_VALUE}/dev/pts
+	update_grub_sh # grub fixup
+	if [[ -f "${P_VALUE}/etc/grub.d/09_$BOARD" ]]; then sed -i "s/root=PARTUUID=${OLD_PARTUUID}/root=PARTUUID=${ROOT_PARTUUID}/g" ${P_VALUE}/etc/grub.d/09_$BOARD; fi
+	if [ $VERBOSE -eq 1 ]; then chroot ${P_VALUE} /root/update_grub.sh; else chroot ${P_VALUE} /root/update_grub.sh > /dev/null 2>&1; fi
+	umount ${P_VALUE}/dev/pts
+	umount ${P_VALUE}/dev
+	umount ${P_EFI}
+	rm -f ${P_VALUE}/root/update_grub.sh
+	sleep .50
+fi
+p2_fstab > /dev/null 2>&1
+sleep 1
+umount p2; umount p1
+sleep .50
+if [[ "$FSTYPE" == "ext4" ]]; then fsck.${FSTYPE} -pf "${IMAGE_LOOP_DEV_ROOTFS}" > /dev/null 2>&1; fi
+losetup -d "${IMAGE_LOOP_DEV}"
+mv "${IMAGE_FOLDER}${IMAGE_FILE_NAME}" "${IMAGE_FILE_NAME}"
+if [ $RAM -ne 0 ]; then umount "${IMAGE_FOLDER}"; fi
+rmdir "${IMAGE_FOLDER}"
+rmdir p1 p2
+echo -e ", done."
+}

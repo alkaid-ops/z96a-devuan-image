@@ -1,0 +1,39 @@
+#!/bin/bash
+source lib/function/echoes
+source lib/source
+validation
+source packaging/pkgvars
+source lib/function/uboot
+source lib/function/compilers
+# override the board file
+if [[ -f "board.txt" ]]; then . board.txt; else noboard; fi
+source lib/function/${FAMILY}
+source userdata.txt
+source lib/function/patching
+# ignore board and userdata file
+if [[ -f "ignore.txt" ]]; then . ignore.txt; rm -f ignore.txt; fi
+# debug switch
+if [ $VERBOSE -eq 1 ]; then set -x; fi
+# compile native or cross
+compile
+# override the user data file
+if [[ "$FORCE_VERSION" == "true" ]]; then
+	if [ ! -z $FORCE_UBOOT_VERSION ]; then UBOOT_VERSION="${FORCE_UBOOT_VERSION}"; fi
+fi
+# compiler
+uboot_compilers
+# boards
+if [[ "$FAMILY" =~ ^(broadcom|generic)$ ]]; then
+	:;
+elif [[ "$PRECOMPILED_UBOOT" == "true" ]]; then
+	uboot_precompiled_packaging
+else
+	if [[ "$FAMILY" == "amlogic" ]]; then
+		. lib/function/fip
+		if [[ "$SERIES" == "amlogic-t7" ]]; then . lib/function/${SERIES}; fi
+	fi
+	if [[ "$FAMILY" =~ ^(allwinner|freescale|rockchip)$ ]]; then . lib/function/atf; . lib/function/crust; fi
+	if [[ "$FAMILY" == "spacemit" ]]; then . lib/function/opensbi; fi
+	${FAMILY}_uboot_run
+fi
+exit 0

@@ -1,0 +1,107 @@
+#!/bin/bash
+
+# architecture
+ARCH="arm"
+ARCH_EXT="armhf"
+DEBARCH=""
+CROSS_COMPILE="arm-linux-gnueabihf-"
+ROOTFS_ARCH="rootfs-${ARCH_EXT}"
+STATIC="qemu-arm-static"
+
+# device information
+SERIES="exynos5422"
+FAMILY="samsung"
+FAMILY_EXT="exynos"
+DTB="${SERIES}-odroidxu4"
+
+# default config
+LINUX_DEFCONFIG="odroid-xu4_defconfig"
+UBOOT_DEFCONFIG="odroid-xu3_defconfig"
+
+# partition layout
+BOOT_EXT4="false" # change P_VALUE to p2 if enabled
+BOOT_VFAT="false" # change P_VALUE to p2 if enabled
+EFI="false" # change P_VALUE to p2 and BOOT_VFAT to true if enabled
+GPT="false" # set to true if rockchip
+OFFSET="4MiB"
+P_VALUE="p1" # p1 = single partition
+
+# boot options
+BOOTCMD="false"
+BOOTINI="false"
+BOOTSCR="boot.cmd" # define name of boot.cmd / boot.ini (files/boot/scripts)
+EXTLINUX="true" # default
+PETITBOOT="false" # obsolete
+
+# output
+BOARD="odroidxu4"
+OUTPUT="output/${BOARD}"
+
+# extlinux and bootcmd
+BOOT_KERNEL="Image"
+BOOT_INITRD="uInitrd"
+BOOTCMD_FDTOVERLAYS="#overlays="
+EXTLINUX_FDTOVERLAYS="#fdtoverlays"
+
+# cmdline
+CONSOLE="console=tty1 console=ttySAC2,115200n8"
+LOGLEVEL="loglevel=1"
+EXTRA="net.ifnames=0 smsc95xx.macaddr=00:1e:06:61:7a:39 s5p_mfc.mem=16M usbhid.quirks=0x0eef:0x0005:0x0004"
+
+# Serial
+DEVUAN_SERIAL="T0:23:respawn:/sbin/getty -L ttySAC2 115200 vt100"
+
+# motd
+DEFAULT_MOTD="Odroid XU4"
+
+# customize
+MODULES_BLACKLIST="ina231_sensor"
+
+# kernel
+LINUX_EXTRA_FIRMWARE="files/firmware/edid"
+
+# patches
+LINUX_PATCHING="true"
+UBOOT_PATCHDIR="patches/uboot"
+LINUX_PATCHDIR="patches/${FAMILY}"
+
+# image
+IMG_EXP="${DTB}-*.img*"
+
+# uboot logo
+RANDOM_LOGO="true"
+
+# precompiled
+PRECOMPILED_UBOOT="false"
+PKGVERSION=""
+PRECOMPILED_UBOOT_DIR="files/boot/uboot/${BOARD}"
+
+# force git
+FORCE_GIT="false"
+GIT_OWN=""
+GIT_REPO=""
+GIT_BRANCH=""
+GIT_URL=""
+GIT_BLOB=""
+# git patching
+GIT_PATCHING="false"
+GIT_PATCHDIR="patches/git/${BOARD}/${GIT_REPO}-${GIT_BRANCH}"
+
+# override userdata file
+FORCE_VERSION="true"
+FORCE_LINUX_VERSION="6.12.y"
+FORCE_UBOOT_VERSION="v2024.01"
+
+# devicetree and platform
+DEVICETREE="${DTB}.dtb"
+PLATFORM="${FAMILY}"
+
+# kernel package name (if shared patching set to true)
+COMMON_PKG="false"
+COMMON_PKGNAME="exynos"
+
+# build old kernel headers package (not recommended)
+LEGACY_PACKAGING="false"
+
+# use builder kernel packaging (recommended)
+DEFAULT_PACKAGING="true"

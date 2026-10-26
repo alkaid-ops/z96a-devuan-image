@@ -1,0 +1,146 @@
+#!/bin/bash
+
+DOWNLOAD="aria2c -c --download-result=hide --console-log-level=error --disable-ipv6=true --summary-interval=0 --show-files=false"
+# Mirrors
+AB_URL="https://mirrors.dotsrc.org/armbian-dl/_toolchain"
+GH_URL="https://github.com/pyavitz/debian-image-builder/releases/tag/toolchain"
+# Khadas VIM4 Compiler Toolchain
+if [[ "$HOST_ARCH" == "x86_64"  ]]; then TC_ARCH="linux-x64"; fi
+if [[ "$HOST_ARCH" == "aarch64"  ]]; then TC_ARCH="linux-${ARCH}"; fi
+ARM64_COMPILER="gcc-linaro-7.3.1-2018.05-${HOST_ARCH}_aarch64-elf"
+RISCV_COMPILER="xpack-riscv-none-embed-gcc-8.3.0-1.2"
+
+# TOOLCHAIN MIRROR
+khadasvim4_toolchain_mirror (){
+if [[ `wget -S --spider ${AB_URL}/${ARM64_COMPILER}.tar.xz 2>&1 | grep 'HTTP/1.1 200 OK'` ]] && \
+	[[ `wget -S --spider ${AB_URL}/${RISCV_COMPILER}-${TC_ARCH}.tar.gz 2>&1 | grep 'HTTP/1.1 200 OK'` ]]; then TC_URL="${AB_URL}"
+elif [[ `wget -S --spider ${GH_URL}/${ARM64_COMPILER}.tar.xz 2>&1 | grep 'HTTP/1.1 200 OK'` ]] && \
+	[[ `wget -S --spider ${GH_URL}/${RISCV_COMPILER}-${TC_ARCH}.tar.gz 2>&1 | grep 'HTTP/1.1 200 OK'` ]]; then TC_URL="${GH_URL}"
+else
+	echo -e "${DEFAULT_MOTD} toolchain mirror function failed to find tarball(s)."
+	echo -e "Check that you are connected to the webs and try again."
+	exit 1
+fi
+}
+
+# TOOLCHAIN
+khadasvim4_uboot_toolchain (){
+if [[ ! -d "${ARM64_COMPILER}" ]]; then
+	${BOARD}_toolchain_mirror
+	echo -en "${ARM64_COMPILER}:"
+	sleep .25
+	echo -en " Starting download ..."
+	sleep .50
+	${DOWNLOAD} ${TC_URL}/${ARM64_COMPILER}.tar.xz
+	if [[ -f "${ARM64_COMPILER}.tar.xz" ]]; then
+		echo -en " Extracting"
+		tar xf ${ARM64_COMPILER}.tar.xz
+		if [[ ! -d "${ARM64_COMPILER}" ]]; then report_error; else rm -f ${ARM64_COMPILER}.tar.xz; echo -e ", done."; fi
+	else
+		echo -e ", failed."
+		exit 1
+	fi
+fi
+if [[ ! -d "${RISCV_COMPILER}" ]]; then
+	${BOARD}_toolchain_mirror
+	echo -en "${RISCV_COMPILER}:"
+	sleep .25
+	echo -en " Starting download ..."
+	sleep .50
+	${DOWNLOAD} ${TC_URL}/${RISCV_COMPILER}-${TC_ARCH}.tar.gz
+	if [[ -f "${RISCV_COMPILER}-${TC_ARCH}.tar.gz" ]]; then
+		echo -en " Extracting"
+		tar xf ${RISCV_COMPILER}-${TC_ARCH}.tar.gz
+		if [[ ! -d "${RISCV_COMPILER}" ]]; then report_error; else rm -f ${RISCV_COMPILER}-${TC_ARCH}.tar.gz; echo -e ", done."; fi
+	else
+		echo -e ", failed."
+		exit 1
+	fi
+fi
+}
+
+# U-BOOT
+amlogic_uboot_download (){
+if [[ "$SERIES" == "amlogic-t7" ]]; then
+	${BOARD}_uboot_toolchain
+	GIT_UBOOT_HASH=`git ls-remote --heads ${GIT_UBOOT_URL} | grep -w "refs/heads/${GIT_UBOOT_TAG}" | sed -n '1p' | sed "s/refs\/heads\/${GIT_UBOOT_TAG}//g" | sed s/'\s'//g`
+	GIT_UBOOT_COMMIT="a7b06ca0498f2da0faf14e75148b5075c84d7381" # mainline branch
+	if [[ ! "$GIT_UBOOT_COMMIT" == "$GIT_UBOOT_HASH" ]]; then rm -fdr ${FAMILY}-u-boot-${GIT_UBOOT_TAG}; fi
+	if [[ -d "${FAMILY}-u-boot-${GIT_UBOOT_TAG}" ]]; then
+		echo -en "${FAMILY}-u-boot-${GIT_UBOOT_TAG}:"
+		cd ${FAMILY}-u-boot-${GIT_UBOOT_TAG}
+		make clean > /dev/null 2>&1
+		echo -en " Restoring"
+		cd ..; cp -r ${FAMILY}-u-boot-${GIT_UBOOT_TAG} u-boot
+		# Fake defconfig (required by builder)
+		touch u-boot/configs/${UBOOT_DEFCONFIG}
+		echo -e ", done."
+	else
+		git clone -c advice.detachedHead=false --depth=1 ${GIT_UBOOT_URL} -b ${GIT_UBOOT_TAG} ${FAMILY}-u-boot-${GIT_UBOOT_TAG}
+		if [[ -d "${FAMILY}-u-boot-${GIT_UBOOT_TAG}" ]]; then
+			cd ${FAMILY}-u-boot-${GIT_UBOOT_TAG}; make clean > /dev/null 2>&1; cd ..
+			cp -r ${FAMILY}-u-boot-${GIT_UBOOT_TAG} u-boot
+			# Fake defconfig (required by builder)
+			touch u-boot/configs/${UBOOT_DEFCONFIG}
+		else
+			echo -e "Download failed!"
+			exit 1
+		fi
+	fi
+fi
+}
+
+amlogic_uboot_builddeb (){
+ARM64_PATH=`readlink -f ../${ARM64_COMPILER}`
+RISCV_PATH=`readlink -f ../${RISCV_COMPILER}`
+export PATH="${ARM64_PATH}/bin:${PATH}"
+export PATH="${RISCV_PATH}/bin:${PATH}"
+export CROSS_COMPILE="aarch64-elf-"
+UBOOT_DIR="$PWD"
+rm -fdr fip/_tmp
+make -j${CORES}
+fip/mk_script.sh kvim4 $UBOOT_DIR
+}
+
+amlogic_uboot_output (){
+if [[ -f "fip/_tmp/u-boot.bin.signed" ]] && [[ -f "fip/_tmp/u-boot.bin.sd.bin.signed" ]]; then
+	mkdir -p ../../${OUTPUT}
+	cp -f fip/_tmp/u-boot.bin.signed ../../${OUTPUT}/u-boot.bin
+	cp -f fip/_tmp/u-boot.bin.sd.bin.signed ../../${OUTPUT}/u-boot.bin.sd.bin
+	cp -f fip/_tmp/u-boot.bin.signed fip/u-boot.bin
+	cp -f fip/_tmp/u-boot.bin.sd.bin.signed fip/u-boot.bin.sd.bin
+	uboot_packaging
+	rm -f "fip/{u-boot.bin,u-boot.bin.sd.bin}"
+else
+	report_error
+fi
+}
+
+# LINUX
+#amlogic_linux_compiler (){
+#if [[ "$HOST_CODENAME" == "resolute" ]] && [[ "$SERIES" == "amlogic-t7" ]]; then
+#	if [[ "$HOST_ARCH" == "aarch64" ]]; then
+#		if [[ `dpkg -l | grep gcc-14-base:arm64` ]]; then :; else apt install -y gcc-14; fi
+#	fi
+#	COMPILER="gcc-14"
+#fi
+#}
+
+#amlogic_extra_git (){
+#if [[ "$SERIES" == "amlogic-t7" ]]; then
+#	if [[ -v "GIT_EXTRA" ]] && [[ ! -z "$GIT_EXTRA" ]]; then git clone --depth=1 ${GIT_EXTRA}; fi
+#fi
+#}
+
+#amlogic_extra_git_patching (){
+# Drop in DTS
+#if [[ "$SERIES" == "amlogic-t7" ]] && [[ "$FORCE_GIT" == "true" ]] && [[ -d "../../${GIT_PATCHDIR}/dts" ]]; then
+#	if [[ `ls ../../${GIT_PATCHDIR}/dts/{Makefile,*.dts}` ]] > /dev/null 2>&1; then
+#		echo "# ${GIT_PATCHDIR}/dts" | sed -e 's/\(.*\)/\U\1/' >> ${LOG_FILE}
+#		ls ../../${GIT_PATCHDIR}/dts/*.dts* | sed 's/..\/..\///g' >> ${LOG_FILE}
+#		cp -fr ../../${GIT_PATCHDIR}/dts/*.dts* common_drivers/arch/${ARCH}/boot/dts/${PLATFORM}
+#		echo "" >> common_drivers/arch/${ARCH}/boot/dts/${PLATFORM}/Makefile
+#		cat ../../${GIT_PATCHDIR}/dts/Makefile >> common_drivers/arch/${ARCH}/boot/dts/${PLATFORM}/Makefile
+#	fi
+#fi
+#}

@@ -1,0 +1,30 @@
+#!/bin/bash
+# BPI-CM4IO / M2S LED TRIGGERS
+
+LED1="blue:status"
+LED2="green:status"
+if [ -f "/sys/class/leds/${LED1}/trigger" ]; then
+	BLUE_LED="/sys/class/leds/${LED1}/trigger"
+	if [ -e $BLUE_LED ]; then
+		ROOT_DEVICE=`findmnt -v -n -o SOURCE /`
+		ROOT_DEVICE=${ROOT_DEVICE/\/dev\//}
+		ROOT_DEVICE=${ROOT_DEVICE/mmcblk/mmc}
+		ROOT_DEVICE=${ROOT_DEVICE/p[0-9]/}
+		echo -n "$ROOT_DEVICE" > $BLUE_LED
+	fi
+	if [[ -e "$BLUE_LED" ]]; then
+		ROOT_SSD=`findmnt -v -n -o SOURCE / | sed 's/..$//'`
+		if [[ "$ROOT_SSD" == "/dev/nvme0n1" ]]; then
+			echo -n "none" > $BLUE_LED
+		fi
+		ROOT_SATA=`findmnt -v -n -o SOURCE / | sed 's/.$//'`
+		if [[ "$ROOT_SATA" == "/dev/sda" || "$ROOT_SATA" == "/dev/sdb" ]]; then
+			echo -n "none" > $BLUE_LED
+		fi
+	fi
+fi
+if [ -f "/sys/class/leds/${LED2}/trigger" ]; then
+	echo "0" > /sys/class/leds/${LED2}/brightness
+fi
+
+exit 0

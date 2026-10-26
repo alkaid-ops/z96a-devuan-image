@@ -1,0 +1,507 @@
+#!/bin/bash
+
+filesystem (){
+if [[ "$BOOT_EXT4" == "true" ]]; then EXTFS="ext4"; BOOTFS="mkfs.${EXTFS} -L"; fi
+if [[ "$FSTYPE" =~ ^(btrfs|xfs)$ ]]; then EXTFS="ext4"; BOOTFS="mkfs.${EXTFS} -L"; fi
+if [[ "$PETITBOOT" == "true" ]]; then EXTFS="ext2"; BOOTFS="mkfs.${EXTFS} -L"; fi
+if [[ "$BOOT_VFAT" == "true" ]]; then BOOTFS="mkfs.fat -F 32 -n"; fi
+# boot label
+if [[ "$EFI" == "true" ]]; then BOOT_LABEL="EFI"; else if [[ "$FAMILY" =~ ^(broadcom)$ ]]; then BOOT_LABEL="FIRMWARE"; else BOOT_LABEL="BOOT"; fi; fi
+# rootfs label
+ROOTFS_LABEL=`echo "${DISTRO}" | sed -e 's/.*/\U&/'`
+# filesystems
+if [[ "$P_VALUE" == "p2" ]]; then MAKE_BOOTFS="${BOOTFS} ${BOOT_LABEL} ${IMAGE_LOOP_DEV_BOOT}"; fi
+if [[ "$FSTYPE" == "ext4" ]]; then
+	MAKE_ROOTFS="mkfs.ext4 -L ${ROOTFS_LABEL} ${IMAGE_LOOP_DEV_ROOTFS}"
+	MOUNT_ROOTFS="mount -o defaults,noatime ${IMAGE_LOOP_DEV_ROOTFS} ${P_ROOTFS}"
+	ROOTFS_TABLE="ext4	defaults,noatime,commit=600,errors=remount-ro 0 1"
+	ROOT_FSTYPE="rootfstype=ext4"
+fi
+if [[ "$FSTYPE" == "btrfs" ]]; then
+	MAKE_ROOTFS="mkfs.btrfs -f -L ${ROOTFS_LABEL} ${IMAGE_LOOP_DEV_ROOTFS}"
+	MOUNT_ROOTFS="mount -o compress=lzo,noatime,subvol=@ ${IMAGE_LOOP_DEV_ROOTFS} ${P_ROOTFS}"
+	ROOTFS_TABLE="btrfs	defaults,compress=lzo,noatime,subvol=@ 0 1"
+	ROOT_FLAGS="rootflags=subvol=@"
+	ROOT_FSTYPE="rootfstype=btrfs ${ROOT_FLAGS}"
+fi
+if [[ "$FSTYPE" == "xfs" ]]; then
+	MAKE_ROOTFS="mkfs.xfs -f -L ${ROOTFS_LABEL} ${IMAGE_LOOP_DEV_ROOTFS}"
+	MOUNT_ROOTFS="mount -o defaults,noatime ${IMAGE_LOOP_DEV_ROOTFS} ${P_ROOTFS}"
+	ROOTFS_TABLE="xfs	defaults,noatime 0 1"
+	ROOT_FSTYPE="rootfstype=xfs"
+fi
+}
+
+single_partition (){
+truncate -s ${IMGSIZE} "${IMAGE_FOLDER}${IMAGE_FILE_NAME}"
+if [[ "$GPT" == "true" ]]; then
+	parted --script "${IMAGE_FOLDER}${IMAGE_FILE_NAME}" \
+	mklabel gpt \
+	mkpart 1 ext2 ${PART_OFFSET} 100%
+else
+	parted --script "${IMAGE_FOLDER}${IMAGE_FILE_NAME}" \
+	mklabel msdos \
+	mkpart primary ext2 ${PART_OFFSET} 100%
+fi
+IMAGE_LOOP_DEV="$(losetup --show -P -f ${IMAGE_FOLDER}${IMAGE_FILE_NAME})"
+IMAGE_LOOP_DEV_ROOTFS="${IMAGE_LOOP_DEV}${P_ROOTFS}"
+partprobe "${IMAGE_LOOP_DEV}"
+sleep 1 # stabilize
+mkdir -p ${P_ROOTFS}
+filesystem
+$MAKE_ROOTFS
+mount "${IMAGE_LOOP_DEV_ROOTFS}" ${P_ROOTFS}
+if [[ "$FSTYPE" == "btrfs" ]]; then btrfs subvolume create ${P_ROOTFS}/@; fi
+flash_uboot
+sync
+umount ${P_ROOTFS}
+$MOUNT_ROOTFS
+}
+
+dual_partition (){
+truncate -s ${IMGSIZE} "${IMAGE_FOLDER}${IMAGE_FILE_NAME}";
+if [[ "$BOOT_VFAT" == "true" ]]; then
+	if [[ "$GPT" == "true" ]]; then
+		parted --script "${IMAGE_FOLDER}${IMAGE_FILE_NAME}" \
+		mklabel gpt \
+		mkpart 1 fat32 ${PART_OFFSET} ${BSIZE} \
+		mkpart 2 ext2 ${BSIZE} 100%
+	else
+		parted --script "${IMAGE_FOLDER}${IMAGE_FILE_NAME}" \
+		mklabel msdos \
+		mkpart primary fat32 ${PART_OFFSET} ${BSIZE} \
+		mkpart primary ext2 ${BSIZE} 100%
+		#parted --script "${IMAGE_FOLDER}${IMAGE_FILE_NAME}" set 1 lba off
+		parted --script "${IMAGE_FOLDER}${IMAGE_FILE_NAME}" set 1 boot on
+	fi
+	if [[ "$EFI" == "true" ]]; then parted --script "${IMAGE_FOLDER}${IMAGE_FILE_NAME}" set 1 esp on; fi
+else
+	if [[ "$GPT" == "true" ]]; then
+		parted --script "${IMAGE_FOLDER}${IMAGE_FILE_NAME}" \
+		mklabel gpt \
+		mkpart 1 ext2 ${PART_OFFSET} ${BSIZE} \
+		mkpart 2 ext2 ${BSIZE} 100%
+	else
+		parted --script "${IMAGE_FOLDER}${IMAGE_FILE_NAME}" \
+		mklabel msdos \
+		mkpart primary ext2 ${PART_OFFSET} ${BSIZE} \
+		mkpart primary ext2 ${BSIZE} 100%
+	fi
+fi
+IMAGE_LOOP_DEV="$(losetup --show -P -f ${IMAGE_FOLDER}${IMAGE_FILE_NAME})"
+IMAGE_LOOP_DEV_BOOT="${IMAGE_LOOP_DEV}${P_BOOT}"
+IMAGE_LOOP_DEV_ROOTFS="${IMAGE_LOOP_DEV}${P_ROOTFS}"
+partprobe "${IMAGE_LOOP_DEV}"
+sleep 1 # stabilize
+mkdir -p ${P_BOOT} ${P_ROOTFS}
+filesystem
+$MAKE_BOOTFS
+$MAKE_ROOTFS
+mount "${IMAGE_LOOP_DEV_BOOT}" ${P_BOOT}
+mount "${IMAGE_LOOP_DEV_ROOTFS}" ${P_ROOTFS}
+if [[ "$FSTYPE" == "btrfs" ]]; then btrfs subvolume create ${P_ROOTFS}/@; fi
+if [[ "$PETITBOOT" == "true" && "$FAMILY_EXT" == "odroid" ]]; then flash_vendor-uboot; else flash_uboot; fi
+sync
+umount ${P_ROOTFS}
+$MOUNT_ROOTFS
+}
+
+partition (){
+# offset first partition by
+PART_OFFSET="${OFFSET}"
+# don't support EFI on raspberrypi
+if [[ "$FAMILY" == "broadcom" ]]; then EFI="false"; fi
+# boot partition size
+if [[ "$EFI" == "true" ]]; then BSIZE="256MiB"; else BSIZE="512MiB"; fi
+# partition values
+if [[ "$P_VALUE" == "p1" ]]; then P_ROOTFS="p1"; single_partition; fi
+if [[ "$P_VALUE" == "p2" ]]; then P_BOOT="p1"; P_ROOTFS="p2"; dual_partition; fi
+}
+
+uuid (){
+if [[ "$P_VALUE" == "p1" ]]; then
+	ROOT_UUID=$(blkid -o export -- "${IMAGE_LOOP_DEV_ROOTFS}" | sed -ne 's/^UUID=//p')
+	ROOT_PARTUUID=$(blkid -o export -- "${IMAGE_LOOP_DEV_ROOTFS}" | sed -ne 's/^PARTUUID=//p')
+else
+	BOOT_UUID=$(blkid -o export -- "${IMAGE_LOOP_DEV_BOOT}" | sed -ne 's/^UUID=//p')
+	ROOT_UUID=$(blkid -o export -- "${IMAGE_LOOP_DEV_ROOTFS}" | sed -ne 's/^UUID=//p')
+	ROOT_PARTUUID=$(blkid -o export -- "${IMAGE_LOOP_DEV_ROOTFS}" | sed -ne 's/^PARTUUID=//p')
+fi
+}
+
+p1_fstab (){
+rm -f p1/etc/fstab 
+tee p1/etc/fstab <<EOF
+UUID=${ROOT_UUID}	/	${ROOTFS_TABLE}
+tmpfs		/tmp	tmpfs	defaults,nosuid 0 0
+EOF
+}
+
+p2_fstab (){
+rm -f p2/etc/fstab
+if [[ "$BOOT_VFAT" == "true" ]] && [[ "$EFI" == "false" ]]; then
+	if [[ "$FAMILY" == "broadcom" ]]; then
+		BOOTFS_TABLE="/boot/broadcom	vfat	defaults,flush 0 2"
+	else
+		BOOTFS_TABLE="/boot	vfat	defaults,flush 0 2"
+	fi
+fi
+if [[ "$BOOT_VFAT" == "true" ]] && [[ "$EFI" == "true" ]]; then
+	BOOTFS_TABLE="/boot/efi	vfat	defaults,flush 0 2"
+fi
+if [[ "$BOOT_VFAT" == "false" ]] && [[ "$EFI" == "false" ]]; then
+	BOOTFS_TABLE="/boot	${EXTFS}	rw,relatime,errors=continue 0 2"
+fi
+tee p2/etc/fstab <<EOF
+UUID=${BOOT_UUID}	${BOOTFS_TABLE}
+UUID=${ROOT_UUID}	/	${ROOTFS_TABLE}
+tmpfs	/tmp		tmpfs	defaults,nosuid 0 0
+EOF
+}
+
+add_output (){
+# add u-boot and kernel debs
+if [[ "$MINIMAL_ROOTFS" == "false" ]]; then
+	cp -r ${OUTPUT}/*.deb ${P_VALUE}/root
+else
+	cp ${OUTPUT}/linux-image-*.deb ${P_VALUE}/root
+	if [[ ! "$FAMILY" =~ ^(broadcom|generic)$ ]]; then cp ${OUTPUT}/u-boot-*.deb ${P_VALUE}/root; fi
+fi
+}
+
+check_output (){
+if [[ -d "output/${BOARD}" ]] && [[ `ls output/${BOARD}/linux-*.deb` ]] && [[ "$FAMILY" =~ ^(broadcom|generic)$ ]]; then
+	:;
+elif [[ -d "output/${BOARD}" ]] && [[ `ls output/${BOARD}/linux-*.deb` ]] && [[ `ls output/${BOARD}/u-boot-*.deb` ]]; then
+	:;
+else
+	echo -e "Missing u-boot or linux deb package"
+	echo -e ""
+	read -p "Press enter to continue."
+	exit 0
+fi
+}
+
+setup (){
+TARBALL_OUTPUT="output/tarball"
+if [[ "$MINIMAL_ROOTFS" == "false" ]]; then
+	RELEASE_TARBALL=${DISTRO}-${DISTRO_VERSION}-${ROOTFS_ARCH}.tar.xz
+else
+	RELEASE_TARBALL=${DISTRO}-${DISTRO_VERSION}-minimal-${ROOTFS_ARCH}.tar.xz
+fi
+if [[ ! -f "${TARBALL_OUTPUT}/${RELEASE_TARBALL}" ]]; then
+	echo -e "${YLW}Missing ${RELEASE_TARBALL}${FIN}?"
+	make clean > /dev/null 2>&1
+	exit 1
+fi
+if [ $VERBOSE -eq 1 ]; then partition; else partition > /dev/null 2>&1; fi
+if [ $VERBOSE -eq 1 ]; then uuid; else uuid > /dev/null 2>&1; fi
+echo -en "Extracting: ${RELEASE_TARBALL}"
+tar -xf ${TARBALL_OUTPUT}/${RELEASE_TARBALL} -C ${P_VALUE}/
+echo -e ", done."
+mkdir -p ${P_VALUE}/etc/apt/apt.conf.d ${P_VALUE}/etc/dpkg/dpkg.cfg.d
+echo "force-unsafe-io" > "${P_VALUE}/etc/dpkg/dpkg.cfg.d/dpkg-unsafe-io"
+mkdir -p ${P_VALUE}/usr/bin
+cp $(command -v "${STATIC}") ${P_VALUE}/usr/bin
+if [ $VERBOSE -eq 1 ]; then choose_release; else choose_release > /dev/null 2>&1; fi
+if [ $VERBOSE -eq 1 ]; then ${P_VALUE}_fstab; else ${P_VALUE}_fstab > /dev/null 2>&1; fi
+if [ -n "$PROXY" ]; then
+	tee "${P_VALUE}/etc/apt/apt.conf.d/30proxy" <<EOF
+Acquire::http::proxy "http://127.0.0.1:3142";
+EOF
+fi
+}
+
+board_information (){
+BOARD_DEST="${P_VALUE}/etc/opt/board.txt"
+cat <<EOF > "${BOARD_DEST}"
+# architecture
+ARCH="$ARCH"
+ARCH_EXT="$ARCH_EXT"
+CROSS_COMPILE="$CROSS_COMPILE"
+
+# device information
+BOARD="$BOARD"
+SERIES="$SERIES"
+FAMILY="$FAMILY"
+FAMILY_EXT="$FAMILY_EXT"
+DTB="$DTB"
+
+# partition scheme
+BOOT_EXT4="$BOOT_EXT4"
+BOOT_VFAT="$BOOT_VFAT"
+EFI="$EFI"
+GPT="$GPT"
+OFFSET="$OFFSET"
+P_VALUE="$P_VALUE"
+
+# filesystem
+FSTYPE="$FSTYPE"
+
+# boot config
+EXTLINUX="$EXTLINUX"
+PETITBOOT="$PETITBOOT"
+BOOTINI="$BOOTINI"
+BOOTCMD="$BOOTCMD"
+
+# command line
+CONSOLE="$CONSOLE"
+LOGLEVEL="$LOGLEVEL"
+EXTRA="$EXTRA"
+
+# motd
+DEFAULT_MOTD="$DEFAULT_MOTD"
+EOF
+}
+
+files (){
+if [[ "$GENERIC_KERNEL" == "true" ]] && [[ "$BOARD" =~ ^(uefi-amd64|uefi-arm64) ]]; then
+	:; # bypass custom kernel debs
+else
+	add_output
+fi
+# add stage2 script
+cp scripts/stage2 ${P_VALUE}/root
+# add board, user data and function files
+cp lib/function/${FAMILY} ${P_VALUE}/root/${FAMILY}.txt
+cp lib/function/networking ${P_VALUE}/root/networking.txt
+cp lib/function/services ${P_VALUE}/root/services.txt
+cp lib/source ${P_VALUE}/root/source.txt
+echo "MINIMAL_ROOTFS=${MINIMAL_ROOTFS}" >> ${P_VALUE}/root/source.txt
+echo "EXTRA_FIRMWARE=${EXTRA_FIRMWARE}" >> ${P_VALUE}/root/source.txt
+echo "ROOT_PARTUUID=${ROOT_PARTUUID}" >> ${P_VALUE}/root/source.txt
+echo "GENERIC_KERNEL=${GENERIC_KERNEL}" >> ${P_VALUE}/root/source.txt
+if [[ `type user_function` ]] &>/dev/null; then
+	echo "" >> ${P_VALUE}/root/source.txt
+	cat <(declare -f user_function) >> ${P_VALUE}/root/source.txt
+fi
+cp board.txt ${P_VALUE}/root
+cp userdata.txt ${P_VALUE}/root
+# add misc files
+cp files/scripts/* ${P_VALUE}/root
+cp files/users/* ${P_VALUE}/root
+# add misc firmware
+cp -f files/firmware/{fw-0a5c_21e8.hcd,UPDATE.mem} ${P_VALUE}/root
+# add devuan inits
+if [[ "$DISTRO" == "devuan" ]]; then cp files/inits/*.init ${P_VALUE}/root; fi
+# install board information
+board_information
+# add alsa conf files
+if [[ -f "files/asound/${BOARD}.state" ]]; then cp files/asound/${BOARD}.state ${P_VALUE}/root/asound.state; fi
+if [[ -f "files/asound/${BOARD}.conf" ]]; then cp files/asound/${BOARD}.conf ${P_VALUE}/root/asound.conf; fi
+# board support package files
+if [[ -d "files/bsp/${BOARD}/etc" ]]; then mkdir -p ${P_VALUE}/etc; cp -fr files/bsp/${BOARD}/etc/* ${P_VALUE}/etc/; fi
+# board / family firmware and binary blobs
+if [[ `type ${FAMILY}_stage1_extra_firmware` ]] &>/dev/null; then ${FAMILY}_stage1_extra_firmware; fi
+# led trigger scripts
+if [[ -f "files/led-trigger/${BOARD}" ]]; then cp files/led-trigger/${BOARD} ${P_VALUE}/root/led-trigger; fi
+# system tweak scripts
+if [[ -f "files/tweaks/${BOARD}" ]]; then mkdir -p ${P_VALUE}/usr/bin; cp files/tweaks/${BOARD} ${P_VALUE}/usr/bin/tweaks; fi
+# user account service
+if [ $USERACCT -eq 1 ]; then mkdir -p ${P_VALUE}/root/useracct; cp -r files/useracct/* ${P_VALUE}/root/useracct; fi
+# arm kmod fixups
+if [[ "$ARCH" == "arm" && "$DISTRO_VERSION" =~ ^(excalibur|kali-rolling|trixie|resolute)$ && -f "files/bsp/${ARCH}/usr/share/initramfs-tools/hooks/kmod" ]]; then
+	mkdir -p ${P_VALUE}/etc/opt
+	mkdir -p ${P_VALUE}/usr/share/initramfs-tools/hooks
+	if [[ -f "${P_VALUE}/usr/share/initramfs-tools/hooks/kmod" ]]; then
+		mv -f ${P_VALUE}/usr/share/initramfs-tools/hooks/kmod ${P_VALUE}/etc/opt/kmod.orig
+	fi
+	cp -f files/bsp/${ARCH}/usr/share/initramfs-tools/hooks/kmod ${P_VALUE}/usr/share/initramfs-tools/hooks/
+	chmod +x /usr/share/initramfs-tools/hooks/kmod
+fi
+# more recent hook-functions are not supported on amlogic-t7 5.15.y kernels
+if [[ "$SERIES" == "amlogic-t7" && -f "files/bsp/${BOARD}/usr/share/initramfs-tools/hook-functions" ]]; then
+	# current "hook-functions" file taken from Ubuntu Noble
+	mkdir -p ${P_VALUE}/etc/opt
+	mkdir -p ${P_VALUE}/usr/share/initramfs-tools
+	if [[ -f "${P_VALUE}/usr/share/initramfs-tools/hook-functions" ]]; then
+		mv -f ${P_VALUE}/usr/share/initramfs-tools/hook-functions ${P_VALUE}/etc/opt/hook-functions.orig
+	fi
+	cp -f files/bsp/${BOARD}/usr/share/initramfs-tools/hook-functions ${P_VALUE}/usr/share/initramfs-tools/
+fi
+# raspberrypi addons
+if [[ "$FAMILY" == "broadcom" ]] && [[ -d "files/bsp/${BOARD}" ]]; then
+	mkdir -p ${P_VALUE}/etc/udev/rules.d
+	cp -r files/bsp/${BOARD}/etc/udev/rules.d/*.rules ${P_VALUE}/etc/udev/rules.d/
+	if [[ "$BOARD" =~ ^(raspberrypi4|raspberrypi5)$ ]]; then xorg_v3d_conf; fi
+fi
+# bianbu grub fixup
+if [[ "$EFI" == "true" && "$DISTRO" == "bianbu" ]]; then
+	if [[ -f "files/bsp/${DISTRO}/etc/grub.d/10_linux-${DISTRO_VERSION}" ]]; then
+		cp files/bsp/${DISTRO}/etc/grub.d/10_linux-${DISTRO_VERSION} ${P_VALUE}/root/10_linux-${DISTRO_VERSION}
+		chmod +x ${P_VALUE}/root/10_linux-${DISTRO_VERSION}
+	fi
+fi
+# do not accept new conf files in an unattended install (remove file at the end of stage2)
+mkdir -p ${P_VALUE}/etc/apt/apt.conf.d
+echo 'Dpkg::Options {"--force-confold";};' > ${P_VALUE}/etc/apt/apt.conf.d/71debconf
+}
+
+bootcmdini (){
+if [[ "$BOOTCMD" == "true" ]]; then BOOT_FTYPE="boot.cmd";
+elif [[ "$BOOTINI" == "true" ]]; then BOOT_FTYPE="boot.ini"; fi
+if [[ "$P_VALUE" == "p1" ]]; then BOOT_PATH="p1/boot"; else BOOT_PATH="p1"; fi
+rm -f ${BOOT_PATH}/{boot.cmd,boot.scr,boot.ini}
+if [[ -f "files/boot/scripts/${BOOTSCR}" ]]; then
+	cp -f files/boot/scripts/${BOOTSCR} ${BOOT_PATH}/${BOOT_FTYPE}
+else
+	echo "No ${BOOTSCR} file found?"
+	exit 1
+fi
+sed -i 's/^setenv platform "".*/setenv platform "'"${PLATFORM}"'"/g' ${BOOT_PATH}/${BOOT_FTYPE}
+if [[ "$BOOTCMD" == "true" ]]; then
+	echo "" >> ${BOOT_PATH}/${BOOT_FTYPE}
+	echo "# mkimage -C none -A ${ARCH} -T script -d boot.cmd boot.scr" >> ${BOOT_PATH}/${BOOT_FTYPE}
+	mkimage -C none -A ${ARCH} -T script -d ${BOOT_PATH}/${BOOT_FTYPE} ${BOOT_PATH}/boot.scr
+fi
+# environment file
+cat <<EOF > "${BOOT_PATH}/${PLATFORM}Env.txt"
+bootlabel=${DEFAULT_MOTD}
+console=${CONSOLE}
+extra=${EXTRA}
+fdtfile=${DTB}.dtb
+initramfs=${BOOT_INITRD}
+kernel=${BOOT_KERNEL}
+platform=${FAMILY}
+rootdev=PARTUUID=${ROOT_PARTUUID}
+rootfstype=${FSTYPE}
+${LOGLEVEL}
+
+# OVERLAYS
+${BOOTCMD_FDTOVERLAYS}
+#user_overlays=
+EOF
+if [[ "$FSTYPE" == "btrfs" ]]; then sed -i "s/^extra=.*/extra=${EXTRA} ${ROOT_FLAGS}/" ${BOOT_PATH}/${PLATFORM}Env.txt; fi
+}
+
+extlinux (){
+echo -en "$BOARD: "; echo -e "extlinux.conf"
+if [[ "$P_VALUE" == "p1" ]]; then BOOT_PATH="p1/boot"; else BOOT_PATH="p1"; fi
+FDT="../${FAMILY}/${DTB}.dtb"
+FDTDIR="../${FAMILY}"
+CMDLINE="append earlyprintk ${CONSOLE} rw root=PARTUUID=${ROOT_PARTUUID} rootwait ${ROOT_FSTYPE} fsck.repair=yes ${LOGLEVEL} ${EXTRA} init=/sbin/init"
+CHECK=`echo "$INSTALLED_KERNEL" | sed -e 's/^\(.\{4\}\).*/\1/' | sed 's/-//g'`
+mkdir -p ${BOOT_PATH}/extlinux
+if [[ -f "${BOOT_PATH}/extlinux/extlinux.conf" ]]; then rm -f ${BOOT_PATH}/extlinux/extlinux.conf; fi
+tee ${BOOT_PATH}/extlinux/extlinux.conf <<EOF
+menu title ${DEFAULT_MOTD}
+timeout 5
+
+label ${CAP_DISTRO} ${CAP_RELEASE}
+	kernel ../${BOOT_KERNEL}
+	initrd ../${BOOT_INITRD}
+	fdtdir ${FDTDIR}
+	fdt ${FDT}
+	${EXTLINUX_FDTOVERLAYS}
+	${CMDLINE}
+EOF
+}
+
+update_grub_sh (){
+if [[ "$ARCH" == "x86" ]]; then ARCH="x86_64"; fi
+if [[ "$ARCH" == "riscv" ]]; then ARCH="riscv64"; fi
+cat <<EOF > "${P_VALUE}/root/update_grub.sh"
+#!/usr/bin/env bash
+# grub fixup script
+
+DISTRO="$DISTRO"
+
+set -o errexit
+set -o pipefail
+set -o nounset
+
+mount -t proc proc proc/
+mount -t sysfs sys sys/
+
+if [[ "$DISTRO" =~ ^(bianbu|ubuntu)$ ]]; then
+	grub-install --target=${ARCH}-efi --efi-directory=/boot/efi --bootloader-id=ubuntu
+else
+	grub-install --removable
+fi
+update-grub
+umount /proc /sys
+
+exit 0
+EOF
+chmod +x ${P_VALUE}/root/update_grub.sh
+if [[ "$ARCH" == "x86_64" ]]; then ARCH="x86"; fi
+if [[ "$ARCH" == "riscv64" ]]; then ARCH="riscv"; fi
+}
+
+# odroid boot script and env file
+odroid_bootcmd (){
+rm -f p1/{boot.cmd,config.ini}
+cp files/boot/scripts/${FAMILY_EXT}-boot.cmd p1/boot.cmd
+cp files/boot/scripts/${FAMILY_EXT}-config.ini p1/config.ini
+if [[ -f "files/boot/scripts/${FAMILY_EXT}-boot-logo.bmp.gz" ]]; then cp files/boot/scripts/${FAMILY_EXT}-boot-logo.bmp.gz p1/boot-logo.bmp.gz; fi
+sed -i "s/uuid=PARTUUID=/uuid=PARTUUID=${ROOT_PARTUUID}/g" p1/config.ini
+if [[ "$FSTYPE" =~ ^(ext4|xfs)$ ]]; then sed -i "s/rootfstype=/rootfstype=${ROOT_FSTYPE}/g" p1/config.ini; fi
+if [[ "$FSTYPE" == "btrfs" ]]; then sed -i 's/rootfstype=/rootfstype="'"${ROOT_FSTYPE}"'"/g' p1/config.ini; fi
+sed -i "s/fdtfile=/fdtfile=${DTB}.dtb/g" p1/config.ini
+mkimage -C none -A ${ARCH} -T script -d p1/boot.cmd p1/boot.scr
+}
+
+customize_image (){
+if [[ ! -f "custom.txt" ]]; then echo "custom.txt is missing! Run make config."; exit 1; fi
+# Edit board.txt variables before the file gets sourced
+if [[ "$FSTYPE" =~ ^(btrfs|xfs)$ ]]; then
+	# U-Boot doesn't support booting directly from these fstypes so force a boot partition
+	if [[ `grep -w 'P_VALUE="p1"' "board.txt"` ]]; then sed -i 's/P_VALUE="p1"/P_VALUE="p2"/g' board.txt; fi
+fi
+if [[ ! `grep -w 'FAMILY="broadcom"' "board.txt"` ]]; then
+	if [[ "$ENABLE_BOOTCMD" == "true" ]] && [[ "$ENABLE_PETITBOOT" == "false" ]]; then
+		if [[ `grep -w 'EXTLINUX="true"' "board.txt"` ]]; then sed -i 's/EXTLINUX="true"/EXTLINUX="false"/g' board.txt; fi
+		if [[ `grep -w 'BOOTCMD="false"' "board.txt"` ]]; then sed -i 's/BOOTCMD="false"/BOOTCMD="true"/g' board.txt; fi
+	fi
+fi
+if [[ "$ENABLE_BOOT_EXT4" == "true" ]]; then
+	if [[ `grep -w 'BOOT_EXT4="false"' "board.txt"` ]]; then sed -i 's/BOOT_EXT4="false"/BOOT_EXT4="true"/g' board.txt; fi
+	if [[ `grep -w 'P_VALUE="p1"' "board.txt"` ]]; then sed -i 's/P_VALUE="p1"/P_VALUE="p2"/g' board.txt; fi
+fi
+if [[ "$ENABLE_BOOT_VFAT" == "true" ]]; then
+	if [[ `grep -w 'BOOT_VFAT="false"' "board.txt"` ]]; then sed -i 's/BOOT_VFAT="false"/BOOT_VFAT="true"/g' board.txt; fi
+	if [[ `grep -w 'P_VALUE="p1"' "board.txt"` ]]; then sed -i 's/P_VALUE="p1"/P_VALUE="p2"/g' board.txt; fi
+fi
+if [[ ! `grep -w 'FAMILY="broadcom"' "board.txt"` ]]; then
+	if [[ "$ENABLE_EFI" == "true" ]]; then
+		sed -i 's/EFI="false"/EFI="true"/g' board.txt
+		if [[ `grep -w 'BOOT_VFAT="false"' "board.txt"` ]]; then sed -i 's/BOOT_VFAT="false"/BOOT_VFAT="true"/g' board.txt; fi
+		if [[ `grep -w 'P_VALUE="p1"' "board.txt"` ]]; then sed -i 's/P_VALUE="p1"/P_VALUE="p2"/g' board.txt; fi
+		if [[ `grep -w 'EXTLINUX="true"' "board.txt"` ]]; then sed -i 's/EXTLINUX="true"/EXTLINUX="false"/g' board.txt; fi
+		if [[ `grep -w 'BOOTCMD="true"' "board.txt"` ]]; then sed -i 's/BOOTCMD="true"/BOOTCMD="false"/g' board.txt; fi
+		if [[ `grep -w 'BOOTINI="true"' "board.txt"` ]]; then sed -i 's/BOOTINI="true"/BOOTCMD="false"/g' board.txt; fi
+		if [[ `grep -w 'FAMILY="rockchip"' "board.txt"` ]] && [[ `grep -w 'GPT="false"' "board.txt"` ]]; then
+			sed -i 's/GPT="false"/GPT="true"/g' board.txt
+		fi
+	fi
+fi
+if [[ "$ENABLE_PETITBOOT" == "true" ]] && [[ `grep -w 'FAMILY_EXT="odroid"' "board.txt"` ]]; then
+	sed -i 's/P_VALUE="p1"/P_VALUE="p2"/g' board.txt
+	sed -i 's/EXTLINUX="true"/EXTLINUX="false"/g' board.txt
+	sed -i 's/PETITBOOT="false"/PETITBOOT="true"/g' board.txt
+fi
+}
+
+# rename and check for compression
+finish_image (){
+mkdir -p ${OUTPUT}/image
+IMAGE_TIME="$(date +%T | sed 's/://g' | sed 's/..$//')"
+if [[ "$MINIMAL_ROOTFS" == "false" ]]; then
+	IMAGE_FIN_NAME="${DEVICE_SOC}-${DISTRO}-${DISTRO_VERSION}-${INSTALLED_KERNEL}-${ARCH_EXT}-${FSTYPE}-${IMAGE_DATE}-${IMAGE_TIME}.img"
+else
+	IMAGE_FIN_NAME="${DEVICE_SOC}-${DISTRO}-${DISTRO_VERSION}-minimal-${INSTALLED_KERNEL}-${ARCH_EXT}-${FSTYPE}-${IMAGE_DATE}-${IMAGE_TIME}.img"
+fi
+if [[ -f "${IMAGE_FILE_NAME}" ]]; then mv -f ${IMAGE_FILE_NAME} ${OUTPUT}/image/${IMAGE_FIN_NAME}; else echo -e "Build error: ${IMAGE_FILE_NAME}"; exit 1; fi
+if [ $COMPRESS_IMG -eq 1 ]; then
+	echo ""
+	echo -e "Compressing image ..."
+	if [[ "$IMG_COMPRESSION" == "xz" ]]; then xz -zev --threads=${CORES} ${OUTPUT}/image/${IMAGE_FIN_NAME}; fi
+	if [[ "$IMG_COMPRESSION" == "zst" ]]; then zstd -z --ultra --fast=10 -19 -T${CORES} --rm ${OUTPUT}/image/${IMAGE_FIN_NAME}; fi
+	if [[ -f "${OUTPUT}/image/${IMAGE_FIN_NAME}.${IMG_COMPRESSION}" ]]; then
+		cd ${OUTPUT}/image
+		sha256sum ${IMAGE_FIN_NAME}.${IMG_COMPRESSION} > ${IMAGE_FIN_NAME}.${IMG_COMPRESSION}.sha256
+		sha256sum --check ${IMAGE_FIN_NAME}.${IMG_COMPRESSION}.sha256
+		cd ../../..
+	fi
+fi
+}

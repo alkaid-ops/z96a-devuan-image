@@ -1,0 +1,75 @@
+#!/bin/bash
+
+ARCH=""
+INITRD="/boot/initrd.img"
+INITRD_BRCM="/boot/broadcom/initrd.img"
+UINITRD="/boot/uInitrd"
+
+# fixup boot conf files
+if [[ -f "/boot/broadcom/config.txt" ]]; then
+	if [[ `grep "initrd.gz" "/boot/broadcom/config.txt"` ]]; then
+		echo "Updating config.txt: Renaming initrd.gz to initrd.img"
+		sed  -i 's/initrd.gz/initrd.img/g' /boot/broadcom/config.txt
+	fi
+fi
+if [[ -f "/boot/extlinux/extlinux.conf" ]]; then
+	if [[ `grep "initrd.gz" "/boot/extlinux/extlinux.conf"` ]]; then
+		echo "Updating extlinux.conf: Renaming initrd.gz to initrd.img"
+		sed  -i 's/initrd.gz/initrd.img/g' /boot/extlinux/extlinux.conf
+	fi
+fi
+if [[ `ls "/etc/grub.d/09_*"` ]] > /dev/null 2>&1; then
+	source /etc/opt/board.txt
+	if [[ `grep "initrd.gz" "/etc/grub.d/09_$BOARD"` ]]; then
+		echo "Updating grub.cfg: Renaming initrd.gz to initrd.img"
+		sed  -i 's/initrd.gz/initrd.img/g' /etc/grub.d/09_$BOARD
+	fi
+fi
+
+failed (){
+echo >&2 "Error: $@"
+echo >&2 "uInitrd generation failed. Exiting."
+exit 1
+}
+
+if [[ -d "/boot" ]] && [[ `ls  /boot/initrd.img-*` ]] > /dev/null 2>&1; then
+	rm -fr /boot/{initrd.img,initrd.img-*-bak}
+	if [[ -d "/boot/broadcom" ]]; then
+		rm -f /boot/broadcom/initrd.img
+		cp -f /boot/initrd.img-* ${INITRD_BRCM}
+		rm -f /boot/firmware
+		ln -s /boot/broadcom /boot/firmware
+	else
+		if [[ `findmnt -v -n /boot | grep -w "vfat"` ]]; then
+			cp -f /boot/initrd.img-* ${INITRD}
+		else
+			cd /boot
+			ln -s initrd.img-* initrd.img
+			cd "$OLDPWD"
+		fi
+	fi
+fi
+
+if [[ ! -d "/boot/broadcom" ]] && [[ "$#" -eq 2 ]]; then
+	if [[ ! -z "$1" ]] && [[ -f "$2" ]]; then
+		NAME="initramfs-$1"
+		FILE="$2"
+		echo "update-initramfs: Generating ${UINITRD}"
+		rm -f ${UINITRD}
+		mkimage -A ${ARCH} -O linux -T ramdisk -C gzip -a 0x00000000 -e 0x00000000 -n ${NAME} -d ${FILE} ${UINITRD}
+	else
+		failed
+	fi
+fi
+
+# Spoof /boot/dtb dir
+if [[ ! `findmnt -v -n /boot | grep -w "vfat"` ]]; then
+	if [[ -f "/etc/opt/board.txt" ]]; then
+		. /etc/opt/board.txt
+		if [[ ! -e "/boot/dtb/${FAMILY}" ]] && [[ -d "/boot/${FAMILY}" ]]; then
+			mkdir -p /boot/dtb; cd /boot/dtb; ln -s ../${FAMILY} .
+		fi
+	fi
+fi
+
+exit 0

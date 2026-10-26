@@ -1,0 +1,91 @@
+#!/bin/bash
+
+# ATF BINARY AND FIRMWARE
+atf_bl31 (){ # place bl31 file.
+if [[ "$FAMILY_EXT" == "imx8" ]]; then
+	if [[ -f "../imx-arm-trusted-firmware/build/${ATF_PLAT}/release/bl31.bin" ]]; then
+		cp ../imx-arm-trusted-firmware/build/${ATF_PLAT}/release/bl31.bin bl31.bin
+	else
+		report_atf_error
+	fi
+	cp ../firmware-imx-${IMX_FW_VER}/firmware/ddr/synopsys/lpddr4*.bin .
+	cp ../firmware-imx-${IMX_FW_VER}/firmware/hdmi/cadence/signed_hdmi_imx8m.bin .
+	cp ../firmware-imx-${IMX_FW_VER}/firmware/hdmi/cadence/signed_dp_imx8m.bin .
+fi
+}
+
+# U-BOOT
+uboot_output (){
+if [[ "$ARCH" == "arm" ]]; then
+	if [[ -f "u-boot.img" ]] && [[ -f "SPL" ]]; then
+		mkdir -p ../../${OUTPUT}
+		cp -f SPL ../../${OUTPUT}/sploader.bin
+		cp -f u-boot.img ../../${OUTPUT}/u-boot.bin
+		uboot_packaging
+	else
+		report_error
+	fi
+fi
+if [[ "$ARCH" == "arm64" ]]; then
+	if [[ -f "flash.bin" ]]; then
+		mkdir -p ../../${OUTPUT}
+		cp -f flash.bin u-boot.bin
+		cp -f u-boot.bin ../../${OUTPUT}/
+		uboot_packaging
+	else
+		report_error
+	fi
+fi
+}
+
+freescale_uboot_run (){
+IMX_FW_VER="8.17"
+sources_dir
+if [[ "$ARCH" == "arm64" ]]; then
+	imx_arm_trusted_firmware
+	if [[ -f "firmware-imx-${IMX_FW_VER}.bin" ]] && [[ -d "firmware-imx-${IMX_FW_VER}" ]]; then
+		echo -en "${WHT}firmware-imx-${IMX_FW_VER}${FIN} "
+		echo -e "${PNK}[${FIN}${YLW}found${FIN}${PNK}]${FIN}"
+	else
+		rm -fdr firmware-imx-${IMX_FW_VER}*
+		cp -f ../files/firmware/imx8/u-boot-firmware-imx-${IMX_FW_VER}.bin firmware-imx-${IMX_FW_VER}.bin
+		chmod +x firmware-imx-${IMX_FW_VER}.bin
+		bash firmware-imx-${IMX_FW_VER}.bin --auto-accept
+	fi
+fi
+uboot_run
+uboot_output
+}
+
+freescale_uboot_packaging (){
+if [[ "$ARCH" == "arm" ]]; then
+	cp -f SPL ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/usr/lib/${PKGNAME}/sploader.bin
+	cp -f u-boot.img ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/usr/lib/${PKGNAME}/u-boot.bin
+fi
+if [[ "$ARCH" == "arm64" ]]; then
+	cp -f u-boot.bin ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/usr/lib/${PKGNAME}/
+fi
+}
+
+# STAGE1
+flash_uboot (){
+if [[ "$SERIES" == "imx6q" ]]; then
+	dd if=${OUTPUT}/sploader.bin of="${IMAGE_LOOP_DEV}" bs=1k seek=1 conv=sync
+	dd if=${OUTPUT}/u-boot.bin of="${IMAGE_LOOP_DEV}" bs=1k seek=69 conv=sync
+fi
+if [[ "$SERIES" == "imx8mp" ]]; then
+	dd if=${OUTPUT}/u-boot.bin of="${IMAGE_LOOP_DEV}" bs=1024 seek=32 conv=notrunc
+fi
+}
+
+freescale_stage1_extra_firmware (){
+if [[ "$BOARD" == "cuboxi" ]]; then
+	mkdir -p ${P_VALUE}/lib/firmware/{qcom,vpu}
+	cp -r files/firmware/qcom/* ${P_VALUE}/lib/firmware/qcom
+	cp -r files/firmware/vpu/* ${P_VALUE}/lib/firmware/vpu
+fi
+if [[ "$FAMILY_EXT" == "imx8" ]]; then
+	mkdir -p ${P_VALUE}/lib/firmware/microchip
+	cp -r files/firmware/microchip/* ${P_VALUE}/lib/firmware/microchip
+fi
+};

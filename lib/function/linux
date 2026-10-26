@@ -1,0 +1,227 @@
+#!/bin/bash
+# LINUX KERNEL VARIABLES AND FUNCTIONS
+
+sources_dir (){
+if [[ `ls ${SRC}/*.backup` ]] > /dev/null 2>&1; then
+	echo -en "Performing maintenance"
+	make purge
+	echo -e ", done."
+fi
+mkdir -p ${SRC}
+cp -f board.txt ${SRC}/
+cd ${SRC}
+}
+
+report_dir_error (){
+echo -e "NOTICE: Directory ${KERNEL} is MIA. Please make a report."
+echo ""
+exit 1
+}
+
+resolve_version (){
+if [[ "$VERSION" =~ ^([0-9].[0-9].y|[0-9].[0-9][0-9].y)$ ]]; then
+	URL="https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git"
+	if [[ `wget -S --spider ${URL}/plain/Makefile?h=${KERNEL}-${VERSION} 2>&1 | grep 'HTTP/1.1 200 OK'` ]]; then
+		curl --silent -L ${URL}/plain/Makefile?h=${KERNEL}-${VERSION} | grep -m1 "VERSION" | \
+		sed 's/VERSION = //g' > revision.txt
+		curl --silent -L ${URL}/plain/Makefile?h=${KERNEL}-${VERSION} | grep -m1 "PATCHLEVEL" | \
+		sed 's/PATCHLEVEL = /./g' >> revision.txt
+		if [[ `curl --silent -L ${URL}/plain/Makefile?h=${KERNEL}-${VERSION} | grep -m1 "SUBLEVEL" | \
+			sed 's/SUBLEVEL = /./g' | grep -x ".0"` ]]; then :;
+		else
+			curl --silent -L ${URL}/plain/Makefile?h=${KERNEL}-${VERSION} | grep -m1 "SUBLEVEL" | \
+			sed 's/SUBLEVEL = /./g' >> revision.txt
+		fi
+		curl --silent -L ${URL}/plain/Makefile?h=${KERNEL}-${VERSION} | grep -m1 "EXTRAVERSION" | \
+		sed 's/EXTRAVERSION =//g' | sed 's/ //g' >> revision.txt
+		REVISION=$(tr -d '\n' < revision.txt)
+		VERSION="${REVISION}"
+		rm -f revision.txt
+	fi
+else
+	if [[ "$VERSION" =~ ^(next|stable|rc)$ ]]; then
+		URL="https://kernel.org"
+		NEXT=$(curl -s $URL | grep -A1 'linux-next:' | grep -oP '(?<=strong>).*(?=</strong.*)')
+		STABLE=$(curl -s $URL/releases.json | jq '.latest_stable.version' -r)
+		RC=$(curl -s $URL | grep -A1 'mainline:' | grep -oP '(?<=strong>).*(?=</strong.*)')
+		if [[ "$VERSION" == "next" ]]; then VERSION="${NEXT}"
+		elif [[ "$VERSION" == "stable" ]]; then VERSION="${STABLE}"
+		elif [[ "$VERSION" == "rc" ]]; then VERSION="${RC}"; fi;
+	fi
+fi
+}
+
+download (){
+if [[ -n "$GIT_KERNELORG" ]] && [[ "$GIT_KERNELORG" == "true" ]]; then
+	GIT_NEXT="https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git/tag/?h=${VERSION}"
+	GIT_STABLE="https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tag/?h=v${VERSION}"
+	GIT_TORVALDS="https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tag/?h=v${VERSION}"
+	if [[ `wget -S --spider ${GIT_STABLE} 2>&1 | grep 'HTTP/1.1 200 OK'` ]]; then GIT_REPO="stable"; GIT_BRANCH="linux"
+	elif [[ `wget -S --spider ${GIT_TORVALDS} 2>&1 | grep 'HTTP/1.1 200 OK'` ]]; then GIT_REPO="torvalds"; GIT_BRANCH="linux"
+	elif [[ `wget -S --spider ${GIT_NEXT} 2>&1 | grep 'HTTP/1.1 200 OK'` ]]; then GIT_REPO="next"; GIT_BRANCH="linux-next"; else
+			echo -e "The git branch v${VERSION} is not available?"; exit 0; fi
+	GIT_URL="https://git.kernel.org/pub/scm/linux/kernel/git/${GIT_REPO}/${GIT_BRANCH}.git"
+	if [[ -d "${KERNEL}-${VERSION}" ]]; then
+		echo -en "${KERNEL}" | sed -e "s/\b\(.\)/\u\1/g"; echo -en "-${VERSION}:"
+		echo -en " Restoring"
+		rm -fdr ${KERNEL}
+		cp -r ${KERNEL}-${VERSION} ${KERNEL}
+		echo -e ", done."
+	else
+		echo -e "This may take a while ..."
+		echo ""
+		if [[ "$GIT_REPO" == "next" ]]; then GIT_VERSION="${VERSION}"; else GIT_VERSION="v${VERSION}"; fi
+		git clone -c advice.detachedHead=false --depth 1 -b ${GIT_VERSION} ${GIT_URL} ${KERNEL}-${VERSION}
+		sleep .50
+		if [[ -d "${KERNEL}-${VERSION}" ]] && [[ -f "${KERNEL}-${VERSION}/Makefile" ]]; then
+			echo -en "${KERNEL}" | sed -e "s/\b\(.\)/\u\1/g"; echo -en "-${VERSION}:"
+			echo -en " Preparing"
+			if [[ -d "${KERNEL}" ]]; then rm -fdr ${KERNEL}; fi
+			cp -r ${KERNEL}-${VERSION} ${KERNEL}
+			echo -e ", done."
+		else
+			echo -en "${KERNEL}" | sed -e "s/\b\(.\)/\u\1/g"; echo -en "-${VERSION}:"
+			echo -en " Download"
+			echo -e ", failed."
+			exit 1
+		fi
+	fi
+else
+	echo -e 'GIT_KERNELORG="false" is depreciated'
+	exit 1
+fi
+}
+
+setup (){
+sleep .75
+if [[ "$DEFAULT_PACKAGING" == "true" ]] && [[ -d "${KERNEL}" ]]; then
+	cd ${KERNEL}
+	export ARCH=${ARCH}
+	# remove builddeb and mkdebian scripts
+	rm -f scripts/package/{builddeb,mkdebian}
+	# add custom builddeb and mkdebian scripts
+	if [[ "$LEGACY_PACKAGING" == "true" ]]; then
+		cp -fr ../../packaging/legacy/{builddeb,mkdebian} scripts/package/
+	else
+		cp -fr ../../packaging/{builddeb,mkdebian} scripts/package/
+	fi
+	chmod +x scripts/package/{builddeb,mkdebian}
+elif [[ "$DEFAULT_PACKAGING" == "false" ]] && [[ -d "${KERNEL}" ]]; then
+	cd ${KERNEL}
+	# edit builddeb/mkdebian build script (linux-image-$VERSION-$BUILD_VERSION-$ARCH_EXT)
+	# note: this has the potential of not working using the stable and rc branches
+	sed -i '16i\KERNELRELEASE="'${VERSION}'-'${BUILD_VERSION}'"' scripts/package/builddeb
+	sed -i '8i\KERNELRELEASE="'${VERSION}'-'${BUILD_VERSION}'"' scripts/package/mkdebian
+	sed -i '\|${MAKE} -f ${srctree}/Makefile INSTALL_DTBS_PATH="${pdir}/usr/lib/linux-image-${KERNELRELEASE}" dtbs_install|i\		mkdir -p "${pdir}/usr/lib/linux-image-${KERNELRELEASE}"' scripts/package/builddeb
+	sed -i 's/${pdir}\/usr\/src\/linux-headers-${version}/${pdir}\/usr\/src\/linux-headers-${KERNELRELEASE}/g' scripts/package/builddeb
+	sed -i 's/$pdir\/lib\/modules\/${version}/$pdir\/lib\/modules\/${KERNELRELEASE}/g' scripts/package/builddeb
+	sed -i 's/$pdir\/lib\/modules\/$version/$pdir\/lib\/modules\/${KERNELRELEASE}/g' scripts/package/builddeb
+	sed -i 's/\/usr\/src\/linux-headers-$version/\/usr\/src\/linux-headers-${KERNELRELEASE}/g' scripts/package/builddeb
+	sed -i 's/Package: $packagename-$version/Package: $packagename-$version-'$BUILD_VERSION'-'$ARCH_EXT'/g' scripts/package/mkdebian
+	sed -i 's/Package: linux-headers-$version/Package: linux-headers-$version-'$BUILD_VERSION'-'$ARCH_EXT'/g' scripts/package/mkdebian
+	sed -i 's/Package: $packagename-${KERNELRELEASE}/Package: $packagename-${KERNELRELEASE}-'$ARCH_EXT'/g' scripts/package/mkdebian
+	sed -i 's/Package: linux-headers-${KERNELRELEASE}/Package: linux-headers-${KERNELRELEASE}-'$ARCH_EXT'/g' scripts/package/mkdebian
+else
+	report_dir_error
+fi
+}
+
+linux_configs (){
+if [[ -v "MODULES" ]] && [[ ! -z "$MODULES" ]]; then
+	# insert additional modules
+	echo -e ${MODULES} | tr ' ' '\n' | tee -a modlist.txt > /dev/null 2>&1
+	for MODLIST in `cat modlist.txt`; do
+		if [[ `grep -w "${MODLIST}" "arch/${ARCH}/configs/${LINUX_DEFCONFIG}"` ]]; then :; else echo "${MODLIST}" >> "arch/${ARCH}/configs/${LINUX_DEFCONFIG}"; fi
+		rm -f modlist.txt
+	done
+fi
+if [ $CLANG -eq 1 ] && [[ "$ARCH" == "arm64" ]] && [[ -f "arch/${ARCH}/configs/${LINUX_DEFCONFIG}" ]]; then
+	if [[ `grep -w "CONFIG_LTO_CLANG_THIN=y" "arch/${ARCH}/configs/${LINUX_DEFCONFIG}"` ]]; then :; else echo "CONFIG_LTO_CLANG_THIN=y" >> arch/${ARCH}/configs/${LINUX_DEFCONFIG}; fi
+fi
+}
+
+cconfig (){
+echo_cconfig
+if [[ -f "../${DEF}/${MYCONFIG}" ]]; then
+	cp -f ../${DEF}/${MYCONFIG} arch/${ARCH}/configs/
+else
+	echo ""
+	echo -e "${MYCONFIG} was not found."
+	echo -e "Check that the name is correct and in the correct location."
+	echo -e "If you believe you are receiving this in error, please report it."
+	read -p "Press enter to continue."
+	exit 1
+fi
+kbuild "${MYCONFIG}"
+echo ""
+}
+
+bconfig (){
+echo_defconfig
+if [[ -f "../${DEF}/${LINUX_DEFCONFIG}" ]]; then
+	cp -f ../${DEF}/${LINUX_DEFCONFIG} arch/${ARCH}/configs/
+elif [[ -f "arch/${ARCH}/configs/${LINUX_DEFCONFIG}" ]]; then
+	:;
+else
+	echo ""
+	echo -e "${LINUX_DEFCONFIG} was not found."
+	echo -e "Check that the name is correct and in the correct location."
+	echo -e "If you believe you are receiving this in error, please report it."
+	read -p "Press enter to continue."
+	exit 1
+fi
+linux_configs
+if [[ `type ${FAMILY}_extra_modules` ]] &>/dev/null; then ${FAMILY}_extra_modules; fi
+kbuild "${LINUX_DEFCONFIG}"
+echo ""
+}
+
+save_defconfig (){
+if [[ -f "defconfig" ]]; then
+	echo ""
+	mkdir -p ../../$OUTPUT/
+	# minimal
+	cp -f defconfig ../../$OUTPUT/${BOARD}_defconfig
+	# full
+	cp -f .config ../../$OUTPUT/${BOARD}-config_defconfig
+	# path to files
+	ls -ls ../../$OUTPUT/${BOARD}_defconfig | sed 's/..\/..\///g'
+	ls -ls ../../$OUTPUT/${BOARD}-config_defconfig | sed 's/..\/..\///g'
+fi
+}
+
+menuconfig (){
+echo ""
+echo_menuconfig
+sleep .50
+kbuild "menuconfig"
+sleep .25
+kbuild "savedefconfig"
+echo "# ${DEFAULT_MOTD} defconfig saved."
+options=("Continue" "Quit")
+select opt in "${options[@]}"
+do
+	case $opt in
+		"Continue")
+			save_defconfig
+			break
+			;;
+		"Quit")
+			save_defconfig
+			exit 0
+			;;
+		*) echo "invalid option $REPLY";;
+	esac
+done
+}
+
+builddeb (){
+if [ $CROSSCOMPILE -eq 1 ]; then echo -e "${GRN}  CC${FIN}      ${CROSS_COMPILE}${COMPILER}"; else echo -e "${GRN}  NC${FIN}      ${COMPILER}"; fi
+if [[ "$LEGACY_PACKAGING" == "true" ]]; then
+	echo ${BUILD_VERSION} > .version
+else
+	sed -i "3i BUILD_VERSION=${BUILD_VERSION}" scripts/build-version
+	sed -i 's/${ver}/${BUILD_VERSION}/g' scripts/build-version
+fi
+echo 'y' | kbuild "LOCALVERSION= KBUILD_BUILD_USER=${KBUSER} KBUILD_BUILD_HOST=${KBHOST}.com KDEB_COMPRESS=${COMPRESSION} bindeb-pkg"
+}

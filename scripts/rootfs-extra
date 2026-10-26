@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+
+source /root/source.txt
+source /root/userdata.txt
+source /root/board.txt
+source /root/${FAMILY}.txt
+export DEBIAN_FRONTEND="noninteractive"
+
+echo ""
+mount -t proc proc proc/
+mount -t sysfs sys sys/
+
+if [[ "$DISTRO" =~ ^(bianbu|ubuntu)$ ]]; then rm -f /etc/resolv.conf; fi
+echo "nameserver ${NAMESERVER1}" > /etc/resolv.conf
+echo "nameserver ${NAMESERVER2}" >> /etc/resolv.conf
+
+if [[ -f "/etc/apt/trusted.gpg" ]] && [[ "$DISTRO" == "raspbian" ]]; then
+	mkdir -p /etc/apt/trusted.gpg.d
+	mv -f /etc/apt/trusted.gpg /etc/apt/trusted.gpg.d/raspbian-archive-keyring.gpg
+fi
+
+# dpkg: error: failed to open package info file '/var/lib/dpkg/available' for reading: No such file or directory
+if [[ "$DISTRO_VERSION" == "focal" ]]; then dpkg --clear-avail; fi
+
+apt-get update
+apt-get install -y apt-utils
+
+# locales
+apt install -y locales
+export LANGUAGE=${LOCALE}
+export LANG=${LOCALE}
+export LC_ALL=${LOCALE_LC_ALL}
+locale-gen ${LOCALE}
+
+# timezone
+ln -snf /usr/share/zoneinfo/${TIMEZONE} /etc/localtime
+echo -n "${TIMEZONE}" > /etc/timezone
+
+apt upgrade -y
+apt dist-upgrade -y
+if [[ "$MINIMAL_ROOTFS" == "true" ]]; then PKGS_FULL=""; fi
+if [[ `type ${FAMILY}_extra_packages` ]] &>/dev/null; then ${FAMILY}_extra_packages else EXTRA_PKGS=""; fi
+if [[ "$DISTRO_VERSION" =~ ^(forky|testing|sid|stonking)$ ]]; then NETPLUG=""; else NETPLUG="netplug"; fi # need to rework all of this
+if [[ "$DISTRO_VERSION" =~ ^(oracular|plucky|questing|resolute|stonking)$ ]]; then WIRELESS="iw"; else WIRELESS="iw wireless-tools"; fi
+if [[ "$DISTRO" =~ ^(debian|raspbian)$ ]]; then
+	apt install -y ${PKGS} ${USER_PKGS} ${WIRELESS} resolvconf haveged ${NETPLUG} ${PKGS_FULL} ${EXTRA_PKGS}
+fi
+if [[ "$DISTRO" == "devuan" ]]; then
+	apt install -y openssh-client openssh-server --no-install-recommends
+	apt install -y ${PKGS} ${USER_PKGS} ${WIRELESS} openresolv haveged ${NETPLUG} ${PKGS_FULL} ${EXTRA_PKGS}
+fi
+if [[ "$DISTRO" == "kali" ]]; then
+	if [[ "$ARCH" == "arm64" ]]; then KALI_PKGS="libical3"; else KALI_PKGS="libical3t64"; fi
+	apt install -y ${PKGS} ${USER_PKGS} ${WIRELESS} dbus-user-session resolvconf haveged ${KALI_PKGS} ${PKGS_FULL} ${EXTRA_PKGS}
+fi
+if [[ "$DISTRO" =~ ^(bianbu|ubuntu)$ ]]; then
+	if [[ "$DISTRO_VERSION" =~ ^(focal|jammy)$ ]]; then RESOLV="resolvconf"; else RESOLV="systemd-resolved"; fi
+	apt install -y ${PKGS} ${USER_PKGS} ${RESOLV} ${WIRELESS} rng-tools5 ${NETPLUG} ${PKGS_FULL} ${EXTRA_PKGS}
+fi
+
+apt -y clean
+apt -y autoclean
+
+if [[ "$DISTRO" =~ ^(bianbu|ubuntu)$ ]]; then rm -f /etc/resolv.conf; fi
+umount /proc
+umount /sys

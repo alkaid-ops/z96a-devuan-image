@@ -1,0 +1,181 @@
+#!/bin/bash
+
+# compression
+COMPRESSION="xz"
+
+# linux packaging
+linux_packaging (){
+# debian package name
+if [[ "$COMMON_PKG" == "true" ]]; then
+	LINUX_IMAGE="linux-image-${COMMON_PKGNAME}"
+	LINUX_HEADERS="linux-headers-${COMMON_PKGNAME}"
+else
+	LINUX_IMAGE="linux-image-${SERIES}"
+	LINUX_HEADERS="linux-headers-${SERIES}"
+fi
+# kernel image
+if [[ "$ARCH" == "arm" ]]; then KIMAGE="zImage"; fi
+if [[ "$ARCH" =~ ^(arm64|riscv)$ ]]; then KIMAGE="Image"; fi
+# install target
+if [[ "$ARCH" == "arm" ]]; then LINUX_PATH="usr/lib/${LINUX_IMAGE}"; fi
+if [[ "$ARCH" =~ ^(arm64|riscv)$ ]]; then LINUX_PATH="usr/lib/${LINUX_IMAGE}/${PLATFORM}"; fi
+INSTALL_PATH="boot/${PLATFORM}"
+# custom pkgvars
+if [[ -v "CUSTOM_BOOT_PATH" && ! -z "$CUSTOM_BOOT_PATH" ]]; then INSTALL_PATH="${CUSTOM_BOOT_PATH}"; fi
+if [[ -v "CUSTOM_LINUX_PATH" && ! -z "$CUSTOM_LINUX_PATH" ]]; then LINUX_PATH="${CUSTOM_LINUX_PATH}"; fi
+if [[ -v "CUSTOM_KERNEL_IMAGE" && ! -z "$CUSTOM_KERNEL_IMAGE" ]]; then KIMAGE="${CUSTOM_KERNEL_IMAGE}"; fi
+# create packaging variables
+cat <<EOF > "scripts/package/pkgvars"
+# packaging variables
+karch="$ARCH"
+kimage="$KIMAGE"
+platform="$PLATFORM"
+series_name="$SERIES"
+linux_name="$LINUX_IMAGE"
+headers_name="$LINUX_HEADERS"
+linux_path="$LINUX_PATH"
+boot_path="$INSTALL_PATH"
+# packaging compression
+compression="$COMPRESSION"
+# host codename
+host_codename="$HOST_CODENAME"
+EOF
+# add overlay function
+cp -f ../../packaging/overlays scripts/package/
+}
+
+# u-boot packaging
+uboot_packaging (){
+PKGNAME="u-boot-${SERIES}-${BOARD}"
+PKGVERSION=`echo $UBOOT_VERSION | sed 's/v//g'`
+BV="${BUILD_VERSION}"
+mkdir -p ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN
+mkdir -p ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/usr/lib/${PKGNAME}/
+${PLATFORM}_uboot_packaging
+cp -f ../../packaging/flash.sh ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/usr/lib/${PKGNAME}/
+chmod +x ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/usr/lib/${PKGNAME}/flash.sh
+if [[ "$FAMILY_EXT" == "ac2xx" ]]; then
+	cp -f ../../packaging/flash-recovery.sh ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/usr/lib/${PKGNAME}/
+	chmod +x ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/usr/lib/${PKGNAME}/flash-recovery.sh
+fi
+
+# control file
+if [[ -d "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN" ]]; then
+	echo "Package: ${PKGNAME}" > "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN/control"
+	echo "Version: ${PKGVERSION}-${BV}" >> "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN/control"
+	echo "Architecture: ${ARCH_EXT}" >> "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN/control"
+	echo "Maintainer: ${KBUSER} <${KBUSER}@${KBHOST}.com>" >> "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN/control"
+	echo "Description: Das U-Boot ${SERIES} for the ${DEFAULT_MOTD}" >> "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN/control"
+fi
+
+# preinst script
+if [[ -d "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN" ]]; then
+	cat <<EOF > "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN/preinst"
+#!/bin/bash
+set -e
+
+# clean
+rm -fdr /usr/lib/u-boot
+rm -fdr /usr/lib/${PKGNAME}
+
+exit 0
+EOF
+	chmod 755 "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN/preinst"
+fi
+
+# postinst script
+if [[ -d "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN" ]]; then
+	cat <<EOF > "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN/postinst"
+#!/bin/bash
+set -e
+
+# symlink
+if [ -d /usr/lib/${PKGNAME} ]; then
+	ln -s /usr/lib/${PKGNAME} /usr/lib/u-boot
+fi
+
+exit 0
+EOF
+	chmod 755 "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN/postinst"
+fi
+
+# build deb package
+dpkg-deb -Z${COMPRESSION} --build --root-owner-group ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}
+if [[ -f "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}.deb" ]]; then
+	if [[ `ls ../../${OUTPUT}/${PKGNAME}_*.deb` ]] > /dev/null 2>&1; then
+		mkdir -p ../../${OUTPUT}/tmp
+		mv -f ../../${OUTPUT}/${PKGNAME}_*.deb ../../${OUTPUT}/tmp/
+	fi
+	mv -f "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}.deb" ../../${OUTPUT}/
+fi
+}
+
+# u-boot precompiled packaging
+uboot_precompiled_packaging (){
+if [[ "$PRECOMPILED_UBOOT" == "true" ]] && [[ ! `ls ${PRECOMPILED_UBOOT_DIR}/*.bin` ]] > /dev/null 2>&1; then
+	echo "ERR: No U-Boot binary found!"
+	exit 1
+fi
+PKGNAME="u-boot-${SERIES}-${BOARD}"
+BV="${BUILD_VERSION}"
+mkdir -p ${OUTPUT}/
+echo -e "Using precompiled binaries."
+# add binary(ies) to output directory
+cp -r ${PRECOMPILED_UBOOT_DIR}/*.bin ${OUTPUT}/
+cd ${OUTPUT}/
+rm -fdr "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}*"
+mkdir -p ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN
+mkdir -p ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/usr/lib/${PKGNAME}/
+# add binary(ies) to deb package
+cp -r *.bin ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/usr/lib/${PKGNAME}/
+# add flash script
+cp -f ../../packaging/flash.sh ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/usr/lib/${PKGNAME}/
+chmod +x ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/usr/lib/${PKGNAME}/flash.sh
+# control file
+if [[ -d "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN" ]]; then
+	echo "Package: ${PKGNAME}" > "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN/control"
+	echo "Version: ${PKGVERSION}-${BV}" >> "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN/control"
+	echo "Architecture: ${ARCH_EXT}" >> "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN/control"
+	echo "Maintainer: ${KBUSER} <${KBUSER}@${KBHOST}.com>" >> "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN/control"
+	echo "Description: Das U-Boot ${SERIES} for the ${DEFAULT_MOTD}" >> "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN/control"
+fi
+
+# preinst script
+if [[ -d "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN" ]]; then
+	cat <<EOF > "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN/preinst"
+#!/bin/bash
+set -e
+
+# clean
+rm -fdr /usr/lib/u-boot
+rm -fr /usr/lib/${PKGNAME}
+
+exit 0
+EOF
+	chmod 755 "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN/preinst"
+fi
+
+# postinst script
+if [[ -d "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN" ]]; then
+	cat <<EOF > "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN/postinst"
+#!/bin/bash
+set -e
+
+# symlink
+if [ -d /usr/lib/${PKGNAME} ]; then
+	ln -s /usr/lib/${PKGNAME} /usr/lib/u-boot
+fi
+
+exit 0
+EOF
+	chmod 755 "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}/DEBIAN/postinst"
+fi
+
+# build deb package
+if [[ `ls ${PKGNAME}_*.deb` ]] > /dev/null 2>&1; then mkdir -p tmp/; mv -f ${PKGNAME}_*.deb tmp/; fi
+dpkg-deb -Z${COMPRESSION} --build --root-owner-group ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}
+if [[ -f "${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}.deb" ]]; then
+	rm -fdr ${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}
+	ls -ls {*.bin,${PKGNAME}_${PKGVERSION}-${BV}_${ARCH_EXT}.deb}
+fi
+}
