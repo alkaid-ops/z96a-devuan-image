@@ -1,0 +1,20 @@
+### ADVANCED KERNEL PREFERENCES
+
+GIT_KERNELORG="false"
+FORCE_GIT="true"
+GIT_OWN="yjun123"
+GIT_REPO="linux"
+GIT_BRANCH="add_sunniwell_z96a"
+GIT_URL="https://ghfast.top/https://github.com"
+GIT_BLOB="blob"
+GIT_PATCHING="true"
+GIT_PATCHDIR="patches/git/z96a-v2/linux-add_sunniwell_z96a"
+
+EXTRA_WIFI="false"
+RTW88="false"
+RTW88_DEVEL="false"
+
+LINUX_LOGO="linux_clut224.ppm"
+
+### DO NOT EDIT BELOW THIS LINE
+KERNEL_PREFERENCES="$BUILDER"

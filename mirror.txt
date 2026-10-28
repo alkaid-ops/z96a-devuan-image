@@ -1,0 +1,10 @@
+BIANBU_MIRROR="https://archive.spacemit.com/bianbu"
+BIANBU4_MIRROR="https://archive.spacemit.com/bianbu4"
+DEBIAN_MIRROR="http://deb.debian.org/debian"
+DEVUAN_MIRROR="http://mirrors.tuna.tsinghua.edu.cn/devuan/merged"
+KALI_MIRROR="http://http.kali.org/kali"
+UBUNTU_MIRROR="http://ports.ubuntu.com/ubuntu-ports/"
+UBUNTU_AMD64_MIRROR="http://archive.ubuntu.com/ubuntu/"
+
+### DO NOT EDIT BELOW THIS LINE
+MIRROR_LIST="$BUILDER"

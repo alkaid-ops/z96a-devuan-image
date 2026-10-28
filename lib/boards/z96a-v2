@@ -1,0 +1,104 @@
+#!/bin/bash
+
+# architecture
+ARCH="arm64"
+ARCH_EXT="arm64"
+DEBARCH=""
+CROSS_COMPILE="aarch64-linux-gnu-"
+ROOTFS_ARCH="rootfs-${ARCH_EXT}"
+STATIC="qemu-aarch64-static"
+
+# device information
+SERIES="rk3568"
+FAMILY="rockchip"
+FAMILY_EXT="rk356x"
+DTB="rk3568-sunniwell-z96a-typec"
+
+# default config
+LINUX_DEFCONFIG="z96a-v2_defconfig"
+UBOOT_DEFCONFIG="z96a-rk3568-laptop-v2_defconfig"
+
+# partition layout
+BOOT_EXT4="false"
+BOOT_VFAT="true"
+EFI="false"
+GPT="true"
+OFFSET="16MiB"
+P_VALUE="p2"
+
+# boot options
+BOOTCMD="false"
+BOOTINI="false"
+BOOTSCR="boot.cmd"
+EXTLINUX="true"
+PETITBOOT="false"
+
+# output
+BOARD="z96a-v2"
+OUTPUT="output/${BOARD}"
+
+# extlinux and bootcmd
+BOOT_KERNEL="Image"
+BOOT_INITRD="uInitrd"
+BOOTCMD_FDTOVERLAYS="#overlays="
+EXTLINUX_FDTOVERLAYS="#fdtoverlays"
+
+# cmdline
+CONSOLE="console=tty1 console=ttyS2,1500000n8"
+LOGLEVEL="loglevel=7"
+EXTRA="net.ifnames=0"
+
+# Serial
+DEVUAN_SERIAL="T0:23:respawn:/sbin/getty -L ttyS2 1500000 vt100"
+
+# motd
+DEFAULT_MOTD="Sunniwell Z96A Type-C Devuan"
+
+# customize
+MODULES_BLACKLIST="hci_uart"
+
+# patches
+LINUX_PATCHING="false"
+UBOOT_PATCHDIR="patches/uboot"
+LINUX_PATCHDIR="patches/${FAMILY}"
+
+# image
+IMG_EXP="${DTB}-*.img*"
+
+# uboot logo
+RANDOM_LOGO="false"
+
+# u-boot-rockchip.bin
+UBOOT_RK_BIN="false"
+
+# precompiled U-Boot from the tested Armbian 7.2.11 image
+PRECOMPILED_UBOOT="true"
+PKGVERSION="2026.01"
+PRECOMPILED_UBOOT_DIR="files/boot/uboot/${BOARD}"
+
+# force git kernel
+FORCE_GIT="true"
+GIT_OWN="yjun123"
+GIT_REPO="linux"
+GIT_BRANCH="add_sunniwell_z96a"
+GIT_URL="https://ghfast.top/https://github.com"
+GIT_BLOB="blob"
+GIT_PATCHING="true"
+GIT_PATCHDIR="patches/git/${BOARD}/${GIT_REPO}-${GIT_BRANCH}"
+
+# override userdata file
+FORCE_VERSION="true"
+FORCE_LINUX_VERSION="7.2.11"
+FORCE_UBOOT_VERSION="v2026.01"
+
+# devicetree and platform
+DEVICETREE="${DTB}.dtb"
+PLATFORM="${FAMILY}"
+
+# kernel package name
+COMMON_PKG="true"
+COMMON_PKGNAME="z96a"
+
+# packaging
+LEGACY_PACKAGING="false"
+DEFAULT_PACKAGING="true"

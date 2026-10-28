@@ -1,0 +1,41 @@
+--- a/drivers/phy/rockchip/phy-rockchip-naneng-edp.c
++++ b/drivers/phy/rockchip/phy-rockchip-naneng-edp.c
+@@ -73,6 +73,7 @@
+ 	struct regmap *grf;
+ 	struct device *dev;
+ 	struct clk *refclk;
++	struct clk *pclk;
+ };
+ 
+ static inline int rockchip_grf_write(struct regmap *grf, unsigned int reg,
+@@ -438,6 +439,17 @@
+ 	if (IS_ERR(edpphy->refclk))
+ 		return dev_err_probe(dev, PTR_ERR(edpphy->refclk),
+ 				     "failed to get refclk\n");
++
++	/*
++	 * The PHY register interface lives in the eDP PHY GRF syscon. Keep its
++	 * bus clock claimed for the lifetime of the PHY so the register writes
++	 * used for AUX setup and PLL configuration are not lost when the clock
++	 * framework disables unused clocks.
++	 */
++	edpphy->pclk = devm_clk_get_enabled(dev, "pclk");
++	if (IS_ERR(edpphy->pclk))
++		return dev_err_probe(dev, PTR_ERR(edpphy->pclk),
++				     "failed to get/enable pclk\n");
+ 
+ 	phy = devm_phy_create(dev, NULL, &rockchip_edp_phy_ops);
+ 	if (IS_ERR(phy))
+--- a/arch/arm64/boot/dts/rockchip/rk3568.dtsi
++++ b/arch/arm64/boot/dts/rockchip/rk3568.dtsi
+@@ -136,8 +136,8 @@
+ 
+ 		edp_phy: edp-phy {
+ 			compatible = "rockchip,rk3568-edp-phy";
+-			clocks = <&pmucru XIN_OSC0_EDPPHY_G>;
+-			clock-names = "refclk";
++			clocks = <&pmucru XIN_OSC0_EDPPHY_G>, <&cru PCLK_EDPPHY_GRF>;
++			clock-names = "refclk", "pclk";
+ 			#phy-cells = <0>;
+ 			status = "disabled";
+ 		};

@@ -1,0 +1,18 @@
+#!/bin/sh
+set -u
+
+i=0
+while [ "$i" -lt 120 ]; do
+	if [ -d /sys/class/net/wlan0 ] && grep -q "^rtw88_8822cs " /proc/modules; then
+		if nmcli -t -f DEVICE,STATE device status 2>/dev/null | grep -qx "wlan0:connected"; then
+			sleep 5
+			exec modprobe hci_uart
+		fi
+	fi
+	i=$((i + 1))
+	sleep 1
+done
+
+# Preserve Bluetooth availability if no Wi-Fi profile/network is available.
+sleep 10
+exec modprobe hci_uart
