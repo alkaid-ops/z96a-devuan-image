@@ -291,6 +291,15 @@ if [[ -f "files/asound/${BOARD}.state" ]]; then cp files/asound/${BOARD}.state $
 if [[ -f "files/asound/${BOARD}.conf" ]]; then cp files/asound/${BOARD}.conf ${P_VALUE}/root/asound.conf; fi
 # board support package files
 if [[ -d "files/bsp/${BOARD}/etc" ]]; then mkdir -p ${P_VALUE}/etc; cp -fr files/bsp/${BOARD}/etc/* ${P_VALUE}/etc/; fi
+# Z96A application payload and user configuration
+if [[ -d "files/bsp/${BOARD}/home" || -d "files/bsp/${BOARD}/opt" || -d "files/bsp/${BOARD}/usr" ]]; then
+	for dir in home opt usr; do
+		if [[ -d "files/bsp/${BOARD}/${dir}" ]]; then
+			mkdir -p "${P_VALUE}/${dir}"
+			cp -a "files/bsp/${BOARD}/${dir}/." "${P_VALUE}/${dir}/"
+		fi
+	done
+fi
 # board / family firmware and binary blobs
 if [[ `type ${FAMILY}_stage1_extra_firmware` ]] &>/dev/null; then ${FAMILY}_stage1_extra_firmware; fi
 # led trigger scripts
