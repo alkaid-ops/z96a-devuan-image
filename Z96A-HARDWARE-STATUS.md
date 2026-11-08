@@ -53,8 +53,9 @@
 | 模拟麦克风 ×2 | ES7202 PDM，`z96a_mic` 6ch 原生采集；ch0/1 为房间麦克风（0x30），ch2/3 为 AEC 参考（0x31），ch4/5 为耳机/回环（0x32） | ✅（不是 6 麦阵列） |
 | 扬声器 ×2 | 功放使能正常 | N/A（用户确认正常） |
 | 电源 LED | `white:power`，`bq257xx-charger-online` | ✅ |
+| 状态 LED（GPIO0_B7） | `white:status`，低有效，默认 `heartbeat`；可用于麦克风静音指示 | ✅（需重编 DTB） |
 | 大写锁定 LED | `input1::capslock`，`kbd-capslock` | ✅ |
-| 麦克风静音 LED | 无 LED 节点；键盘 HID 只有 num/caps/scroll 三路 LED | ❌ 阻塞 |
+| 麦克风静音 LED | 无独立 LED 节点。板上唯一无固定用途的 LED 是 GPIO0_B7 状态灯（`white:status`，低有效，出厂用 heartbeat）；已由 `0012-z96a-work-led.patch` 暴露，并由 `z96a-hotkey` 在麦克风静音时点亮 | ✅（借用状态灯） |
 | 充电中 LED | `red:charging`，由 `z96a-charge-led` 控制：AC 接通且电量 < 90% 时亮红灯 | ✅ |
 | 已充满 LED | `green:charging`，由 `z96a-charge-led` 控制：AC 接通且电量 ≥ 90% 时亮绿灯；AC 断开时红/绿都灭 | ✅ |
 | 调试串口 UART2 | `/dev/ttyS2`，1500000 8N1 | ✅ |
@@ -64,7 +65,7 @@
 
 | 项目 | 当前结论 |
 |---|---|
-| 麦克风静音 LED | ❌ 阻塞：DTS、键盘 HID、LED class 均未发现对应引脚/节点 |
+| 麦克风静音 LED | ✅ 板上没有独立的麦克风静音 LED（键盘 HID 只有 num/caps/scroll 三路）。出厂 DTS 唯一的额外 LED 是 GPIO0_B7 状态灯，低有效；原厂用 heartbeat 触发器。已改为 `white:status` 并由 `z96a-hotkey` 在静音时点亮、恢复时回到 heartbeat |
 | 键盘无线开关 F8 | ✅ IceWM 已绑定 `XF86WLAN`；LXQt 已补 `XF86WLAN -> z96a-hotkey wifi-toggle` |
 | 电池电量键 F9 | ✅ IceWM 已绑定 `XF86Battery`；LXQt 已补 `XF86Battery -> z96a-hotkey battery` |
 | 三个 ES7202 | ✅ 三颗已全部驱动并进入同一 PDM 采集：ch0/1 = 麦克风（0x30, SDI1）、ch2/3 = AEC 参考（0x31, SDI2）、ch4/5 = 耳机/回环（0x32, SDI3）。实测只有 ch0/1 有房间声学信号，ch2-5 为电信号回环，因此不是 6 麦阵列 |
@@ -90,6 +91,6 @@
 ## 保持现状/不处理
 
 - eMMC HS400：已实际协商成功。后续仅在出现稳定性问题时回退到 HS200；未启用 Enhanced Strobe。
-- 麦克风静音 LED：没有可确认的 GPIO/HID 通道，继续阻塞。
+- 麦克风静音 LED：出厂 DTS 只有 4 个 LED —— 电源（GPIO0_D3）、充电红（GPIO0_D5）、充满绿（GPIO0_D6）、状态灯（GPIO0_B7，低有效，heartbeat）。没有任何“麦克风静音”专用 LED。原 mainline DTS 把 GPIO0_B7 错分给蓝牙 host-wake，所以这颗灯一直无法控制。新增 `0012-z96a-work-led.patch`：去掉该 host-wake（原厂用的是 GPIO0_C4，且三线 HCI 不需要它），把 B7 暴露为 `white:status`，并让 `z96a-hotkey` 在麦克风静音时点亮、恢复时回到 heartbeat。
 - ES7202 多通道阵列：已确认三颗全部驱动并实现原生 6ch 采集（`z96a_mic`）。通道角色经逐颗静音与扬声器测试确认：ch0/1 为房间麦克风（0x30），ch2/3 为 AEC 参考（0x31），ch4/5 为耳机/回环（0x32）；ch2-5 是电信号，不是麦克风。改动见 `0011-z96a-es7202-6ch.patch`。
 - HDMI、3.5mm 耳机、OTG device 模式、USB2 两个外口、扬声器：按用户要求不处理。
