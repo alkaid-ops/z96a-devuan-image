@@ -9,7 +9,7 @@
 - eDP、Wi-Fi、音量、麦克风、亮度、触摸板、显示切换、电池状态、截图、锁屏、电源菜单和功能键映射已部署到 `.84`。
 - 摄像头已确认是 USB UVC（Microdia/Sonix `0c45:6368`），由 `uvcvideo` 驱动；供电受 `GPIO2_D0` 控制。已用 `0009-z96a-camera-power.patch` 把该电源在设备树中固定为常开；`.84` 已换用带 `vcc_camera` 的 DTB，冷启动自动上电。
 - 电池温度已修复：`CONFIG_GENERIC_ADC_THERMAL=y`；`.84` 已加载 `thermal-generic-adc.ko` 并出现 `battery-thermal`。
-- F8/F9 已在 IceWM 和 LXQt 中绑定。三颗 ES7202 已全部驱动并实现 6ch 原生采集，实测角色为 2 麦（ch0/1）+ AEC 参考（ch2/3）+ 耳机/回环（ch4/5），不是 6 麦阵列。麦克风静音 LED 已定位：板上无专用 LED，改用 GPIO0_B7 状态灯（`white:status`）。
+- F8/F9 已在 IceWM 和 LXQt 中绑定。三颗 ES7202 已全部驱动并实现 6ch 原生采集，实测角色为 2 麦（ch0/1）+ AEC 参考（ch2/3）+ 耳机/回环（ch4/5），不是 6 麦阵列。麦克风静音 LED 已定位：接在键盘 NumLock LED 位（`input1::numlock`），`z96a-hotkey` 静音时点亮。
 - 充电灯策略已收敛：新增 `z96a-charge-led`，AC 接通且电量 ≥ 90% 亮绿灯，< 90% 亮红灯，断开时全灭；`.84` 已实测 50% 亮红、98% 亮绿、断开全灭。
 - 有线 IPv4 根因已定位：`z96a-wired.nmconnection` 已从 `Z96A Wired Static` 改为 `Z96A Wired DHCP`，但 `.84` 上仍是旧版 `z96a-network-up`，开机反复激活不存在的 `Z96A Wired Static`，随后 `nmcli device connect eth0` 激活了一个 `ipv4.method=disabled` 的临时 external 配置，导致 eth0 只有 IPv6、没有 IPv4。已把新版脚本部署到 `.84`，并手动激活 `Z96A Wired DHCP`，eth0 已恢复 `192.168.31.84/24`。
 - 为防止再次漂移：删除 `.84` 上重复的 `eth0.nmconnection`；`z96a-network-up` 改为按固定 UUID `5ee20e57-d34e-494f-ba17-ecdf0163b214` 激活有线配置，重命名配置不再影响开机；同时把 board 当前的 NetworkManager 配置、wifi powersave、`/etc/network/interfaces` 和相关脚本 overlay 回 `files/bsp/z96a-v2/`，已与 `.84` 逐文件比对一致。
@@ -146,6 +146,7 @@
 - [x] 2026-11-07 在 `.84` 真机加入音量变化提示音与亮度百分比通知：`z96a-volume-feedback` 监听 RK817 混音事件并在每次音量变化后播放预览音；亮度快捷键通过 `notify-send` 显示 `屏幕亮度: N%`。已验证无重复监听器、无 `aplay` 僵尸进程、服务重复启动可安全替换。
 - [x] 2026-11-08 修正亮度连续调整延迟（直接读写 sysfs）、5% 最低亮度与 5% 步进、音量 100% 无声和音量曲线；音量快捷键改为 `z96a-hotkey`，0 为静音，1–100 线性映射到安全 raw 70–100%（raw 154–220）。
 - [x] 2026-11-08 音量/亮度加入用户级持久化（`~/.local/state/z96a`），会话启动时恢复；亮度恢复下限 5%。
+- [x] 2026-11-08 托盘音量/亮度改为事件驱动：`z96a-system-tray` 不再每 250ms/1s 调用 `z96a-hotkey volume-info` 和 `brightnessctl`，仅在 `volume-changed`/`brightness-changed` 信号变化时读取硬件，避免 ALSA 控制接口被大量 `amixer` 进程占满。
 - [x] 2026-11-08 网络配置补齐：LXQt 通过 XDG autostart 运行 `nm-tray`，面板显示网络/Wi-Fi 托盘图标；新增桌面“网络连接”图标运行 `nm-connection-editor`，可编辑 Wi-Fi 与有线连接；IceWM 启动脚本同步启动 `nm-tray`；运行时包加入 `nm-tray`、`nm-tray-l10n`、`nm-connection-editor`。
 - [x] 2026-11-08 新增桌面“配置中心”图标（`lxqt-config`），与其它桌面启动器一样自动写入 GVFS 信任标记；补齐 `qt6-svg-plugins` 后左下角 LXQt 开始菜单图标恢复显示，开始菜单 → 首选项 → LXQt 配置中心可用。
 - [x] 2026-11-08 桌面启动器双击信任修复：`z96a-desktop-trust` 在会话启动、PCManFM-Qt 加载桌面之前写入 GVFS `metadata::trust`，消除 `~/Desktop` 的叹号徽标；启动器图标改为绝对 Papirus/hicolor 路径并加入 `qt6-svg-plugins`；PCManFM-Qt profile 设置 `FallbackIconThemeName=Papirus`、`SingleClick=false`、`QuickExec=true`，双击直接运行且无执行确认框；信任状态写入 `~/.local/share/gvfs-metadata` 并可跨会话保留。
@@ -191,9 +192,8 @@
 - [x] 三颗 ES7202 全部驱动：`0011-z96a-es7202-6ch.patch` 把 DAI `channels_max` 提到 6，并用全局实例列表在采集开始时解除、停止时恢复三颗 PDM 输出。`arecord -D z96a_mic -c 6` 原生 6ch 成功（hw_params `channels: 6`）；2ch/4ch/6ch 均可。
 - [x] 通道角色确认：ch0/1 = 麦克风（0x30, SDI1），ch2/3 = AEC 参考（0x31, SDI2），ch4/5 = 耳机/回环（0x32, SDI3）。逐颗静音验证映射；1kHz 扬声器测试显示 ch0/1 为声学拾音，ch2-5 为电信号回环，因此不是 6 麦阵列。
 - [x] `/etc/asound.conf` 增加命名采集设备 `z96a_mic`（按 card ID，不依赖 card 号）。
-- [x] LED 全量遍历完成：板上共 4 个 GPIO LED —— 电源 `white:power`（GPIO0_D3）、充电红 `red:charging`（GPIO0_D5）、充满绿 `green:charging`（GPIO0_D6）、状态灯（GPIO0_B7，低有效，原厂 heartbeat）。没有麦克风静音专用 LED；键盘 HID 只有 num/caps/scroll。
-- [x] 剩余 LED 已定位并接入：原 mainline DTS 把 GPIO0_B7 错当蓝牙 host-wake，导致状态灯无法控制。`0012-z96a-work-led.patch` 去掉该 host-wake（原厂用 GPIO0_C4，三线 HCI 不需要），把 B7 暴露为 `white:status`；`z96a-hotkey` 静音时点亮、恢复时回到 heartbeat。手动控制：`echo none > /sys/class/leds/white:status/trigger; echo 1 > brightness`。
-- [ ] 待板端重编 DTB 后确认 `white:status` 出现、亮灭方向正确、蓝牙仍正常。
+- [x] LED 遍历完成：主板并排三灯为电源 `white:power`（GPIO0_D3）、大小写（键盘 HID `input1::capslock`）、静音（键盘 HID `input1::numlock` 复用）；Type-C 口另有一颗充电指示灯 `red:charging`（GPIO0_D5）/`green:charging`（GPIO0_D6）。
+- [x] 静音灯已接入：写 `input1::numlock` 的 brightness 即可控制（权限 root:input 0664，user 在 input 组）。`z96a-hotkey` 静音时置 1、恢复时置 0，实测有效。GPIO0_B7 的 work LED 是 V1 固件残留，V2 不接灯，相关补丁已撤销。
 - [ ] 若后续确认 0x31/0x32 实际接的是额外麦克风（需原理图/实物），再调整通道角色与默认采集配置。
 - [ ] `rockchip,mic-in-differential`：mainline codec 驱动支持，但 DTS 未写；有 3.5mm 麦克风时 A/B 录音 RMS、噪声和差分输入效果。
 - [ ] HDMI `mclk-fs` 256 vs vendor 128：需要 HDMI 线 + 音频 sink；当前 HDMI 为 disconnected，未做 A/B。
