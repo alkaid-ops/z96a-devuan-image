@@ -1,0 +1,108 @@
+From: Local Z96A hardware validation
+Subject: [PATCH] ASoC: es7202: support native 6-channel PDM capture on Z96A
+
+The Z96A wires three ES7202 ADCs to the RK3568 PDM controller on
+SDI1/SDI2/SDI3.  All three probe over I2C, but the simple-audio-card
+links only 0x30, so the codec DAI capped capture at 2 channels and
+only 0x30 was ever unmuted: 0x31 and 0x32 stayed muted permanently.
+
+Track every probed ES7202 instance and let the DAI mute callback gate
+the whole array, and raise the DAI channel limit to 6 so ALSA can open
+the controller's native 6-channel PDM stream (2 channels per codec).
+
+Measured channel map on the board:
+  ch0/ch1 = microphone pair   (0x30 on SDI1)
+  ch2/ch3 = AEC reference     (0x31 on SDI2)
+  ch4/ch5 = headset/loopback  (0x32 on SDI3)
+
+Only ch0/ch1 are acoustic; ch2-ch5 carry electrical reference signals.
+
+---
+--- a/sound/soc/codecs/es7202.c
++++ b/sound/soc/codecs/es7202.c
+@@ -32,8 +32,17 @@
+ 	struct regulator *supply;
+ 	struct gpio_desc *reset_gpio;
+ 	unsigned int supply_uv;
++	struct list_head list;
+ };
+ 
++/*
++ * All ES7202 instances share one PDM capture stream, but only one of them
++ * is linked into the ALSA card.  Keep track of every probed codec so the
++ * DAI mute callback can gate the whole array instead of a single chip.
++ */
++static LIST_HEAD(es7202_devices);
++static DEFINE_MUTEX(es7202_devices_lock);
++
+ static bool es7202_volatile_reg(struct device *dev, unsigned int reg)
+ {
+ 	/* status and device-id registers are read-only, never cached */
+@@ -181,13 +190,22 @@
+ 
+ static int es7202_mute_stream(struct snd_soc_dai *dai, int mute, int stream)
+ {
+-	struct snd_soc_component *component = dai->component;
+-	struct es7202_priv *es7202 = snd_soc_component_get_drvdata(component);
++	struct es7202_priv *es7202;
++	int ret = 0;
+ 
+ 	if (stream == SNDRV_PCM_STREAM_PLAYBACK)
+ 		return 0;
+ 
+-	return es7202_mute_pdm(es7202, mute);
++	mutex_lock(&es7202_devices_lock);
++	list_for_each_entry(es7202, &es7202_devices, list) {
++		int err = es7202_mute_pdm(es7202, mute);
++
++		if (err && !ret)
++			ret = err;
++	}
++	mutex_unlock(&es7202_devices_lock);
++
++	return ret;
+ }
+ 
+ static const struct snd_soc_dai_ops es7202_dai_ops = {
+@@ -199,7 +217,7 @@
+ 	.capture = {
+ 		.stream_name	= "Capture",
+ 		.channels_min	= 1,
+-		.channels_max	= 2,
++		.channels_max	= 6,
+ 		.rates		= SNDRV_PCM_RATE_8000_96000,
+ 		.formats	= SNDRV_PCM_FMTBIT_S16_LE,
+ 	},
+@@ -319,6 +337,10 @@
+ 	if (ret)
+ 		return dev_err_probe(dev, ret, "failed to init device\n");
+ 
++	mutex_lock(&es7202_devices_lock);
++	list_add_tail(&es7202->list, &es7202_devices);
++	mutex_unlock(&es7202_devices_lock);
++
+ 	return devm_snd_soc_register_component(dev, &es7202_component_driver,
+ 					       &es7202_dai, 1);
+ }
+@@ -327,6 +349,10 @@
+ {
+ 	struct es7202_priv *es7202 = i2c_get_clientdata(i2c);
+ 
++	mutex_lock(&es7202_devices_lock);
++	list_del(&es7202->list);
++	mutex_unlock(&es7202_devices_lock);
++
+ 	es7202_mute_pdm(es7202, true);
+ }
+ 
+--- a/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
++++ b/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
+@@ -781,7 +781,7 @@
+ 		     &pdmm0_sdi1
+ 		     &pdmm0_sdi2
+ 		     &pdmm0_sdi3>;
+-	/* ES7202 mic is on sdi1 (channel 0), aec is on sdi2 (channel 1), headset on sdi3 (channel 2) */
++	/* ES7202: mic (0x30) on SDI1 -> ch0/1, AEC ref (0x31) on SDI2 -> ch2/3, headset (0x32) on SDI3 -> ch4/5 */
+ 	rockchip,path-map = <1 2 3 0>;
+ 	status = "okay";
+ };
