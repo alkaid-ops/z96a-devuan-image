@@ -1,0 +1,59 @@
+From: Local Z96A hardware validation
+Subject: [PATCH] arm64: dts: rockchip: z96a: expose the GPIO0_B7 status LED
+
+The factory Z96A device tree describes exactly one extra LED besides the
+charging indicators: a status ("work") LED on GPIO0_B7, active low, driven
+by the heartbeat trigger.  The mainline Z96A DTS instead claimed GPIO0_B7
+as the Bluetooth host-wake line, so the LED could never be driven.  The
+factory firmware uses GPIO0_C4 for both the WiFi and Bluetooth host wake,
+so the host-wake property is simply dropped here; the three-wire HCI data
+path never used it.
+
+Expose the LED as /sys/class/leds/white:status.  It has no dedicated
+function on this board, so userspace can repurpose it, for example as the
+microphone mute indicator (see z96a-hotkey).
+
+---
+--- a/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
++++ b/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
+@@ -156,6 +156,20 @@
+ 
+ 	leds {
+ 		compatible = "gpio-leds";
++		pinctrl-names = "default";
++		pinctrl-0 = <&work_led_pin>;
++
++		/*
++		 * Status LED on GPIO0_B7, active low.  The factory firmware drives
++		 * it with the heartbeat trigger; it is the only LED that has no
++		 * dedicated function, so userspace may repurpose it.
++		 */
++		led_work: led-work {
++			gpios = <&gpio0 RK_PB7 GPIO_ACTIVE_LOW>;
++			function = LED_FUNCTION_STATUS;
++			color = <LED_COLOR_ID_WHITE>;
++			linux,default-trigger = "heartbeat";
++		};
+ 
+ 		led_power: led-power {
+ 			gpios = <&gpio0 RK_PD3 GPIO_ACTIVE_HIGH>;
+@@ -860,7 +874,7 @@
+ 		bt_enable_h: bt-enable-h {
+ 			rockchip,pins = <0 RK_PC1 RK_FUNC_GPIO &pcfg_pull_none>;
+ 		};
+-		bt_host_wake: bt-host-wake {
++		work_led_pin: work-led-pin {
+ 			rockchip,pins = <0 RK_PB7 RK_FUNC_GPIO &pcfg_pull_none>;
+ 		};
+ 		bt_wake: bt-wake {
+@@ -948,9 +962,8 @@
+ 		compatible = "realtek,rtl8822cs-bt";
+ 		enable-gpios = <&gpio0 RK_PC1 GPIO_ACTIVE_HIGH>;
+ 		device-wake-gpios = <&gpio0 RK_PB0 GPIO_ACTIVE_HIGH>;
+-		host-wake-gpios = <&gpio0 RK_PB7 GPIO_ACTIVE_HIGH>;
+ 		pinctrl-names = "default";
+-		pinctrl-0 = <&bt_enable_h &bt_host_wake &bt_wake>;
++		pinctrl-0 = <&bt_enable_h &bt_wake>;
+ 	};
+ };
+ 
