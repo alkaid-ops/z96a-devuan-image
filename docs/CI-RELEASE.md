@@ -16,9 +16,10 @@ Tag 格式：`vX.Y` 或 `vX.Y.Z`（可带 `-rc1` 之类后缀，后缀会标记�
 Tag 必须指向默认分支上的提交；`release.yml` 会检查 `git merge-base --is-ancestor`。
 已发布 Tag 不应移动或删除。
 
-发布前在仓库 Settings → Secrets and variables → Actions 配置 `Z96A_SSH_KEY`（必需）；
-`Z96A_ROOT_PASSWORD`（可选，不设则仅 SSH key 登录）；`Z96A_WIFI_SSID` 与
-`Z96A_WIFI_PASSKEY`（可选，必须成对提供）。仓库不包含默认密码、私钥或 Wi-Fi 凭据。
+可选配置仓库 Settings → Secrets and variables → Actions：`Z96A_SSH_KEY`（公钥）；
+`Z96A_ROOT_PASSWORD`（root SSH 密码）；`Z96A_WIFI_SSID` 与 `Z96A_WIFI_PASSKEY`
+（必须成对提供）。未设置 SSH key 和 root 密码时，镜像不允许 SSH 登录；本地桌面
+登录不受影响。仓库不包含默认密码、私钥或 Wi-Fi 凭据。
 
 ## Runner 要求
 

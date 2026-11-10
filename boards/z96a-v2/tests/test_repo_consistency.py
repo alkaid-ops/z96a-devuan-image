@@ -367,6 +367,18 @@ class BuildPreflightTests(unittest.TestCase):
         self.assertIn("\npreflight:", makefile, "Makefile has a preflight target")
 
 
+class CredentialPolicyTests(unittest.TestCase):
+    def test_ssh_credentials_are_optional_and_fail_closed(self):
+        board_userscript = (ROOT / "boards" / BOARD / "userscripts/uscripts").read_text()
+        services = (ROOT / "boards" / BOARD / "userscripts/configure/88-services.sh").read_text()
+        workflow = (ROOT / ".github/workflows/build-image.yml").read_text()
+        self.assertNotIn("Z96A_SSH_KEY:?", board_userscript)
+        self.assertIn("if [ -n \"${key:-}\" ]", services)
+        self.assertIn("rm -f /root/.ssh/authorized_keys /home/user/.ssh/authorized_keys", services)
+        self.assertIn("PermitRootLogin no", services)
+        self.assertIn("required: false", workflow)
+
+
 class BootLayoutTests(unittest.TestCase):
     """Static guard for the Rockchip U-Boot write offsets (phase 4 R4)."""
 

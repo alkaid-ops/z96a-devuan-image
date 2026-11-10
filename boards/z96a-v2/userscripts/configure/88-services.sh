@@ -15,9 +15,13 @@
 	mv -f /root/z96a-bt-after-wifi /usr/local/sbin/z96a-bt-after-wifi
 
 	install -d -m 0700 /root/.ssh /home/user/.ssh
-	printf '%s\n' "$key" > /root/.ssh/authorized_keys
-	printf '%s\n' "$key" > /home/user/.ssh/authorized_keys
-	chmod 0600 /root/.ssh/authorized_keys /home/user/.ssh/authorized_keys
+	if [ -n "${key:-}" ]; then
+		printf '%s\n' "$key" > /root/.ssh/authorized_keys
+		printf '%s\n' "$key" > /home/user/.ssh/authorized_keys
+		chmod 0600 /root/.ssh/authorized_keys /home/user/.ssh/authorized_keys
+	else
+		rm -f /root/.ssh/authorized_keys /home/user/.ssh/authorized_keys
+	fi
 	chown -R root:root /root/.ssh
 	chown -R user:user /home/user/.ssh
 
@@ -37,7 +41,15 @@ PermitRootLogin prohibit-password
 PasswordAuthentication no
 EOF
 	fi
-	sed -i 's/^#*PermitRootLogin .*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+	if [ -z "${Z96A_ROOT_PASSWORD:-}" ]; then
+		if [ -n "${key:-}" ]; then
+			sed -i 's/^#*PermitRootLogin .*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+		else
+			sed -i 's/^#*PermitRootLogin .*/PermitRootLogin no/' /etc/ssh/sshd_config
+		fi
+	else
+		sed -i 's/^#*PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config
+	fi
 	sed -i 's/^#*PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config
 	if [ -f /usr/local/bin/credentials ]; then
 		sed -i \

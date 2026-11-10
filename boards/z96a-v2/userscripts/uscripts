@@ -63,7 +63,7 @@ run_function2 (){
 	# Credentials come only from the protected build environment or an
 	# untracked boards/<board>/credentials.local file. No repository defaults.
 	if [ -r "/opt/z96a-credentials.env" ]; then . /opt/z96a-credentials.env; fi
-	: "${Z96A_SSH_KEY:?set the Z96A_SSH_KEY GitHub Actions secret}"
+	Z96A_SSH_KEY=${Z96A_SSH_KEY:-}
 	Z96A_ROOT_PASSWORD=${Z96A_ROOT_PASSWORD:-}
 	Z96A_WIFI_SSID=${Z96A_WIFI_SSID:-}
 	Z96A_WIFI_PASSKEY=${Z96A_WIFI_PASSKEY:-}
