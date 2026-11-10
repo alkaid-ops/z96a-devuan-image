@@ -1,0 +1,62 @@
+name: hosted-runner-probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Report runner capacity
+        run: |
+          set -eu
+          uname -a
+          nproc
+          free -h
+          df -h / /mnt "$RUNNER_TEMP"
+
+      - name: Reclaim runner disk space
+        run: |
+          set -eu
+          sudo rm -rf /usr/local/lib/android/sdk /opt/ghc /usr/share/dotnet \
+            /usr/local/share/powershell /usr/local/share/chromium
+          sudo docker system prune -af || true
+          df -h /
+
+      - name: Verify disk, host loop mount and privileged Docker
+        run: |
+          set -eu
+          avail_kb=$(df -Pk / | awk 'NR==2 {print $4}')
+          echo "free_root_kib=$avail_kb"
+          if [ "$avail_kb" -lt 62914560 ]; then
+            echo "FAIL: need at least 60 GiB free for image build" >&2
+            exit 1
+          fi
+
+          loop_img=$(mktemp "$RUNNER_TEMP/z96a-loop.XXXXXX")
+          loop_mnt=$(mktemp -d "$RUNNER_TEMP/z96a-mnt.XXXXXX")
+          loop_dev=
+          cleanup() {
+            sudo umount "$loop_mnt" 2>/dev/null || true
+            [ -z "$loop_dev" ] || sudo losetup -d "$loop_dev" 2>/dev/null || true
+            rm -f "$loop_img"
+            rmdir "$loop_mnt"
+          }
+          trap cleanup EXIT
+          truncate -s 128M "$loop_img"
+          loop_dev=$(sudo losetup --find --show "$loop_img")
+          sudo mkfs.ext4 -F "$loop_dev" >/dev/null
+          sudo mount "$loop_dev" "$loop_mnt"
+          sudo touch "$loop_mnt/loop-mount-ok"
+          sudo umount "$loop_mnt"
+          sudo losetup -d "$loop_dev"
+          loop_dev=
+          echo "PASS: host loop device and ext4 mount"
+
+          docker run --rm --privileged -v /dev:/dev alpine:3.20 \
+            sh -ec 'losetup -f >/dev/null'
+          echo "PASS: privileged Docker can access loop devices"
