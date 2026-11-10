@@ -366,10 +366,10 @@ class BuildPreflightTests(unittest.TestCase):
         makefile = (ROOT / "Makefile").read_text(errors="replace")
         self.assertIn("\npreflight:", makefile, "Makefile has a preflight target")
 
-    def test_stage2_chroot_uses_explicit_qemu(self):
-        stage1 = (ROOT / "scripts/stage1").read_text(errors="replace")
-        self.assertEqual(stage1.count('chroot p1 "/usr/bin/${STATIC}" /bin/bash /root/stage2'), 1)
-        self.assertEqual(stage1.count('chroot p2 "/usr/bin/${STATIC}" /bin/bash /root/stage2'), 1)
+    def test_hosted_build_registers_arm64_binfmt(self):
+        workflow = (ROOT / ".github/workflows/build-image.yml").read_text(errors="replace")
+        self.assertIn("docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392", workflow)
+        self.assertIn("platforms: arm64", workflow)
 
 
 class CredentialPolicyTests(unittest.TestCase):
