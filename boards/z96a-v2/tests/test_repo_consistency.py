@@ -107,7 +107,15 @@ class OverlayTests(unittest.TestCase):
         text = userscripts_text()
         referenced = set(PACKAGE_REF.findall(text))
         self.assertTrue(referenced, "userscript references no packaged deb")
-        missing = sorted(name for name in referenced if not (PACKAGES / name).is_file())
+        if not any(PACKAGES.glob("*.deb")):
+            listed = {
+                fields[1]
+                for line in SHA256SUMS.read_text(errors="replace").splitlines()
+                if len(fields := line.split()) == 2
+            }
+            missing = sorted(referenced - listed)
+        else:
+            missing = sorted(name for name in referenced if not (PACKAGES / name).is_file())
         self.assertFalse(missing, f"userscript references missing packages: {missing}")
 
     def test_packaged_debs_are_checksummed(self):
@@ -121,7 +129,17 @@ class OverlayTests(unittest.TestCase):
         unlisted = sorted(debs - set(listed))
         missing = sorted(set(listed) - debs)
         self.assertFalse(unlisted, f"debs without a SHA256SUMS entry: {unlisted}")
-        self.assertFalse(missing, f"SHA256SUMS entries without a deb: {missing}")
+        if debs:
+            self.assertFalse(missing, f"SHA256SUMS entries without a deb: {missing}")
+        else:
+            sources = ROOT / "boards" / BOARD / "packages-sources.tsv"
+            source_hashes = {}
+            for line in sources.read_text(errors="replace").splitlines():
+                fields = line.split("\t")
+                if len(fields) >= 2 and fields[0] and not fields[0].startswith("#"):
+                    source_hashes[fields[0]] = fields[1]
+            self.assertEqual(listed, source_hashes,
+                             "SHA256SUMS must match the source manifest when blobs are absent")
 
     @unittest.skipUnless(os.environ.get("Z96A_VERIFY_PACKAGE_HASHES") == "1",
                          "set Z96A_VERIFY_PACKAGE_HASHES=1 to hash ~884MB of debs")
@@ -330,6 +348,8 @@ class ConfigSingleSourceTests(unittest.TestCase):
 
 
 class BuildPreflightTests(unittest.TestCase):
+    @unittest.skipUnless(any(PACKAGES.glob("*.deb")),
+                         "binary package inputs are restored in the image-build job")
     def test_preflight_passes(self):
         script = ROOT / "boards" / BOARD / "tools" / "preflight.sh"
         self.assertTrue(script.is_file(), script)
@@ -612,7 +632,7 @@ class CiReleaseWorkflowTests(unittest.TestCase):
         text = self.read("release.yml")
         self.assertIn("prerelease:", text)
 
-    def test_build_uses_self_hosted_runner_and_validation(self):
+    def test_build_uses_hosted_runner_and_validation(self):
         text = self.read("build-image.yml")
         self.assertIn("runs-on: ubuntu-24.04", text)
         self.assertIn("build-in-container.sh image", text)
