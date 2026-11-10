@@ -371,6 +371,11 @@ class BuildPreflightTests(unittest.TestCase):
         self.assertIn("docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392", workflow)
         self.assertIn("platforms: arm64", workflow)
 
+    def test_image_validator_waits_for_loop_partitions(self):
+        validator = (ROOT / "boards" / BOARD / "tools/validate-image.sh").read_text(errors="replace")
+        self.assertIn("udevadm settle --timeout=10", validator)
+        self.assertIn('while [ "$attempt" -lt 10 ]', validator)
+
 
 class CredentialPolicyTests(unittest.TestCase):
     def test_ssh_credentials_are_optional_and_fail_closed(self):

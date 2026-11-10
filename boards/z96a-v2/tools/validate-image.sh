@@ -24,11 +24,22 @@ boards/z96a-v2/tests/smoke-static.sh --image "$IMAGE" || fail=$((fail + 1))
 
 loop=$(losetup -f --show -P "$IMAGE") || { echo "cannot attach loop" >&2; exit 1; }
 rootpart=""
-for part in "${loop}"p*; do
-    [ -b "$part" ] || continue
-    case "$(blkid -s TYPE -o value "$part" 2>/dev/null)" in
-        ext4) rootpart=$part ;;
-    esac
+# Partition nodes are created asynchronously by udev after losetup -P. The
+# static smoke check above also attaches/detaches this image, so allow the
+# kernel/udev partition scan to settle before probing the root filesystem.
+if command -v partprobe >/dev/null 2>&1; then partprobe "$loop" 2>/dev/null || true; fi
+if command -v udevadm >/dev/null 2>&1; then udevadm settle --timeout=10 2>/dev/null || true; fi
+attempt=0
+while [ "$attempt" -lt 10 ]; do
+    attempt=$((attempt + 1))
+    for part in "${loop}"p*; do
+        [ -b "$part" ] || continue
+        case "$(blkid -s TYPE -o value "$part" 2>/dev/null)" in
+            ext4) rootpart=$part ;;
+        esac
+    done
+    [ -n "$rootpart" ] && break
+    sleep 1
 done
 if [ -z "$rootpart" ]; then
     echo "no ext4 root partition in $IMAGE" >&2
