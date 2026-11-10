@@ -647,6 +647,7 @@ class CiReleaseWorkflowTests(unittest.TestCase):
     def test_build_uses_hosted_runner_and_validation(self):
         text = self.read("build-image.yml")
         self.assertIn("runs-on: ubuntu-24.04", text)
+        self.assertIn("group: z96a-image-build", text)
         self.assertIn("build-in-container.sh image", text)
         self.assertIn("ci-validate-image.sh", text)
         self.assertIn("ci-prepare-inputs.sh", text)

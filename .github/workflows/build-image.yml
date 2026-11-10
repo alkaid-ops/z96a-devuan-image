@@ -51,6 +51,10 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 240
+    # Manual builds and tag releases share one lock to protect runner disk.
+    concurrency:
+      group: z96a-image-build
+      cancel-in-progress: false
     outputs:
       image_name: ${{ steps.collect.outputs.name }}
       image_sha256: ${{ steps.collect.outputs.sha256 }}
@@ -187,6 +191,7 @@ jobs:
           Z96A_ROOT_PASSWORD: ${{ secrets.Z96A_ROOT_PASSWORD }}
           Z96A_WIFI_SSID: ${{ secrets.Z96A_WIFI_SSID }}
           Z96A_WIFI_PASSKEY: ${{ secrets.Z96A_WIFI_PASSKEY }}
+          Z96A_DEBUG_PARTITION: "1"
           CHROOT_CACHE: "0"
           CHROOT_CACHE_DIR: ${{ env.Z96A_CACHE_ROOT }}/chroot
           TERM: xterm

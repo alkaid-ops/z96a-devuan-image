@@ -39,7 +39,7 @@ fi
 # live outside the repository (CI keeps it outside the checkout so git clean
 # does not delete it), so bind it at the same absolute path.
 EXTRA_ENV=()
-for name in RELEASE_CHANNEL RELEASE_TAG CHROOT_CACHE CHROOT_CACHE_KEY Z96A_PREFLIGHT_HASH Z96A_SSH_KEY Z96A_ROOT_PASSWORD Z96A_WIFI_SSID Z96A_WIFI_PASSKEY; do
+for name in RELEASE_CHANNEL RELEASE_TAG CHROOT_CACHE CHROOT_CACHE_KEY Z96A_PREFLIGHT_HASH Z96A_DEBUG_PARTITION Z96A_SSH_KEY Z96A_ROOT_PASSWORD Z96A_WIFI_SSID Z96A_WIFI_PASSKEY; do
     if [ -n "${!name:-}" ]; then
         EXTRA_ENV+=(-e "$name=${!name}")
     fi
