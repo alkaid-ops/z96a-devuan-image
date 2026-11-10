@@ -80,6 +80,9 @@ run_function2 (){
 	. "$Z96A_USCRIPTS_DIR/configure/50-lock.sh"
 	. "$Z96A_USCRIPTS_DIR/configure/60-session.sh"
 	. "$Z96A_USCRIPTS_DIR/install/30-apps.sh"
+	# Package postinst scripts can create root-owned files under the user's
+	# home; repair ownership before xdg-mime/theme helpers run as the user.
+	if [ -d /home/user ]; then chown -R user:user /home/user; fi
 	. "$Z96A_USCRIPTS_DIR/configure/70-network.sh"
 	. "$Z96A_USCRIPTS_DIR/configure/80-x11.sh"
 	. "$Z96A_USCRIPTS_DIR/configure/85-theme.sh"
