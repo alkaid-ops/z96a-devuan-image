@@ -366,6 +366,11 @@ class BuildPreflightTests(unittest.TestCase):
         makefile = (ROOT / "Makefile").read_text(errors="replace")
         self.assertIn("\npreflight:", makefile, "Makefile has a preflight target")
 
+    def test_stage2_chroot_uses_explicit_qemu(self):
+        stage1 = (ROOT / "scripts/stage1").read_text(errors="replace")
+        self.assertEqual(stage1.count('chroot p1 "/usr/bin/${STATIC}" /bin/bash /root/stage2'), 1)
+        self.assertEqual(stage1.count('chroot p2 "/usr/bin/${STATIC}" /bin/bash /root/stage2'), 1)
+
 
 class CredentialPolicyTests(unittest.TestCase):
     def test_ssh_credentials_are_optional_and_fail_closed(self):

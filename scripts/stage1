@@ -142,7 +142,7 @@ if [[ "$P_VALUE" == "p1" ]]; then
 	if chroot_cache_restore p1; then
 		: # reused the prepared tree
 	else
-		chroot p1 /root/stage2
+		chroot p1 "/usr/bin/${STATIC}" /bin/bash /root/stage2
 	fi
 	phase_end
 	# unmount
@@ -209,7 +209,7 @@ if [[ "$P_VALUE" == "p2" ]]; then
 		:
 	else
 		echo -e "chroot cache: miss, running chroot setup"
-		chroot p2 /root/stage2
+		chroot p2 "/usr/bin/${STATIC}" /bin/bash /root/stage2
 	fi
 	phase_end
 	# unmount
