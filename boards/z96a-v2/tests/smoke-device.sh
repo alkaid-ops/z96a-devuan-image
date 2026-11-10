@@ -26,11 +26,12 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/../../.." && pwd)
 BASELINE="$ROOT/boards/z96a-v2/tests/baseline.json"
 
 # shellcheck disable=SC2086
-SSH=(ssh -o BatchMode=yes -o ConnectTimeout=8 ${Z96A_SSH_OPTS:-} "$HOST")
+read -r -a SSH_EXTRA <<< "${Z96A_SSH_OPTS:-}"
+SSH=(ssh -o BatchMode=yes -o ConnectTimeout=8 "${SSH_EXTRA[@]}" "$HOST")
 
 if ! "${SSH[@]}" true 2>/dev/null; then
     echo "SKIP  cannot reach $HOST over SSH (keys not configured?)"

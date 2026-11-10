@@ -9,7 +9,7 @@
 #   sudo boards/z96a-v2/tests/smoke-static.sh --image output/z96a-v2/*.img
 set -uo pipefail
 
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/../../.." && pwd)
 BOARD=z96a-v2
 IMAGE=""
 fail=0

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Module directory (phase 2 split: install/ configure/ verify/).
-Z96A_USCRIPTS_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+Z96A_USCRIPTS_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 # Stage1 start: fail fast on inconsistent packaging inputs.
 run_function0 (){
@@ -67,6 +67,8 @@ run_function2 (){
 	Z96A_ROOT_PASSWORD=${Z96A_ROOT_PASSWORD:-}
 	Z96A_WIFI_SSID=${Z96A_WIFI_SSID:-}
 	Z96A_WIFI_PASSKEY=${Z96A_WIFI_PASSKEY:-}
+	# Sourced configure modules consume this shared local variable.
+	# shellcheck disable=SC2034
 	local key="$Z96A_SSH_KEY"
 
 	. "$Z96A_USCRIPTS_DIR/install/10-base.sh"
