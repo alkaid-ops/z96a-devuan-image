@@ -66,6 +66,24 @@ jobs:
           # them explicitly in the container instead.
           clean: false
 
+      - name: Validate image credentials
+        env:
+          Z96A_SSH_KEY: ${{ secrets.Z96A_SSH_KEY }}
+          Z96A_WIFI_SSID: ${{ secrets.Z96A_WIFI_SSID }}
+          Z96A_WIFI_PASSKEY: ${{ secrets.Z96A_WIFI_PASSKEY }}
+        run: |
+          set -eu
+          if [ -z "$Z96A_SSH_KEY" ]; then
+            echo "missing required repository secret: Z96A_SSH_KEY" >&2
+            exit 1
+          fi
+          if [ -n "$Z96A_WIFI_SSID" ] && [ -z "$Z96A_WIFI_PASSKEY" ] ||
+             [ -z "$Z96A_WIFI_SSID" ] && [ -n "$Z96A_WIFI_PASSKEY" ]; then
+            echo "Z96A_WIFI_SSID and Z96A_WIFI_PASSKEY must be set together" >&2
+            exit 1
+          fi
+          echo "required image credential inputs are present"
+
       - name: Reclaim runner disk space
         run: |
           set -eu
