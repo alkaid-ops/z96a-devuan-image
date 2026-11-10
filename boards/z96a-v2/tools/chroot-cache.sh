@@ -31,7 +31,11 @@ inputs_key() {
 			"boards/$BOARD/features.conf" "boards/$BOARD/defconfig-trim.txt" \
 			"custom.txt" "userdata.txt" 2>/dev/null || true
 		sha256sum "defconfig/$(sed -n 's/^LINUX_DEFCONFIG="\([^"]*\)".*/\1/p' "lib/boards/$BOARD" | head -1)" 2>/dev/null || true
-		sha256sum "files/rootfs-overlay/$BOARD/opt/z96a/packages/SHA256SUMS" 2>/dev/null || true
+		package_sums="files/rootfs-overlay/$BOARD/opt/z96a/packages/SHA256SUMS"
+		if [ -f "$package_sums" ]; then
+			# Hash canonical contents, not the source file's locale-dependent order.
+			LC_ALL=C sort "$package_sums" | sha256sum
+		fi
 		# userscript modules and rootfs overlay (excluding the .deb blobs, which
 		# are covered by SHA256SUMS above and are far too large to hash each run)
 		find "boards/$BOARD/userscripts" -type f -print0 2>/dev/null | sort -z |

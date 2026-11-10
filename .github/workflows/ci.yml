@@ -24,6 +24,7 @@ jobs:
           bash -n boards/z96a-v2/tests/smoke-rootfs.sh
           bash -n boards/z96a-v2/tests/smoke-device.sh
           bash -n boards/z96a-v2/tools/build-in-container.sh
+          bash -n boards/z96a-v2/tools/ci-fetch-inputs.sh
           bash -n boards/z96a-v2/tools/ci-prepare-inputs.sh
           bash -n boards/z96a-v2/tools/ci-validate-image.sh
           bash -n boards/z96a-v2/tools/ci-collect-image.sh
@@ -36,6 +37,7 @@ jobs:
             boards/z96a-v2/tests/smoke-rootfs.sh \
             boards/z96a-v2/tests/smoke-device.sh \
             boards/z96a-v2/tools/build-in-container.sh \
+            boards/z96a-v2/tools/ci-fetch-inputs.sh \
             boards/z96a-v2/tools/ci-prepare-inputs.sh \
             boards/z96a-v2/tools/ci-validate-image.sh \
             boards/z96a-v2/tools/ci-collect-image.sh

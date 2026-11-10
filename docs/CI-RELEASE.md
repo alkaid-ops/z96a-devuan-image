@@ -22,39 +22,34 @@ Tag 必须指向默认分支上的提交；`release.yml` 会检查 `git merge-ba
 
 ## Runner 要求
 
-镜像构建**不能**直接在 GitHub-hosted runner 上照搬本地流程，需要专用
-self-hosted runner，标签：
+镜像构建使用 GitHub-hosted `ubuntu-24.04` runner。实际构建前会检查剩余磁盘、
+宿主机 loop/ext4 挂载与 privileged Docker；验证记录见 hosted-runner-probe 工作流。
 
-```text
-[self-hosted, linux, z96a-build]
-```
+要求与限制：
 
-要求：
-
-- 已安装 Docker，且 runner 用户可执行 `docker info`。
-- 已构建固定构建根镜像：
+- 运行环境固定 `ubuntu-24.04`；工作流先回收预装 SDK 并要求根文件系统至少 60 GiB 可用。
+- 必须能使用 Docker、特权容器、loop device 与 ext4 loop mount；探针已成功验证。
+- 工作流自动构建固定构建根镜像：
 
   ```sh
   docker build -f boards/z96a-v2/tools/Dockerfile -t z96a-build:local .
   ```
 
-- 支持特权容器、loop device 和 `/dev` 映射（`build-in-container.sh` 与
-  `ci-validate-image.sh` 都依赖）。
-- 工作区所在文件系统至少 20 GiB 可用（构建前会检查）。
 - 出站网络：容器内 apt（Devuan 主源与 `excalibur-backports`）、应用 vendor URL
-  与 GitHub 下载；输入缓存不能替代首次构建所需的网络。
+  与 GitHub 下载；输入 Release 避免重新构建内核/应用包，但不替代 apt 网络。
 - 安装 `rsync`、`xz`、`python3`、`git`。
-- Actions runner 版本需支持 `actions/checkout@v7` 系列（Node 24）。
+- Actions runner 需支持 `actions/checkout@v7` 系列（Node 24）。
 - 同一时间只运行一个镜像构建；工作流已用 `concurrency` 串行化。
 - 构建容器会以 root 写入 `output/`。工作流因此使用 `clean: false`，并在容器内
   显式清空 `output/` 等构建目录；runner 用户不要依赖 `git clean` 删除这些文件。
-- 不要给来自 fork 的 PR 使用该 runner；本仓库工作流只允许受保护 Tag 与
-  手动触发进入构建。
+- 完整镜像构建仅由受控的手动 workflow 或版本 Tag 触发；PR/push 只跑轻量 CI。
 
 ## 持久缓存布局
 
-缓存放在 checkout 之外，避免 `actions/checkout` 的 `git clean` 删除未跟踪文件。
-默认根目录 `/var/lib/z96a-ci`，可用仓库变量 `Z96A_CACHE_ROOT` 覆盖。
+GitHub-hosted runner 每次为临时机器，因此输入通过 `actions/cache` 保留，
+缓存 miss 时从不可变的 `inputs-v1` Release 下载并逐文件校验。缓存 key 为
+`z96a-inputs-v1-Linux`；更新输入时发布新 `inputs-vN` 并同步更新 workflow key。
+chroot 缓存在当前 hosted job 内使用，不跨 job 持久保存。
 
 ```text
 $Z96A_CACHE_ROOT/
@@ -62,21 +57,26 @@ $Z96A_CACHE_ROOT/
 │   ├── packages/     内置应用 .deb（含内部 build artifact 包）
 │   ├── tarball/      devuan-excalibur-minimal-rootfs-arm64.tar.xz
 │   └── debs/         linux-image-*.deb、linux-headers-*.deb、u-boot-*.deb
-└── chroot/           chroot-cache.sh 的 p1/p2 结果（可重建）
+└── chroot/           chroot-cache.sh 的 p1/p2 结果（当前 job 内可重建）
 ```
 
-首次部署时从一台已成功构建的机器播种：
+生成输入 Release（仅在维护输入版本时执行）：
 
 ```sh
-CACHE=/var/lib/z96a-ci
-sudo mkdir -p "$CACHE"/{input/{packages,tarball,debs},chroot}
-sudo rsync -a files/rootfs-overlay/z96a-v2/opt/z96a/packages/*.deb "$CACHE/input/packages/"
-sudo rsync -a output/tarball/*.tar.xz "$CACHE/input/tarball/"
-sudo rsync -a output/z96a-v2/linux-*.deb output/z96a-v2/u-boot-*.deb "$CACHE/input/debs/"
-sudo rsync -a output/cache/ "$CACHE/chroot/"
+STAGE=/tmp/z96a-inputs-v1
+mkdir -p "$STAGE"/{packages,tarball,debs}
+cp files/rootfs-overlay/z96a-v2/opt/z96a/packages/*.deb "$STAGE/packages/"
+cp output/tarball/devuan-excalibur-minimal-rootfs-arm64.tar.xz "$STAGE/tarball/"
+cp output/z96a-v2/linux-image-*.deb output/z96a-v2/linux-headers-*.deb \
+   output/z96a-v2/u-boot-*.deb "$STAGE/debs/"
+(cd "$STAGE" && find packages tarball debs -type f -print0 | sort -z |
+  xargs -0 sha256sum > SHA256SUMS.inputs)
+gh release create inputs-v1 "$STAGE"/{packages,tarball,debs}/* \
+  "$STAGE/SHA256SUMS.inputs" --title 'Build inputs v1' \
+  --notes 'Immutable, SHA256-verified inputs for the Z96A image build.'
 ```
 
-输入缓存是**构建输入**，不是可选加速：
+输入 Release 是**构建输入**，不是可选加速：
 
 - `make image` 需要 rootfs tarball、kernel deb、U-Boot deb 和内置应用 deb。
 - 内部应用（`build artifact` 列）没有下载 URL，只能由缓存提供。
@@ -87,20 +87,10 @@ chroot 缓存（`chroot-cache.sh`）只用于加速安装阶段。缓存 key 覆
 TOML、defconfig、features、trim、userscripts、overlay、包校验和 kernel deb；
 missing 或 p1 缺 DTB 时自动回退完整 chroot。缓存损坏不会产出错误镜像。
 
-### 缓存维护
-
-```sh
-# 每个 key 约 5.3 GiB；清理不再使用的旧 key（保留最新一个）
-ls -1t /var/lib/z96a-ci/chroot | tail -n +2 |
-  xargs -r -I{} sudo rm -rf "/var/lib/z96a-ci/chroot/{}"
-
-# 内核/U-Boot/rootfs/应用包变更后，重新播种输入缓存
-sudo rsync -a --delete output/cache/ /var/lib/z96a-ci/chroot/
-```
-
 输入缓存是“当前应发布的输入”：升级 kernel、U-Boot、rootfs tarball 或内置
-应用 deb 后必须同步更新，否则 Tag 构建会继续使用旧输入。chroot 缓存则可以
-随时清空，只影响耗时。
+应用 deb 后必须同步更新，否则 Tag 构建会继续使用旧输入。chroot 缓存可以
+随时清空，只影响耗时。更新输入后必须新建 Release tag（例如 `inputs-v2`）、
+修改 workflow 中的 Release 与 cache key，再验证下载。
 
 ## Tag 发布流程
 

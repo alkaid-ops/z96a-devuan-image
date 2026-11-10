@@ -11,6 +11,7 @@
 #   --from DIR   copy missing debs from a local artifact cache directory
 #   Z96A_FETCH_URL_BASE  prefix for entries whose url column is empty
 set -u
+export LC_ALL=C
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
 cd "$ROOT" || exit 1
@@ -69,7 +70,18 @@ done < "$SOURCES"
 
 # Keep the packages SHA256SUMS in sync with what is on disk.
 if [ -d "$PKG_DIR" ]; then
-    ( cd "$PKG_DIR" && sha256sum -- *.deb > SHA256SUMS )
+    tmp_sums=$(mktemp "$PKG_DIR/SHA256SUMS.XXXXXX")
+    if ( cd "$PKG_DIR" && sha256sum -- *.deb ) > "$tmp_sums"; then
+        if ! cmp -s "$tmp_sums" "$PKG_DIR/SHA256SUMS"; then
+            mv -f "$tmp_sums" "$PKG_DIR/SHA256SUMS"
+        else
+            rm -f "$tmp_sums"
+        fi
+    else
+        rm -f "$tmp_sums"
+        echo "failed to generate package checksums" >&2
+        exit 1
+    fi
     printf 'updated %s/SHA256SUMS\n' "$PKG_DIR"
 fi
 
