@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+runtime_dir=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+ready="$runtime_dir/z96a-power/lock-ready"
+if [ -r "$ready" ]; then
+    pid=$(cat "$ready" 2>/dev/null || true)
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        exit 0
+    fi
+fi
+exec /usr/bin/slimlock

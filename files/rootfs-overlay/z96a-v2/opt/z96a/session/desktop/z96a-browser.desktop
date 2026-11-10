@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Thorium 浏览器
+Name[en_US]=Thorium Browser
+Comment=浏览网页
+Exec=/usr/local/bin/z96a-thorium %U
+TryExec=/usr/local/bin/z96a-thorium
+Icon=thorium-browser
+Terminal=false
+Categories=Network;WebBrowser;
+MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;
+StartupNotify=true

@@ -1,0 +1,76 @@
+#!/usr/bin/python3
+"""Z96A power menu: exactly 锁屏 / 挂起 / 关机 / 重启."""
+
+import subprocess
+import sys
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk
+
+ACTIONS = {
+    1: ("锁屏", "system-lock-screen-symbolic", ["/usr/local/bin/z96a-lock"]),
+    2: ("挂起", "media-playback-pause-symbolic", ["/usr/bin/lxqt-leave", "--suspend"]),
+    3: ("关机", "system-shutdown-symbolic", ["/usr/bin/lxqt-leave", "--shutdown"]),
+    4: ("重启", "system-reboot-symbolic", ["/usr/bin/lxqt-leave", "--reboot"]),
+}
+
+
+def build_button(action_id, label, icon_name):
+    button = Gtk.Button()
+    button.set_relief(Gtk.ReliefStyle.NONE)
+    button.set_size_request(150, 76)
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    box.set_margin_top(8)
+    box.set_margin_bottom(8)
+    image = Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.DIALOG)
+    text = Gtk.Label(label=label)
+    box.pack_start(image, False, False, 0)
+    box.pack_start(text, False, False, 0)
+    button.add(box)
+    button.connect("clicked", lambda _button: _activate(action_id))
+    return button
+
+
+def _activate(action_id):
+    if action_id in ACTIONS:
+        subprocess.Popen(ACTIONS[action_id][2], close_fds=True,
+                         start_new_session=True)
+    Gtk.main_quit()
+
+
+def main():
+    dialog = Gtk.Dialog(title="电源选项")
+    dialog.set_resizable(False)
+    dialog.set_modal(True)
+    dialog.set_keep_above(True)
+    dialog.set_skip_taskbar_hint(True)
+    dialog.set_skip_pager_hint(True)
+    dialog.set_position(Gtk.WindowPosition.CENTER_ALWAYS)
+    dialog.add_button("取消", Gtk.ResponseType.CANCEL)
+
+    grid = Gtk.Grid(row_spacing=10, column_spacing=10,
+                    margin_top=18, margin_bottom=18,
+                    margin_start=18, margin_end=18)
+    for index, (action_id, (label, icon, _command)) in enumerate(ACTIONS.items()):
+        grid.attach(build_button(action_id, label, icon),
+                    index % 2, index // 2, 1, 1)
+    dialog.get_content_area().add(grid)
+
+    # close on Escape / window close, without executing anything
+    dialog.connect("response", lambda _d, _r: Gtk.main_quit())
+    dialog.connect("destroy", lambda _d: Gtk.main_quit())
+    dialog.show_all()
+    dialog.present()
+    Gtk.main()
+    dialog.destroy()
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except Exception as exc:
+        print("z96a-power-menu: %s" % exc, file=sys.stderr)
+        sys.exit(1)

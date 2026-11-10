@@ -1,0 +1,15 @@
+#!/bin/sh
+
+xrdb -merge "$HOME/.Xresources" 2>/dev/null || true
+
+# The LXQt main menu needs the menu prefix; without it the panel looks for
+# applications.menu and the start button does nothing.
+export XDG_MENU_PREFIX="${XDG_MENU_PREFIX:-lxqt-}"
+export XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-LXQt}"
+
+if command -v startlxqt >/dev/null 2>&1; then
+    exec startlxqt
+fi
+
+echo "LXQt session is not installed (requested: ${1:-default})." >&2
+exit 127

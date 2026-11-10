@@ -1,0 +1,2 @@
+[io.github.celluloid-player.Celluloid]
+mpv-options='hwdec=vaapi-copy'

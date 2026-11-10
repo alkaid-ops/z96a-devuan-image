@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eu
+
+# Trust the shipped desktop launchers before PCManFM-Qt loads the Desktop.
+if [ -x /usr/local/bin/z96a-desktop-trust ]; then
+    /usr/local/bin/z96a-desktop-trust >/dev/null 2>&1 || true
+    pkill -u "$(id -u)" -f '^/bin/sh /usr/local/bin/z96a-desktop-trust --watch$' >/dev/null 2>&1 || true
+    /usr/local/bin/z96a-desktop-trust --watch >/dev/null 2>&1 &
+fi
+
+if ! pgrep -f '(^|/)pcmanfm-qt .*--desktop([[:space:]]|$)' >/dev/null 2>&1; then
+    pcmanfm-qt --desktop --profile=z96a >/dev/null 2>&1 &
+fi
+xset s off -dpms >/dev/null 2>&1 || true
+(sleep 10; xset s off -dpms >/dev/null 2>&1 || true) &
+
+# Restore the last saved volume and brightness for this user.
+if [ -x /usr/local/bin/z96a-hotkey ]; then
+    /usr/local/bin/z96a-hotkey restore-hardware >/dev/null 2>&1 || true
+fi
+
+pkill -u "$(id -u)" -f '^(/usr/bin/python3 )?/usr/local/bin/z96a-system-tray$' >/dev/null 2>&1 || true
+if [ -x /usr/local/bin/z96a-system-tray ]; then
+    /usr/local/bin/z96a-system-tray --osd >/dev/null 2>&1 &
+fi
+pkill -u "$(id -u)" -f '^/usr/local/sbin/z96a-power-policy --daemon$' >/dev/null 2>&1 || true
+if [ -x /usr/local/sbin/z96a-power-policy ]; then
+    /usr/local/sbin/z96a-power-policy --daemon >/dev/null 2>&1 &
+fi
+
+# Restart the RK817 volume feedback listener so it is bound to this session.
+pkill -u "$(id -u)" -f '^/bin/bash /usr/local/bin/z96a-volume-feedback$' >/dev/null 2>&1 || true
+pkill -u "$(id -u)" -f '^amixer -c [0-9]+ events$' >/dev/null 2>&1 || true
+if [ -x /usr/local/bin/z96a-volume-feedback ]; then
+    /usr/local/bin/z96a-volume-feedback >/dev/null 2>&1 &
+fi

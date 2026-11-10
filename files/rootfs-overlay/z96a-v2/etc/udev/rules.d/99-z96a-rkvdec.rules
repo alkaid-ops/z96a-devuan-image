@@ -1,0 +1,2 @@
+SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{name}=="rkvdec", SYMLINK+="video-rkvdec"
+SUBSYSTEM=="media", ENV{ID_PATH}=="platform-fdf80200.video-codec", SYMLINK+="media-rkvdec"

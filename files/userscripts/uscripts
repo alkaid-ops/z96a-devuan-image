@@ -1,0 +1,32 @@
+#!/bin/bash
+# Generic user-script entry point.
+#
+# Board-specific image customisation lives in:
+#   boards/<board>/userscripts/uscripts
+#
+# Host side: lib/source sources this file from the repository root, with
+# BOARD already exported by board.txt. Board script is sourced directly.
+# Chroot side: lib/source copies the board script next to this file as
+# "board-uscripts" and writes the board name to "board". This dispatcher
+# then loads that copy.
+#
+# A board script may define any of run_function0..run_function3; the build
+# calls them at the same points as upstream.
+
+_uscripts_self="${BASH_SOURCE[0]:-$0}"
+_uscripts_dir="$(CDPATH= cd -- "$(dirname -- "$_uscripts_self")" 2>/dev/null && pwd || pwd)"
+
+if [ -z "${BOARD:-}" ] && [ -r "$_uscripts_dir/board" ]; then
+    BOARD="$(cat "$_uscripts_dir/board")"
+fi
+if [ -z "${BOARD:-}" ] && [ -r board.txt ]; then
+    BOARD="$(sed -n 's/^BOARD="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' board.txt | head -n 1)"
+fi
+
+if [ -n "${BOARD:-}" ]; then
+    if [ -r "boards/$BOARD/userscripts/uscripts" ]; then
+        . "boards/$BOARD/userscripts/uscripts"
+    elif [ -r "$_uscripts_dir/board-uscripts" ]; then
+        . "$_uscripts_dir/board-uscripts"
+    fi
+fi

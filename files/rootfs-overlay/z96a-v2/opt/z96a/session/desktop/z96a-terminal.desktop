@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=终端
+Name[en_US]=Terminal
+Comment=打开终端
+Exec=qterminal
+TryExec=qterminal
+Icon=utilities-terminal
+Terminal=false
+Categories=System;TerminalEmulator;
+StartupNotify=true

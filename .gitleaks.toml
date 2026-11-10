@@ -1,0 +1,5 @@
+[allowlist]
+description = "Upstream Broadcom kernel patch contains token-like configuration identifiers, not credentials."
+paths = [
+  '''patches/git/khadasvim4/linux-amlogic-5.15.170_202508/002-Add-bcmdhd-wireless-support\.patch''',
+]

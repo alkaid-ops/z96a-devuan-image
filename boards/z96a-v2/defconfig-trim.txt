@@ -1,0 +1,37 @@
+# Defconfig trim for z96a-v2 (docs/OPTIMIZATION.md §7.9).
+#
+# Only subsystems that cannot exist on this board are disabled:
+#   - GPU drivers for non-Mali hardware (board only has Mali-G52/panfrost)
+#   - Intel QCA PCIe WiFi cards (no M.2/mini-PCIe slot; USB cards unaffected)
+#   - DVB / digital TV / SDR (no tuner hardware; UVC webcam support stays on)
+#   - AHCI SATA controller (no SATA port; USB-storage still works via SCSI)
+#
+# Format: one CONFIG symbol per line, prefix "-#" to disable.
+-# CONFIG_DRM_AMDGPU
+-# CONFIG_DRM_RADEON
+-# CONFIG_DRM_NOUVEAU
+-# CONFIG_DRM_AST
+-# CONFIG_DRM_BOCHS
+-# CONFIG_DRM_QXL
+-# CONFIG_DRM_UDL
+-# CONFIG_DRM_MGAG200
+-# CONFIG_DRM_VIRTIO_GPU
+-# CONFIG_IWLWIFI
+-# CONFIG_ATH10K
+-# CONFIG_ATH11K
+-# CONFIG_ATH12K
+-# CONFIG_DVB_CORE
+-# CONFIG_MEDIA_DIGITAL_TV_SUPPORT
+-# CONFIG_MEDIA_SDR_SUPPORT
+-# CONFIG_MEDIA_RADIO_SUPPORT
+-# CONFIG_MEDIA_TUNER
+-# CONFIG_ATH10K_PCI
+-# CONFIG_ATH10K_AHB
+-# CONFIG_ATH10K_SDIO
+-# CONFIG_ATH10K_USB
+-# CONFIG_ATH11K_PCI
+-# CONFIG_ATH12K_PCI
+-# CONFIG_IWLWIFI_LEDS
+-# CONFIG_IWLWIFI_OPMODE_MODULAR
+-# CONFIG_MEDIA_TUNER_SIMPLE
+-# CONFIG_SATA_AHCI

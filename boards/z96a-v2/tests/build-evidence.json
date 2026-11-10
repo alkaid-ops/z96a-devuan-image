@@ -1,0 +1,36 @@
+{
+  "latest_image": "rk3568-sunniwell-z96a-typec-devuan-excalibur-minimal-7.2.12-arm64-ext4-2026-11-10-1515.img.xz",
+  "compressed_xz_mib": 1583,
+  "rootfs_used_mb": 5407,
+  "kernel": {
+    "version": "7.2.12",
+    "pinned_commit": "0211cf630ee32283297935c56a12a510bd4584d6"
+  },
+  "mesa": {
+    "version": "26.1.6-1~bpo13+1"
+  },
+  "installed_packages": 1131,
+  "release_info": {
+    "channel": "nightly",
+    "artifact_name": "z96a-v2-7.2.12-nightly-20261110.img.xz",
+    "sbom": "sbom.json"
+  },
+  "pruning": {
+    "bundled_debs": "removed",
+    "firmware_mb": 152,
+    "doc_mb": 21,
+    "locale_mb": 13
+  },
+  "validation": {
+    "smoke_static_image": "PASS",
+    "smoke_rootfs": "PASS",
+    "smoke_rootfs_chroot": "PASS",
+    "image_validation": "PASS",
+    "dtb_present": "PASS",
+    "board_runtime_record": "PASS",
+    "mesa_in_image": "26.1.6-1~bpo13+1",
+    "firmware_limit": "152 <= 300"
+  },
+  "build_seconds": 590,
+  "build_note": "chroot cache hit: restored p1/p2; host image prep 59s, chroot 74s, shrink 93s, xz 235s"
+}

@@ -1,0 +1,18 @@
+[keys]
+key_actions_materialized = 1
+toggle_mode_keys = ["lshift", "rshift"]
+commit_on_switch = true
+
+[keys.key_actions]
+backtick = "temp_pinyin"
+semicolon = "mix:quick_mix"
+
+[schema]
+active = "pinyin"
+available = ["pinyin", "wubi86", "wubi86_pinyin", "english"]
+
+[ui.toolbar]
+visible = false
+
+[ui.status]
+enabled = false

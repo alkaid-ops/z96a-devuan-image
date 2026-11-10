@@ -1,0 +1,32 @@
+# LXQt desktop, Openbox, icons, input method and desktop portal.
+# Generated list lives in files/rootfs-overlay/z96a-v2/opt/z96a/runtime-packages.txt
+# Regenerate with: boards/z96a-v2/tools/gen-runtime-packages.sh
+
+fcitx5
+fcitx5-config-qt
+fcitx5-frontend-gtk3
+fcitx5-frontend-qt5
+libfm-qt-l10n
+liblxqt-l10n
+lxqt-about-l10n
+lxqt-config-l10n
+lxqt-core
+lxqt-globalkeys-l10n
+lxqt-notificationd-l10n
+lxqt-panel-l10n
+lxqt-policykit-l10n
+lxqt-powermanagement
+lxqt-powermanagement-l10n
+lxqt-runner-l10n
+lxqt-session-l10n
+lxqt-sudo-l10n
+obconf-qt
+obconf-qt-l10n
+openbox
+papirus-icon-theme
+pcmanfm-qt-l10n
+qt6-svg-plugins
+qt6-translations-l10n
+qterminal
+qterminal-l10n
+xdg-desktop-portal-gtk

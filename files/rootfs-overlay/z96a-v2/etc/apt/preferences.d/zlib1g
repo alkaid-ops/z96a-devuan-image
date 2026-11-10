@@ -1,0 +1,6 @@
+# Temporary pin for image build: Tsinghua's excalibur-security index lists
+# zlib1g 1:1.3.dfsg+really1.3.1-1+deb13u1, but the package file is missing
+# (404). Keep the base version already present in the rootfs.
+Package: zlib1g
+Pin: version 1:1.3.dfsg+really1.3.1-1+b1
+Pin-Priority: 1001

@@ -1,0 +1,8 @@
+# z96a-power-policy
+
+The daemon is launched from the IceWM session and writes
+/run/user/1000/z96a-power/status for the patched slimlock.
+
+Configuration: /etc/z96a/power-policy.conf
+Manual status: z96a-power-policy --once
+Config check:  z96a-power-policy --check-config

@@ -1,0 +1,58 @@
+#!/bin/sh
+# Mark desktop launchers on ~/Desktop as trusted.
+#
+# PCManFM-Qt shows an exclamation emblem over desktop entries that are not
+# trusted and may prompt before launching them.  Trust is stored per user in
+# the GVFS metadata database, so it cannot be baked into the image.
+#
+# Run without arguments at session startup (before PCManFM-Qt reads the
+# Desktop directory) to trust the existing entries.  Run with --watch to
+# trust entries copied or moved from the application menu while the session
+# is running; inotify events make the daemon event-driven and cheap.
+set -eu
+
+home_dir=${HOME:-/home/user}
+desktop_dir=$home_dir/Desktop
+[ -d "$desktop_dir" ] || exit 0
+command -v gio >/dev/null 2>&1 || exit 0
+
+trust_file() {
+    entry=$1
+    [ -f "$entry" ] || return 1
+    trusted=$(gio info -a metadata::trust "$entry" 2>/dev/null |
+        sed -n 's/^[[:space:]]*metadata::trust:[[:space:]]*//p' | head -n 1)
+    [ "$trusted" = "true" ] && return 1
+    gio set "$entry" metadata::trust true >/dev/null 2>&1 || return 1
+    return 0
+}
+
+trust_all() {
+    for entry in "$desktop_dir"/*.desktop; do
+        [ -f "$entry" ] || continue
+        trust_file "$entry" || true
+    done
+}
+
+if [ "${1:-}" = "--watch" ]; then
+    command -v inotifywait >/dev/null 2>&1 || exit 0
+    runtime=${XDG_RUNTIME_DIR:-/tmp}
+    lock=$runtime/z96a-desktop-trust.lock
+    exec 9>"$lock" 2>/dev/null || exit 0
+    flock -n 9 2>/dev/null || exit 0
+    inotifywait -m -q -e close_write -e moved_to -e attrib \
+        --format '%f' "$desktop_dir" 2>/dev/null |
+    while IFS= read -r name; do
+        case "$name" in
+            *.desktop)
+                entry=$desktop_dir/$name
+                # Re-touch after setting trust so PCManFM-Qt reloads the
+                # entry and drops an emblem it may already have painted.
+                if trust_file "$entry"; then
+                    touch -c "$entry" 2>/dev/null || true
+                fi
+                ;;
+        esac
+    done
+else
+    trust_all
+fi

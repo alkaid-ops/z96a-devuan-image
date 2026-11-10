@@ -1,4 +1,10 @@
-### How it works (files/userscripts/uscripts)
+### Board-specific scripts
+
+`files/userscripts/uscripts` is a dispatcher. Put board-specific logic in
+`boards/<board>/userscripts/uscripts`; do not add board conditionals here.
+See `docs/BOARD-GUIDE.md`.
+
+### How it works
 * run_function0
 ```sh
 Runs at the start of stage1.

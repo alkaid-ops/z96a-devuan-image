@@ -1,0 +1,352 @@
+#!/usr/bin/python3
+"""Select an application launcher and copy it to the desktop."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+def desktop_dir() -> Path:
+    override = os.environ.get("Z96A_DESKTOP_DIR")
+    return Path(override).expanduser() if override else Path.home() / "Desktop"
+
+
+def parse_entry(path: Path) -> dict[str, str] | None:
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+
+    values: dict[str, str] = {}
+    in_desktop_entry = False
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            in_desktop_entry = line == "[Desktop Entry]"
+            continue
+        if not in_desktop_entry or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+
+    if values.get("Type") != "Application":
+        return None
+    if values.get("Hidden", "").lower() == "true":
+        return None
+    if values.get("NoDisplay", "").lower() == "true":
+        return None
+
+    exec_value = values.get("Exec", "")
+    try:
+        argv = shlex.split(exec_value)
+    except ValueError:
+        return None
+    while argv and argv[0] == "env":
+        argv.pop(0)
+        while argv and "=" in argv[0] and not argv[0].startswith("/"):
+            argv.pop(0)
+    if not argv:
+        return None
+
+    try_exec = values.get("TryExec", "")
+    executable = try_exec or argv[0]
+    if "/" in executable:
+        if not os.access(executable, os.X_OK):
+            return None
+    elif shutil.which(executable) is None:
+        return None
+
+    name = values.get("Name[zh_CN]") or values.get("Name") or path.stem
+    return {"name": name, "path": str(path), "exec": exec_value}
+
+
+def application_entries() -> list[dict[str, str]]:
+    directories = [
+        Path("/usr/share/applications"),
+        Path.home() / ".local/share/applications",
+    ]
+    found: dict[str, dict[str, str]] = {}
+    for directory in directories:
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.glob("*.desktop")):
+            entry = parse_entry(path)
+            if entry is not None:
+                found[str(path)] = entry
+    return sorted(found.values(), key=lambda item: (item["name"].casefold(), item["path"]))
+
+
+def notify(message: str) -> None:
+    if os.environ.get("Z96A_NO_NOTIFY") == "1":
+        return
+    try:
+        subprocess.run(
+            ["notify-send", "-a", "Z96A 桌面", "-t", "1800", "发送快捷方式", message],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        pass
+
+
+def install_shortcut(source: Path, force: bool = False, quiet: bool = False) -> Path:
+    target_dir = desktop_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / source.name
+
+    if target.exists() and not force:
+        raise FileExistsError(str(target))
+
+    try:
+        content = source.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise RuntimeError(f"无法读取 {source}: {exc}") from exc
+
+    if "thorium" in source.name.lower():
+        content = re.sub(
+            r"^Exec=.*$",
+            "Exec=/usr/local/bin/z96a-thorium %U",
+            content,
+            count=1,
+            flags=re.MULTILINE,
+        )
+
+    temporary = target.with_name(f".{target.name}.tmp-{os.getpid()}")
+    try:
+        temporary.write_text(content, encoding="utf-8")
+        temporary.chmod(0o755)
+        os.replace(temporary, target)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+    try:
+        subprocess.run(
+            ["gio", "set", str(target), "metadata::trust", "true"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        # Touch so PCManFM-Qt reloads the entry and drops any untrusted badge.
+        os.utime(target, None)
+    except OSError:
+        pass
+    if not quiet:
+        name = parse_entry(source)
+        notify(f"已发送“{name.get('name', source.stem) if name else source.stem}”")
+    return target
+
+
+SKIP_ALL = {
+    # Control-center panes and desktop preferences are settings pages, not apps.
+    "lxqt-config-appearance.desktop",
+    "lxqt-config-brightness.desktop",
+    "lxqt-config-file-associations.desktop",
+    "lxqt-config-globalkeyshortcuts.desktop",
+    "lxqt-config-input.desktop",
+    "lxqt-config-locale.desktop",
+    "lxqt-config-monitor.desktop",
+    "lxqt-config-notificationd.desktop",
+    "lxqt-config-powermanagement.desktop",
+    "lxqt-config-session.desktop",
+    "pcmanfm-qt-desktop-pref.desktop",
+    # Session actions belong in the Leave menu, not on the desktop.
+    "lxqt-hibernate.desktop",
+    "lxqt-leave.desktop",
+    "lxqt-lockscreen.desktop",
+    "lxqt-logout.desktop",
+    "lxqt-reboot.desktop",
+    "lxqt-shutdown.desktop",
+    "lxqt-suspend.desktop",
+    # Input-method migration wizard is a one-off tool.
+    "org.fcitx.fcitx5-migrator.desktop",
+    # Already represented by the shipped Z96A desktop shortcuts.
+    "lxqt-config.desktop",
+    "pcmanfm-qt.desktop",
+    "qterminal.desktop",
+    "thorium-browser.desktop",
+    "nm-connection-editor.desktop",
+}
+
+
+def install_all(force: bool = False) -> int:
+    installed = 0
+    skipped = 0
+    failed = 0
+    for entry in application_entries():
+        source = Path(entry["path"])
+        if source.name in SKIP_ALL:
+            skipped += 1
+            continue
+        target = desktop_dir() / source.name
+        if target.exists() and not force:
+            skipped += 1
+            continue
+        try:
+            install_shortcut(source, force=force, quiet=True)
+            installed += 1
+        except (FileExistsError, RuntimeError) as exc:
+            print(f"跳过 {source.name}: {exc}", file=sys.stderr)
+            failed += 1
+    print(f"已添加 {installed} 个桌面快捷方式，跳过 {skipped} 个，失败 {failed} 个")
+    return 0 if failed == 0 else 1
+
+
+def install_from_argument(selector: str, force: bool) -> int:
+    entries = application_entries()
+    source = Path(selector).expanduser()
+    if not source.is_file():
+        matches = [Path(item["path"]) for item in entries if source.name == Path(item["path"]).name or selector == item["path"] or selector == item["name"]]
+        if len(matches) != 1:
+            print(f"找不到唯一的应用快捷方式: {selector}", file=sys.stderr)
+            return 2
+        source = matches[0]
+
+    try:
+        target = install_shortcut(source, force=force)
+    except FileExistsError as exc:
+        print(f"桌面已存在同名快捷方式: {exc}", file=sys.stderr)
+        return 3
+    except RuntimeError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    print(target)
+    return 0
+
+
+def run_gui() -> int:
+    try:
+        import gi
+
+        gi.require_version("Gtk", "3.0")
+        from gi.repository import Gtk
+    except (ImportError, ValueError) as exc:
+        print(f"需要 python3-gi 和 gir1.2-gtk-3.0: {exc}", file=sys.stderr)
+        return 1
+
+    entries = application_entries()
+    dialog = Gtk.Dialog(title="发送应用快捷方式到桌面")
+    dialog.set_default_size(720, 480)
+    dialog.set_border_width(10)
+    dialog.add_button("取消", Gtk.ResponseType.CANCEL)
+    dialog.add_button("发送到桌面", Gtk.ResponseType.OK)
+    dialog.set_default_response(Gtk.ResponseType.OK)
+
+    box = dialog.get_content_area()
+    box.set_spacing(8)
+    search = Gtk.SearchEntry()
+    search.set_placeholder_text("搜索应用程序")
+    box.pack_start(search, False, False, 0)
+
+    store = Gtk.ListStore(str, str)
+    tree = Gtk.TreeView(model=store)
+    tree.set_headers_visible(False)
+    renderer = Gtk.CellRendererText()
+    column = Gtk.TreeViewColumn("应用", renderer, text=0)
+    tree.append_column(column)
+    scroll = Gtk.ScrolledWindow()
+    scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+    scroll.add(tree)
+    box.pack_start(scroll, True, True, 0)
+
+    def rebuild(filter_text: str = "") -> None:
+        store.clear()
+        needle = filter_text.casefold().strip()
+        for item in entries:
+            if needle and needle not in item["name"].casefold() and needle not in item["path"].casefold():
+                continue
+            store.append([item["name"], item["path"]])
+        first = store.get_iter_first()
+        if first is not None:
+            tree.get_selection().select_iter(first)
+
+    search.connect("changed", lambda widget: rebuild(widget.get_text()))
+    rebuild()
+
+    def activate_row(_tree, _path, _column) -> None:
+        dialog.response(Gtk.ResponseType.OK)
+
+    tree.connect("row-activated", activate_row)
+    dialog.show_all()
+
+    while True:
+        response = dialog.run()
+        if response != Gtk.ResponseType.OK:
+            dialog.destroy()
+            return 0
+        model, tree_iter = tree.get_selection().get_selected()
+        if tree_iter is None:
+            continue
+        source = Path(model[tree_iter][1])
+        try:
+            install_shortcut(source)
+            dialog.destroy()
+            return 0
+        except FileExistsError:
+            question = Gtk.MessageDialog(
+                transient_for=dialog,
+                flags=0,
+                message_type=Gtk.MessageType.QUESTION,
+                buttons=Gtk.ButtonsType.YES_NO,
+                text="桌面已存在同名快捷方式，是否替换？",
+            )
+            replace = question.run() == Gtk.ResponseType.YES
+            question.destroy()
+            if replace:
+                try:
+                    install_shortcut(source, force=True)
+                    dialog.destroy()
+                    return 0
+                except RuntimeError as exc:
+                    error = Gtk.MessageDialog(
+                        transient_for=dialog,
+                        flags=0,
+                        message_type=Gtk.MessageType.ERROR,
+                        buttons=Gtk.ButtonsType.CLOSE,
+                        text=str(exc),
+                    )
+                    error.run()
+                    error.destroy()
+        except RuntimeError as exc:
+            error = Gtk.MessageDialog(
+                transient_for=dialog,
+                flags=0,
+                message_type=Gtk.MessageType.ERROR,
+                buttons=Gtk.ButtonsType.CLOSE,
+                text=str(exc),
+            )
+            error.run()
+            error.destroy()
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="发送应用快捷方式到桌面")
+    parser.add_argument("--list", action="store_true", help="列出台式应用")
+    parser.add_argument("--all", action="store_true", help="为开始菜单中的所有应用添加桌面快捷方式")
+    parser.add_argument("--install", metavar="DESKTOP_FILE", help="直接安装指定 .desktop 文件")
+    parser.add_argument("--force", action="store_true", help="覆盖同名桌面快捷方式")
+    args = parser.parse_args()
+
+    if args.list:
+        for entry in application_entries():
+            print(f'{entry["name"]}\t{entry["path"]}')
+        return 0
+    if args.all:
+        return install_all(args.force)
+    if args.install:
+        return install_from_argument(args.install, args.force)
+    return run_gui()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,9 @@
+# Bundled desktop applications.
+# Generated list lives in files/rootfs-overlay/z96a-v2/opt/z96a/runtime-packages.txt
+# Regenerate with: boards/z96a-v2/tools/gen-runtime-packages.sh
+
+flameshot
+geany
+geeqie
+htop
+xarchiver

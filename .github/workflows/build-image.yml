@@ -1,0 +1,218 @@
+name: build-image
+
+# Reusable image build. Called by release.yml (tag) and build.yml (manual).
+#
+# Runs on GitHub-hosted Ubuntu. A preflight verifies Docker privilege, loop
+# devices and free disk before spending time on the build.
+on:
+  workflow_call:
+    inputs:
+      channel:
+        description: "RELEASE_CHANNEL recorded in manifest.json"
+        type: string
+        default: nightly
+      release_tag:
+        description: "Tag being released (empty for manual builds)"
+        type: string
+        default: ""
+      validate:
+        description: "Run loop-mount image validation after the build"
+        type: boolean
+        default: true
+    secrets:
+      Z96A_SSH_KEY:
+        description: "Public SSH key installed in the image"
+        required: true
+      Z96A_ROOT_PASSWORD:
+        description: "Optional root password; empty disables password login"
+        required: false
+      Z96A_WIFI_SSID:
+        description: "Optional Wi-Fi SSID"
+        required: false
+      Z96A_WIFI_PASSKEY:
+        description: "Optional Wi-Fi passphrase"
+        required: false
+    outputs:
+      image_name:
+        description: "Built .img.xz file name"
+        value: ${{ jobs.build.outputs.image_name }}
+      image_sha256:
+        description: "SHA256 of the built .img.xz"
+        value: ${{ jobs.build.outputs.image_sha256 }}
+      artifact_name:
+        description: "Actions artifact containing release files"
+        value: ${{ jobs.build.outputs.artifact_name }}
+
+env:
+  # Persistent cache outside the checkout: actions/checkout runs git clean,
+  # which deletes untracked output/. Override with the repository variable
+  # Z96A_CACHE_ROOT when the runner uses a different disk.
+  Z96A_CACHE_ROOT: ${{ github.workspace }}/.ci-cache
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    outputs:
+      image_name: ${{ steps.collect.outputs.name }}
+      image_sha256: ${{ steps.collect.outputs.sha256 }}
+      artifact_name: z96a-image-${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - name: Check out the triggering commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          # The build container writes output/ as root. A default clean would
+          # run `git clean` as the runner user and fail on those files; wipe
+          # them explicitly in the container instead.
+          clean: false
+
+      - name: Reclaim runner disk space
+        run: |
+          set -eu
+          sudo rm -rf /usr/local/lib/android/sdk /opt/ghc /usr/share/dotnet \
+            /usr/local/share/powershell /usr/local/share/chromium
+          sudo docker system prune -af || true
+          df -h /
+
+      - name: Check runner prerequisites
+        run: |
+          set -eu
+          for tool in docker rsync xz python3 git losetup mkfs.ext4 mount; do
+            command -v "$tool" >/dev/null || { echo "missing $tool" >&2; exit 1; }
+          done
+          docker info >/dev/null
+          avail_kb=$(df -Pk / | awk 'NR==2 {print $4}')
+          if [ "$avail_kb" -lt 62914560 ]; then
+            echo "less than 60 GiB free on runner root filesystem (${avail_kb}KiB)" >&2
+            exit 1
+          fi
+          loop_img=$(mktemp "$RUNNER_TEMP/z96a-loop.XXXXXX")
+          loop_mnt=$(mktemp -d "$RUNNER_TEMP/z96a-mnt.XXXXXX")
+          loop_dev=
+          cleanup() {
+            sudo umount "$loop_mnt" 2>/dev/null || true
+            [ -z "$loop_dev" ] || sudo losetup -d "$loop_dev" 2>/dev/null || true
+            rm -f "$loop_img"
+            rmdir "$loop_mnt"
+          }
+          trap cleanup EXIT
+          truncate -s 128M "$loop_img"
+          loop_dev=$(sudo losetup --find --show "$loop_img")
+          sudo mkfs.ext4 -F "$loop_dev" >/dev/null
+          sudo mount "$loop_dev" "$loop_mnt"
+          sudo umount "$loop_mnt"
+          sudo losetup -d "$loop_dev"
+          loop_dev=
+          docker run --rm --privileged -v /dev:/dev alpine:3.20 sh -ec 'losetup -f >/dev/null'
+          echo "runner probe passed; free root disk: $((avail_kb / 1048576)) GiB"
+
+      - name: Ensure build container
+        run: |
+          set -eu
+          image=${Z96A_BUILD_IMAGE:-z96a-build:local}
+          if ! docker image inspect "$image" >/dev/null 2>&1; then
+            docker build -f boards/z96a-v2/tools/Dockerfile -t "$image" .
+          fi
+
+      - name: Clean root-owned build output
+        run: |
+          set -eu
+          image=${Z96A_BUILD_IMAGE:-z96a-build:local}
+          docker run --rm -v "$PWD:/build" -w /build "$image" bash -lc '
+            rm -rf output board.txt board.runtime kernel.release p1 p2 sysroot img shrink.img
+          '
+
+      - name: Prepare cache directories
+        run: |
+          set -eu
+          mkdir -p "$Z96A_CACHE_ROOT/input/packages" \
+                   "$Z96A_CACHE_ROOT/input/tarball" \
+                   "$Z96A_CACHE_ROOT/input/debs" \
+                   "$Z96A_CACHE_ROOT/chroot" \
+                   output/ci
+          echo "cache root: $Z96A_CACHE_ROOT"
+
+      - name: Restore prebuilt build inputs
+        env:
+          Z96A_INPUT_CACHE: ${{ env.Z96A_CACHE_ROOT }}/input
+        run: boards/z96a-v2/tools/ci-prepare-inputs.sh
+
+      - name: Packaging preflight
+        env:
+          Z96A_PREFLIGHT_HASH: "1"
+        run: make preflight board=z96a-v2
+
+      - name: Repository unit tests
+        run: python3 -m unittest discover -s boards/z96a-v2/tests -p 'test_*.py'
+
+      - name: Secret scan
+        run: boards/z96a-v2/tools/scan-secrets.sh
+
+      - name: Build image
+        env:
+          BOARD: z96a-v2
+          RELEASE_CHANNEL: ${{ inputs.channel }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          Z96A_SSH_KEY: ${{ secrets.Z96A_SSH_KEY }}
+          Z96A_ROOT_PASSWORD: ${{ secrets.Z96A_ROOT_PASSWORD }}
+          Z96A_WIFI_SSID: ${{ secrets.Z96A_WIFI_SSID }}
+          Z96A_WIFI_PASSKEY: ${{ secrets.Z96A_WIFI_PASSKEY }}
+          CHROOT_CACHE: "0"
+          CHROOT_CACHE_DIR: ${{ env.Z96A_CACHE_ROOT }}/chroot
+          TERM: xterm
+        run: |
+          set -o pipefail
+          boards/z96a-v2/tools/build-in-container.sh image 2>&1 |
+            tee output/ci/build.log
+
+      - name: Validate image
+        if: ${{ inputs.validate }}
+        env:
+          TERM: xterm
+        run: |
+          set -o pipefail
+          img=$(ls -t output/z96a-v2/image/*.img.xz | head -n 1)
+          boards/z96a-v2/tools/ci-validate-image.sh "$img" 2>&1 |
+            tee -a output/ci/build.log
+
+      - name: Collect image and write build evidence
+        id: collect
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_CHANNEL: ${{ inputs.channel }}
+        run: |
+          boards/z96a-v2/tools/ci-collect-image.sh \
+            --log output/ci/build.log \
+            --validation "${{ inputs.validate && 'PASS' || 'SKIPPED' }}" \
+            --tag "$RELEASE_TAG" \
+            --channel "$RELEASE_CHANNEL"
+
+      - name: Stage release files
+        run: |
+          set -eu
+          img=$(ls -t output/z96a-v2/image/*.img.xz | head -n 1)
+          mkdir -p output/ci/release
+          cp -l "$img" "$img.sha256" output/ci/release/
+          cp output/z96a-v2/manifest.json output/z96a-v2/sbom.json \
+             output/ci/build-evidence.json output/ci/build.log output/ci/release/
+          ls -lh output/ci/release
+
+      - name: Upload image artifact
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: z96a-image-${{ github.run_id }}-${{ github.run_attempt }}
+          path: output/ci/release
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: z96a-build-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: output/ci/build.log
+          if-no-files-found: ignore
+          retention-days: 7

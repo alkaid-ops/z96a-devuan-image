@@ -1,0 +1,4 @@
+# actionlint configuration: custom self-hosted runner labels.
+self-hosted-runner:
+  labels:
+    - z96a-build

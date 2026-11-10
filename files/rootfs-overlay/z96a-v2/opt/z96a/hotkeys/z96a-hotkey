@@ -1,0 +1,574 @@
+#!/bin/sh
+set -eu
+
+STATE_DIR=${Z96A_HOTKEY_STATE_DIR:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/z96a-hotkey}
+AMIXER_CARD_OVERRIDE=${Z96A_AMIXER_CARD:-}
+POWER_SUPPLY_DIR=${Z96A_POWER_SUPPLY_DIR:-/sys/class/power_supply}
+TOUCHPAD_NAME=${Z96A_TOUCHPAD_NAME:-AMR-TOUCH-MOUSE 202110 USB KEYBOARD Mouse}
+
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
+
+PERSIST_DIR=${Z96A_PERSIST_DIR:-${HOME:-$STATE_DIR}/.local/state/z96a}
+mkdir -p "$PERSIST_DIR" 2>/dev/null || true
+chmod 700 "$PERSIST_DIR" 2>/dev/null || true
+
+save_persistent() {
+    name=$1
+    shift
+    printf '%s\n' "$*" > "$PERSIST_DIR/$name.tmp.$$" 2>/dev/null || return 0
+    mv -f "$PERSIST_DIR/$name.tmp.$$" "$PERSIST_DIR/$name" 2>/dev/null || true
+}
+
+notify() {
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send -a "Z96A 快捷键" -t 1800 "$@" >/dev/null 2>&1 || true
+    fi
+}
+
+tray_running() {
+    pgrep -u "$(id -u)" -f '^(/usr/bin/python3 )?/usr/local/bin/z96a-system-tray$' >/dev/null 2>&1
+}
+
+lock_running() {
+    pgrep -u "$(id -u)" -x slimlock >/dev/null 2>&1
+}
+
+backlight_dir=${Z96A_BACKLIGHT_DIR:-/sys/class/backlight/backlight}
+
+backlight_read() {
+    if [ -r "$backlight_dir/$1" ]; then
+        sed -n '1p' "$backlight_dir/$1" 2>/dev/null
+        return 0
+    fi
+    case "$1" in
+        brightness) brightnessctl --device=backlight get 2>/dev/null ;;
+        max_brightness) brightnessctl --device=backlight max 2>/dev/null ;;
+    esac
+}
+
+backlight_write() {
+    if [ -w "$backlight_dir/brightness" ]; then
+        printf '%s\n' "$1" > "$backlight_dir/brightness" 2>/dev/null
+        return 0
+    fi
+    brightnessctl --device=backlight set "$1" >/dev/null 2>&1
+}
+
+brightness_percent_current() {
+    current=$(backlight_read brightness) || return 0
+    maximum=$(backlight_read max_brightness) || return 0
+    case "$current:$maximum" in
+        *[!0-9:]*|:*|*:) return 0 ;;
+    esac
+    [ "$maximum" -gt 0 ] 2>/dev/null || return 0
+    printf '%s\n' "$(((current * 100 + maximum / 2) / maximum))"
+}
+
+notify_brightness() {
+    percent=${1:-}
+    case "$percent" in
+        ''|*[!0-9]*) return 0 ;;
+    esac
+    [ "${Z96A_BRIGHTNESS_OSD:-1}" != "0" ] || return 0
+    tray_running && return 0
+    lock_running && return 0
+    command -v notify-send >/dev/null 2>&1 || return 0
+    notify-send -a "Z96A 快捷键" -u low -t 1200 -r 9801 \
+        -i display-brightness-symbolic "屏幕亮度: ${percent}%" >/dev/null 2>&1 || true
+}
+
+fail() {
+    notify "快捷键操作失败" "$1"
+    printf 'z96a-hotkey: %s\n' "$1" >&2
+    exit 1
+}
+
+percent_from_amixer() {
+    amixer -c "$1" sget "$2" 2>/dev/null |
+        sed -n 's/.*\[ *\([0-9][0-9]*\)%\].*/\1/p' |
+        head -n 1
+}
+
+amixer_card() {
+    if [ -n "$AMIXER_CARD_OVERRIDE" ]; then
+        printf '%s\n' "$AMIXER_CARD_OVERRIDE"
+        return
+    fi
+    card=$(awk '/\[rk817ext[[:space:]]*\]/ { gsub(/^[[:space:]]+/, "", $1); print $1; exit }' /proc/asound/cards 2>/dev/null)
+    [ -n "$card" ] || fail "未找到 RK817 音频设备"
+    printf '%s\n' "$card"
+}
+
+volume_info() {
+    card=$(amixer_card)
+    snapshot=$(volume_snapshot "$card") || return 0
+    set -- $snapshot
+    current=$1
+    minimum=$2
+    maximum=$3
+    # Display 100% must line up with the mixer's own 100% (the codec maximum),
+    # otherwise the OSD and the mixer/panel show different numbers at the top.
+    safe=${Z96A_VOLUME_MAX_LEVEL:-$maximum}
+    case "$safe" in
+        ''|*[!0-9]*) safe=$maximum ;;
+    esac
+    [ "$safe" -lt "$minimum" ] && safe=$minimum
+    [ "$safe" -gt "$maximum" ] && safe=$maximum
+    muted=0
+    if [ "$current" -eq 0 ]; then
+        muted=1
+        percent=0
+    else
+        percent=$(volume_cached_percent "$current" 2>/dev/null || true)
+        if [ -z "$percent" ]; then
+            [ "$current" -gt "$safe" ] && current=$safe
+            floor_level=$((safe * ${Z96A_VOLUME_AUDIBLE_MIN:-70} / 100))
+            if [ "$current" -le "$floor_level" ]; then
+                percent=1
+            else
+                span=$((safe - floor_level))
+                percent=$((1 + ((current - floor_level) * 99 + span / 2) / span))
+                [ "$percent" -le 100 ] || percent=100
+            fi
+        fi
+    fi
+    printf '%s %s\n' "$percent" "$muted"
+}
+
+volume_cached_percent() {
+    [ -r "$STATE_DIR/volume-level" ] || return 1
+    IFS=' ' read -r saved_level saved_percent < "$STATE_DIR/volume-level"
+    case "$saved_level:$saved_percent" in
+        *[!0-9:]*) return 1 ;;
+    esac
+    [ "$saved_level" -eq "$1" ] &&
+        [ "$saved_percent" -le 100 ] || return 1
+    printf '%s\n' "$saved_percent"
+}
+
+volume_save_percent() {
+    printf '%s %s\n' "$2" "$1" > "$STATE_DIR/volume-level.tmp.$$"
+    mv -f "$STATE_DIR/volume-level.tmp.$$" "$STATE_DIR/volume-level"
+    save_persistent volume-level "$2 $1"
+}
+
+volume_percent() {
+    info=$(volume_info) || return 0
+    set -- $info
+    [ -n "${1:-}" ] && printf '%s\n' "$1"
+}
+
+volume_muted() {
+    info=$(volume_info) || return 0
+    set -- $info
+    [ -n "${2:-}" ] && printf '%s\n' "$2"
+}
+
+volume_snapshot() {
+    mixer=$(amixer -c "$1" sget Master 2>/dev/null) || return 1
+    current=$(printf '%s\n' "$mixer" |
+        sed -n 's/.*Playback \([0-9][0-9]*\) \[.*/\1/p' | head -n 1)
+    bounds=$(printf '%s\n' "$mixer" |
+        sed -n 's/.*Limits: Playback \([0-9][0-9]*\) - \([0-9][0-9]*\).*/\1 \2/p' | head -n 1)
+    [ -n "$current" ] && [ -n "$bounds" ] || return 1
+    printf '%s %s\n' "$current" "$bounds"
+}
+
+volume_level_for_percent() {
+    percent=$1
+    minimum=$2
+    maximum=$3
+    safe=${Z96A_VOLUME_MAX_LEVEL:-$maximum}
+    audible_floor=${Z96A_VOLUME_AUDIBLE_MIN:-70}
+    case "$safe" in
+        ''|*[!0-9]*) safe=$maximum ;;
+    esac
+    case "$audible_floor" in
+        ''|*[!0-9]*) audible_floor=70 ;;
+    esac
+    [ "$safe" -lt "$minimum" ] && safe=$minimum
+    [ "$safe" -gt "$maximum" ] && safe=$maximum
+    [ "$audible_floor" -ge "$safe" ] && audible_floor=$((safe - 1))
+    floor_level=$((safe * audible_floor / 100))
+    if [ "$percent" -eq 0 ]; then
+        printf '0\n'
+    else
+        span=$((safe - floor_level))
+        printf '%s\n' "$((floor_level + ((percent - 1) * span + 49) / 99))"
+    fi
+}
+
+signal_tray() {
+    signal=$STATE_DIR/$1-changed
+    previous=$(cat "$signal" 2>/dev/null || printf '0')
+    case "$previous" in
+        ''|*[!0-9]*) previous=0 ;;
+    esac
+    printf '%s\n' "$((previous + 1))" > "$signal.tmp.$$"
+    mv -f "$signal.tmp.$$" "$signal"
+}
+
+volume_set() {
+    value=${1:-}
+    case "$value" in
+        ''|*[!0-9]*) fail "音量必须是 0 到 100 的整数" ;;
+    esac
+    [ "$value" -ge 0 ] 2>/dev/null && [ "$value" -le 100 ] 2>/dev/null ||
+        fail "音量必须是 0 到 100 的整数"
+    card=$(amixer_card)
+    snapshot=$(volume_snapshot "$card") || fail "无法读取当前音量范围"
+    set -- $snapshot
+    state_file=$STATE_DIR/volume-muted
+    if [ "$value" -eq 0 ]; then
+        if [ ! -r "$state_file" ]; then
+            saved=$(volume_percent)
+            [ -n "$saved" ] || fail "无法读取当前音量"
+            printf '%s\n' "$saved" > "$state_file"
+        fi
+        level=0
+    else
+        level=$(volume_level_for_percent "$value" "$2" "$3")
+    fi
+    amixer -c "$card" sset Master "$level" >/dev/null || fail "无法设置音量"
+    if [ "$value" -eq 0 ]; then
+        rm -f "$STATE_DIR/volume-level"
+    else
+        volume_save_percent "$value" "$level"
+        rm -f "$state_file"
+    fi
+    signal_tray volume
+}
+
+volume_up() {
+    card=$(amixer_card)
+    current=$(volume_percent)
+    [ -n "$current" ] || fail "无法读取当前音量"
+    target=$((current + 5))
+    [ "$target" -le 100 ] || target=100
+    snapshot=$(volume_snapshot "$card") || fail "无法读取当前音量范围"
+    set -- $snapshot
+    level=$(volume_level_for_percent "$target" "$2" "$3")
+    amixer -c "$card" sset Master "$level" >/dev/null || fail "无法增加音量"
+    volume_save_percent "$target" "$level"
+    rm -f "$STATE_DIR/volume-muted"
+    signal_tray volume
+}
+
+volume_down() {
+    card=$(amixer_card)
+    current=$(volume_percent)
+    [ -n "$current" ] || fail "无法读取当前音量"
+    target=$((current - 5))
+    [ "$target" -ge 0 ] || target=0
+    snapshot=$(volume_snapshot "$card") || fail "无法读取当前音量范围"
+    set -- $snapshot
+    level=$(volume_level_for_percent "$target" "$2" "$3")
+    amixer -c "$card" sset Master "$level" >/dev/null || fail "无法降低音量"
+    if [ "$target" -eq 0 ]; then
+        state_file=$STATE_DIR/volume-muted
+        [ -r "$state_file" ] || printf '%s\n' "$current" > "$state_file"
+        rm -f "$STATE_DIR/volume-level"
+    else
+        volume_save_percent "$target" "$level"
+        rm -f "$STATE_DIR/volume-muted"
+    fi
+    signal_tray volume
+}
+
+volume_mute() {
+    card=$(amixer_card)
+    state_file=$STATE_DIR/volume-muted
+    if [ -r "$state_file" ]; then
+        saved=$(cat "$state_file")
+        snapshot=$(volume_snapshot "$card") || fail "无法读取当前音量范围"
+        set -- $snapshot
+        level=$(volume_level_for_percent "$saved" "$2" "$3")
+        [ "$saved" -eq 0 ] && level=0
+        amixer -c "$card" sset Master "$level" >/dev/null || fail "无法恢复音量"
+        if [ "$saved" -gt 0 ]; then
+            volume_save_percent "$saved" "$level"
+        else
+            rm -f "$STATE_DIR/volume-level"
+        fi
+        rm -f "$state_file"
+        signal_tray volume
+        return
+    fi
+    saved=$(volume_percent)
+    [ -n "$saved" ] || fail "无法读取当前音量"
+    printf '%s\n' "$saved" > "$state_file"
+    amixer -c "$card" sset Master 0 >/dev/null || fail "无法静音"
+    signal_tray volume
+}
+
+volume_mute_lxqt() {
+    card=$(amixer_card)
+    state_file=$STATE_DIR/volume-muted-lxqt
+    if [ -r "$state_file" ]; then
+        saved=$(sed -n '1p' "$state_file" 2>/dev/null || true)
+        case "$saved" in
+            ''|*[!0-9]*) rm -f "$state_file"; fail "静音状态无效" ;;
+        esac
+        amixer -c "$card" sset Master "$saved" >/dev/null || fail "无法恢复音量"
+        rm -f "$state_file"
+        signal_tray volume
+        return
+    fi
+
+    snapshot=$(volume_snapshot "$card") || fail "无法读取当前音量范围"
+    set -- $snapshot
+    current=$1
+    if [ "$current" -eq 0 ]; then
+        return
+    fi
+    temporary=$state_file.tmp.$$
+    printf '%s\n' "$current" > "$temporary"
+    chmod 600 "$temporary"
+    mv -f "$temporary" "$state_file"
+    if ! amixer -c "$card" sset Master 0 >/dev/null; then
+        rm -f "$state_file"
+        fail "无法静音"
+    fi
+    signal_tray volume
+}
+
+# Z96A: the mainboard microphone-mute LED (next to the caps-lock LED) is
+# wired to the keyboard's NumLock LED output, not to a GPIO.
+mic_led_set() {
+    for led in /sys/class/leds/input*::numlock; do
+        [ -w "$led/brightness" ] || continue
+        printf '%s\n' "$1" > "$led/brightness" 2>/dev/null || true
+    done
+}
+
+mic_mute() {
+    state_file=$STATE_DIR/mic-muted
+    if [ -r "$state_file" ]; then
+        while IFS='|' read -r card control saved; do
+            [ -n "$card" ] || continue
+            amixer -c "$card" sset "$control" "${saved}%" >/dev/null || true
+        done < "$state_file"
+        rm -f "$state_file"
+        mic_led_set 0
+        notify "麦克风已恢复" "输入增益已还原"
+        return
+    fi
+
+    temporary=$state_file.$$
+    : > "$temporary"
+    for pair in 1:PGA1 1:PGA2 2:'Mic Capture Gain'; do
+        card=${pair%%:*}
+        control=${pair#*:}
+        saved=$(percent_from_amixer "$card" "$control" || true)
+        [ -n "$saved" ] || continue
+        printf '%s|%s|%s\n' "$card" "$control" "$saved" >> "$temporary"
+        amixer -c "$card" sset "$control" 0% >/dev/null || true
+    done
+    if [ -s "$temporary" ]; then
+        chmod 600 "$temporary"
+        mv -f "$temporary" "$state_file"
+        mic_led_set 1
+        notify "麦克风已静音" "输入增益已设为 0%"
+    else
+        rm -f "$temporary"
+        fail "未找到麦克风增益控制"
+    fi
+}
+
+brightness() {
+    change=$1
+    case "$change" in
+        5%+) direction=1 ;;
+        5%-) direction=-1 ;;
+        *) fail "无效亮度参数" ;;
+    esac
+    current=$(backlight_read brightness) || fail "无法读取当前亮度"
+    maximum=$(backlight_read max_brightness) || fail "无法读取最大亮度"
+    case "$current:$maximum" in
+        *[!0-9:]*|:*|*:) fail "亮度设备返回了无效数值" ;;
+    esac
+    [ "$maximum" -gt 0 ] 2>/dev/null || fail "亮度设备最大值无效"
+
+    current_percent=$(((current * 100 + maximum / 2) / maximum))
+    if [ "$direction" -gt 0 ]; then
+        target_percent=$((((current_percent / 5) + 1) * 5))
+        [ "$target_percent" -le 100 ] || target_percent=100
+    else
+        target_percent=$((((current_percent - 1) / 5) * 5))
+        [ "$target_percent" -ge 5 ] || target_percent=5
+    fi
+    target_level=$(( (target_percent * maximum + 50) / 100 ))
+    [ "$target_level" -ge 1 ] || target_level=1
+    backlight_write "$target_level" || fail "无法调整亮度"
+    save_persistent brightness-level "$target_level"
+    signal_tray brightness
+}
+
+brightness_set() {
+    value=${1:-}
+    case "$value" in
+        ''|*[!0-9]*) fail "亮度必须是 5 到 100 的整数" ;;
+    esac
+    [ "$value" -ge 5 ] 2>/dev/null && [ "$value" -le 100 ] 2>/dev/null ||
+        fail "亮度必须是 5 到 100 的整数"
+    maximum=$(backlight_read max_brightness) || fail "无法读取最大亮度"
+    [ "$maximum" -gt 0 ] 2>/dev/null || fail "亮度设备最大值无效"
+    target_level=$(( (value * maximum + 50) / 100 ))
+    [ "$target_level" -ge 1 ] || target_level=1
+    backlight_write "$target_level" || fail "无法设置亮度"
+    save_persistent brightness-level "$target_level"
+    signal_tray brightness
+}
+
+restore_hardware() {
+    if [ -r "$PERSIST_DIR/brightness-level" ]; then
+        saved=$(sed -n '1p' "$PERSIST_DIR/brightness-level" 2>/dev/null || true)
+        if [ -n "$saved" ] && [ "$saved" -ge 0 ] 2>/dev/null; then
+            maximum=$(backlight_read max_brightness 2>/dev/null || true)
+            case "$maximum" in
+                ''|*[!0-9]*) maximum=0 ;;
+            esac
+            if [ "$maximum" -gt 0 ]; then
+                minimum=$(((maximum * 5 + 50) / 100))
+                [ "$minimum" -ge 1 ] || minimum=1
+                [ "$saved" -lt "$minimum" ] && saved=$minimum
+                [ "$saved" -gt "$maximum" ] && saved=$maximum
+                backlight_write "$saved" >/dev/null 2>&1 || true
+            fi
+        fi
+    fi
+    if [ -r "$PERSIST_DIR/volume-level" ]; then
+        read -r saved_level saved_percent < "$PERSIST_DIR/volume-level" 2>/dev/null || true
+        case "$saved_level:$saved_percent" in
+            *[!0-9:]*|:*|*:) ;;
+            *)
+                [ "$saved_level" -gt 0 ] 2>/dev/null || saved_level=0
+                card=$(amixer_card 2>/dev/null || true)
+                if [ -n "$card" ]; then
+                    if amixer -c "$card" sset Master "$saved_level" >/dev/null 2>&1; then
+                        printf '%s %s\n' "$saved_level" "$saved_percent" > "$STATE_DIR/volume-level" 2>/dev/null || true
+                    fi
+                fi
+                ;;
+        esac
+    fi
+}
+
+open_mixer() {
+    card=$(amixer_card)
+    exec qterminal -e alsamixer -c "$card"
+}
+
+wifi_toggle() {
+    state=$(nmcli -g WIFI radio 2>/dev/null) || fail "无法读取 Wi-Fi 状态"
+    case "$state" in
+        enabled)
+            nmcli radio wifi off >/dev/null || fail "无法关闭 Wi-Fi"
+            state=$(nmcli -g WIFI radio 2>/dev/null) || fail "无法确认 Wi-Fi 状态"
+            [ "$state" = disabled ] || fail "Wi-Fi 关闭请求未生效"
+            notify "Wi-Fi" "已关闭（蓝牙不受影响）"
+            ;;
+        disabled)
+            nmcli radio wifi on >/dev/null || fail "无法打开 Wi-Fi"
+            state=$(nmcli -g WIFI radio 2>/dev/null) || fail "无法确认 Wi-Fi 状态"
+            [ "$state" = enabled ] || fail "Wi-Fi 打开请求未生效"
+            notify "Wi-Fi" "已打开"
+            ;;
+        *) fail "未知 Wi-Fi 状态：$state" ;;
+    esac
+}
+
+battery_status() {
+    battery=$POWER_SUPPLY_DIR/bq257xx-fgu
+    charger=$POWER_SUPPLY_DIR/bq257xx-charger
+    [ -d "$battery" ] || fail "未找到电池设备"
+    capacity=$(cat "$battery/capacity" 2>/dev/null || echo "未知")
+    status=$(cat "$battery/status" 2>/dev/null || echo "未知")
+    voltage=$(cat "$battery/voltage_now" 2>/dev/null || echo "")
+    charger_status=$(cat "$charger/status" 2>/dev/null || echo "未知")
+    if [ -n "$voltage" ]; then
+        voltage=$(awk -v v="$voltage" 'BEGIN { printf "%.2f V", v / 1000000 }')
+    else
+        voltage="未知"
+    fi
+    notify "电池状态" "电量 ${capacity}% · ${status}\n充电器 ${charger_status} · ${voltage}"
+}
+
+touchpad_toggle() {
+    state_file=$STATE_DIR/touchpad-disabled
+    if [ -r "$state_file" ]; then
+        saved_id=$(sed -n '1p' "$state_file")
+        saved_name=$(sed -n '2,$p' "$state_file")
+        if [ -n "$saved_id" ] && xinput enable "$saved_id" >/dev/null 2>&1; then
+            rm -f "$state_file"
+            notify "触摸板" "已打开"
+            return
+        fi
+        if [ -n "$saved_name" ] && xinput enable "$saved_name" >/dev/null 2>&1; then
+            rm -f "$state_file"
+            notify "触摸板" "已打开"
+            return
+        fi
+        fail "无法打开触摸板"
+    fi
+
+    row=$(xinput list --short 2>/dev/null | grep -F "$TOUCHPAD_NAME" | head -n 1 || true)
+    [ -n "$row" ] || fail "未找到内置触摸板"
+    device_id=$(printf '%s\n' "$row" | sed -n 's/.*id=\([0-9][0-9]*\).*/\1/p')
+    [ -n "$device_id" ] || fail "无法读取触摸板设备编号"
+    enabled=$(xinput list-props "$device_id" 2>/dev/null |
+        awk -F: '/Device Enabled/ { gsub(/[[:space:]]/, "", $2); print $2; exit }')
+    if [ "$enabled" != 1 ]; then
+        xinput enable "$device_id" >/dev/null 2>&1 || fail "触摸板当前不可用"
+    fi
+    permanent_file=$STATE_DIR/touchpad-permanent
+    if [ -r "$permanent_file" ]; then
+        saved=$(sed -n '1p' "$permanent_file")
+        xinput set-prop "$device_id" "$saved" 1 >/dev/null 2>&1 || fail "无法恢复触摸板"
+        rm -f "$permanent_file"
+        notify "触摸板" "已打开"
+        return
+    fi
+    property=$(xinput list-props "$device_id" 2>/dev/null |
+        awk -F'[()]' '/Device Enabled/ { print $2; exit }')
+    [ -n "$property" ] || fail "无法读取触摸板属性"
+    xinput disable "$device_id" >/dev/null || fail "无法关闭触摸板"
+    printf '%s\n%s\n' "$device_id" "$TOUCHPAD_NAME" > "$state_file"
+    chmod 600 "$state_file"
+    notify "触摸板" "已关闭"
+}
+
+lock_session() {
+    command -v z96a-lock >/dev/null 2>&1 || fail "未安装 z96a-lock，无法锁定屏幕"
+    z96a-lock || fail "slimlock 启动或锁屏失败"
+}
+
+action=${1:-}
+case "$action" in
+    lock) lock_session ;;
+    restore-hardware) restore_hardware ;;
+    mic-mute) mic_mute ;;
+    volume-up) volume_up ;;
+    volume-down) volume_down ;;
+    volume-mute) volume_mute ;;
+    volume-mute-lxqt) volume_mute_lxqt ;;
+    volume-set) volume_set "${2:-}" ;;
+    volume-status) value=$(volume_percent); [ -n "$value" ] || fail "无法读取当前音量"; printf '%s\n' "$value" ;;
+    volume-muted) volume_muted ;;
+    volume-info) value=$(volume_info); [ -n "$value" ] || fail "无法读取当前音量"; printf '%s\n' "$value" ;;
+    brightness-up) brightness 5%+ ;;
+    brightness-down) brightness 5%- ;;
+    brightness-set) brightness_set "${2:-}" ;;
+    mixer) open_mixer ;;
+    wifi-toggle) wifi_toggle ;;
+    battery) battery_status ;;
+    display) exec lxqt-config-monitor ;;
+    touchpad) touchpad_toggle ;;
+    screenshot) exec flameshot gui ;;
+    power-menu) xdotool key --clearmodifiers ctrl+alt+Delete ;;
+    *)
+        printf '用法：%s {lock|restore-hardware|mic-mute|volume-up|volume-down|volume-mute|volume-mute-lxqt|volume-set N|volume-status|volume-muted|volume-info|brightness-up|brightness-down|brightness-set N|mixer|wifi-toggle|battery|display|touchpad|screenshot|power-menu}\n' "$0" >&2
+        exit 2
+        ;;
+esac

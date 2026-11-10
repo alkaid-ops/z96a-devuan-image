@@ -1,0 +1,23 @@
+# build products and downloaded sources
+.cache/
+output/
+sources/
+board.txt
+install-deps.log
+
+# python
+__pycache__/
+*.pyc
+
+# editor / patch backups
+*.orig
+*.rej
+*~
+
+# build-time secrets (never commit)
+boards/*/credentials.local
+z96a-credentials.env
+
+# bundled application debs live in an artifact cache, not in git
+files/rootfs-overlay/*/opt/z96a/packages/*.deb
+files/rootfs-overlay/*/opt/z96a/packages/*.deb.sha256

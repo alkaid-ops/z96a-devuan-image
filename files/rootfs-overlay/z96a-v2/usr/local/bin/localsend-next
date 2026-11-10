@@ -1,0 +1,16 @@
+#!/bin/sh
+# LocalSend Next launcher: Slint + FemtoVG (OpenGL ES) on Panfrost/X11
+# The stock build defaults to femtovg-wgpu (wgpu 30), which only probes Vulkan
+# on Linux and therefore fails on PanVK. This build uses the official
+# `backend-femtovg` feature so it goes through glutin -> EGL/GLES -> Panfrost.
+set -e
+DIR=/opt/localsend
+export GALLIUM_DRIVER=panfrost
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/xdg-run}"
+mkdir -p "$XDG_RUNTIME_DIR"
+
+if ! pgrep -x localsendd >/dev/null 2>&1; then
+    setsid "$DIR/localsendd" </dev/null >/tmp/localsendd.log 2>&1 &
+    sleep 1
+fi
+exec "$DIR/localsend-gui" --window "$@"

@@ -1,0 +1,15 @@
+{
+  "label": "Windows 11 Fluent inspired",
+  "lxqt_theme": "light",
+  "icon_theme": "Papirus",
+  "qt_style": "Fusion",
+  "openbox_theme": "Z96A-Fluent",
+  "panel": "panel.conf",
+  "wallpaper": "/usr/share/z96a/wallpapers/windows11.png",
+  "wallpaper_mode": "zoom",
+  "fgcolor": "#ffffff",
+  "shadow_color": "#80000000",
+  "font": "\"DejaVu Sans,9,-1,5,400,0,0,0,0,0,0,0,0,0,0,1\"",
+  "cell_margins": "@Size(4 0)",
+  "icon_size": 47
+}

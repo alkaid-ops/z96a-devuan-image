@@ -8,7 +8,14 @@ if [[ `git ls-remote --heads ${GIT_URL}/${GIT_OWN}/${GIT_REPO}.git -b ${GIT_BRAN
 		echo -en "${GIT_REPO}-${GIT_BRANCH}:"
 		echo -en " Restoring"
 		if [[ "$GIT_SHALLOW" == "false" ]]; then
-			cd ${GIT_REPO}-${GIT_BRANCH}; git pull -q; make clean > /dev/null 2>&1; cd ..
+			cd ${GIT_REPO}-${GIT_BRANCH}
+			if [[ -n "${GIT_PIN_COMMIT:-}" ]]; then
+				git fetch -q --depth 1 origin "${GIT_PIN_COMMIT}" && git checkout -q FETCH_HEAD || {
+					echo -e "\nPinned commit ${GIT_PIN_COMMIT} not fetchable"; exit 1; }
+			else
+				git pull -q
+			fi
+			make clean > /dev/null 2>&1; cd ..
 		fi
 		rm -fdr ${KERNEL}
 		cp -r ${GIT_REPO}-${GIT_BRANCH} ${KERNEL}
@@ -21,6 +28,12 @@ if [[ `git ls-remote --heads ${GIT_URL}/${GIT_OWN}/${GIT_REPO}.git -b ${GIT_BRAN
 		sleep .50
 		if [[ -d "${GIT_REPO}-${GIT_BRANCH}" ]] && [[ -f "${GIT_REPO}-${GIT_BRANCH}/Makefile" ]]; then
 			cd ${GIT_REPO}-${GIT_BRANCH}
+			if [[ -n "${GIT_PIN_COMMIT:-}" ]]; then
+				if ! git rev-parse -q --verify HEAD | grep -q "^${GIT_PIN_COMMIT}"; then
+					git fetch -q --depth 1 origin "${GIT_PIN_COMMIT}" && git checkout -q FETCH_HEAD || {
+						echo -e "\nPinned commit ${GIT_PIN_COMMIT} not fetchable"; exit 1; }
+				fi
+			fi
 			if [[ `type ${FAMILY}_extra_git` ]] &>/dev/null; then ${FAMILY}_extra_git; fi
 			make clean > /dev/null 2>&1; cd ..
 			echo -en "${GIT_REPO}-${GIT_BRANCH}:"
@@ -80,6 +93,12 @@ else
 	echo 'GIT_SHALLOW="true"' > ../.cache/git_shallow.${GIT_REPO}-${GIT_BRANCH}
 	echo GIT_COMMIT='"'${GIT_HASH}'"' >> ../.cache/git_shallow.${GIT_REPO}-${GIT_BRANCH}
 	GIT_OPT="--depth 1"
+fi
+GIT_COMMIT_SHORT=`echo "${GIT_COMMIT}" | sed 's/^\(.\{7\}\).*/\1/'`
+# Board may pin an exact commit so a moving branch cannot change the kernel.
+if [[ -n "${GIT_PIN_COMMIT:-}" ]]; then
+	GIT_HASH="${GIT_PIN_COMMIT}"
+	GIT_COMMIT="${GIT_PIN_COMMIT}"
 fi
 GIT_HASH_SHORT=`echo "${GIT_HASH}" | sed 's/^\(.\{7\}\).*/\1/'`
 GIT_COMMIT_SHORT=`echo "${GIT_COMMIT}" | sed 's/^\(.\{7\}\).*/\1/'`

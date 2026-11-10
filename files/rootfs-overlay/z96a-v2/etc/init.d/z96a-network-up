@@ -1,0 +1,29 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          z96a-network-up
+# Required-Start:    $remote_fs dbus
+# Required-Stop:     $remote_fs dbus
+# Should-Start:      network-manager NetworkManager
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Force NetworkManager to activate Z96A wired profile
+### END INIT INFO
+
+case "$1" in
+	start)
+		start-stop-daemon --start --background --make-pidfile --pidfile /run/z96a-network-up.pid --exec /usr/local/sbin/z96a-network-up
+		;;
+	stop)
+		start-stop-daemon --stop --pidfile /run/z96a-network-up.pid --retry 5
+		;;
+	restart)
+		"$0" stop
+		"$0" start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}" >&2
+		exit 3
+		;;
+esac
+
+exit 0

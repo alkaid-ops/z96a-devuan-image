@@ -1,0 +1,9 @@
+Package: z96a-power-policy
+Version: 1.0.2
+Section: admin
+Priority: optional
+Architecture: arm64
+Maintainer: Z96A Build <z96a@localhost>
+Depends: libglib2.0-0 (>= 2.74), libx11-6, libxss1, brightnessctl, libnotify-bin, polkitd, elogind, python3-gi, gir1.2-gtk-3.0, slim (>= 1.4.0-0devuan2+z96a2)
+Description: Z96A AC/battery power policy daemon
+ Maintains AC and battery policy, lock-screen countdown state, and pre-suspend locking for the Z96A Devuan image.

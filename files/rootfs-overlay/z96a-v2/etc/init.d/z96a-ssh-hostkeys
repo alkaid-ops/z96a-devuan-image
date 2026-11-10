@@ -1,0 +1,23 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          z96a-ssh-hostkeys
+# Required-Start:    $local_fs
+# Required-Stop:
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Create missing persistent OpenSSH host keys
+### END INIT INFO
+
+case "${1:-}" in
+	start)
+		/usr/bin/ssh-keygen -A || exit 1
+		test -s /etc/ssh/ssh_host_ed25519_key || exit 1
+		;;
+	stop|restart|reload|force-reload)
+		;;
+	*)
+		exit 2
+		;;
+esac
+
+exit 0

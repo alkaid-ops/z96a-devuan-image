@@ -1,0 +1,10 @@
+# Video/audio decoding and GStreamer stack.
+# Generated list lives in files/rootfs-overlay/z96a-v2/opt/z96a/runtime-packages.txt
+# Regenerate with: boards/z96a-v2/tools/gen-runtime-packages.sh
+
+ffmpeg
+gstreamer1.0-plugins-bad
+gstreamer1.0-plugins-base
+gstreamer1.0-plugins-good
+gstreamer1.0-tools
+gstreamer1.0-vaapi

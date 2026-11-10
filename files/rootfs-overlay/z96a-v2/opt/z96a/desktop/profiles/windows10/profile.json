@@ -1,0 +1,16 @@
+{
+  "label": "Windows 10 inspired",
+  "lxqt_theme": "Z96A-Win10",
+  "icon_theme": "Windows-10",
+  "qt_style": "Fusion",
+  "openbox_theme": "Z96A-Win10",
+  "panel": "panel.conf",
+  "wallpaper": "/usr/share/z96a/wallpapers/windows10.png",
+  "wallpaper_mode": "zoom",
+  "fgcolor": "#ffffff",
+  "shadow_color": "#80000000",
+  "font": "\"DejaVu Sans,9,-1,5,400,0,0,0,0,0,0,0,0,0,0,1\"",
+  "cell_margins": "@Size(4 0)",
+  "icon_size": 47,
+  "desktop_shortcuts": "Home,Computer,Network,Trash"
+}

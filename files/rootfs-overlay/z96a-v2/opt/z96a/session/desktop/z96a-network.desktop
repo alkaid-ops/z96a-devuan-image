@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=网络连接
+Name[en_US]=Network Connections
+Comment=配置 Wi-Fi 与有线网络
+TryExec=nm-connection-editor
+Exec=nm-connection-editor
+Icon=network-workgroup
+Terminal=false
+Categories=System;Network;Settings;Qt;
+StartupNotify=true

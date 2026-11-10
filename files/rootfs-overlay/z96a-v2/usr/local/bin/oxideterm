@@ -1,0 +1,22 @@
+#!/bin/sh
+# Z96A (RK3568, Mali-G52 r1 / Panfrost Bifrost v7)
+#
+# GPU path: Vulkan / PanVK (Mesa >= 26.1) instead of GLES.
+#   * GLES on this chip has no EGL_EXT_create_context_robustness; GPUI/wgpu
+#     falls back to a non-robust context and the GL path renders black.
+#   * Vulkan works, but two things are required:
+#       1) /usr/share/vulkan/implicit_layer.d/VkLayer_conformance.json
+#          Mesa reports conformanceVersion 0.0.0.0 for Bifrost, and wgpu then
+#          hides the adapter. The layer lifts it to 1.3.0.0.
+#       2) PAN_I_WANT_A_BROKEN_VULKAN_DRIVER=1 (PanVK refuses v7 by default)
+#
+# Fallback: OXIDETERM_FORCE_GL=1 -> GLES path (llvmpipe on this board).
+export PAN_I_WANT_A_BROKEN_VULKAN_DRIVER="${PAN_I_WANT_A_BROKEN_VULKAN_DRIVER:-1}"
+if [ "${OXIDETERM_FORCE_GL:-0}" = "1" ]; then
+    export OXIDETERM_GPU_BACKEND=opengl
+    export LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-1}"
+    export GALLIUM_DRIVER="${GALLIUM_DRIVER:-llvmpipe}"
+else
+    export OXIDETERM_GPU_BACKEND="${OXIDETERM_GPU_BACKEND:-vulkan}"
+fi
+exec /opt/oxideterm/oxideterm-native "$@"

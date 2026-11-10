@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Exec=pcmanfm-qt trash:///
+Icon=user-trash
+Name=回收站
+Comment=打开回收站
+Terminal=false

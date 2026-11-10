@@ -1,3 +1,8 @@
+> **本仓库已与上游 `debian-image-builder` 解耦，自成一体。**
+> 构建布局与目录约定以 [`AGENTS.md`](AGENTS.md) 和 [`docs/BOARD-GUIDE.md`](docs/BOARD-GUIDE.md) 为准：
+> 板级文件在 `files/rootfs-overlay/<board>/`，板级脚本在 `boards/<board>/userscripts/uscripts`。
+> 以下内容是早期上游说明，仅供参考，不再要求与上游同步。
+
 ### **Ubuntu x86_64 users take notice.** [READ ME](https://github.com/pyavitz/debian-image-builder/commit/2fcc11e3fde75f6ff1cdb86b42b4eafc57467f99)
 
 <details>

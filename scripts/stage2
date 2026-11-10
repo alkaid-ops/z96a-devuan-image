@@ -3,6 +3,7 @@ source /root/userdata.txt
 if [ $VERBOSE -eq 1 ]; then set -x; fi
 source /root/source.txt
 source /root/board.txt
+if [ -f /root/board.runtime ]; then source /root/board.runtime; fi
 source /root/services.txt
 source /root/${FAMILY}.txt
 source /root/networking.txt
@@ -11,6 +12,15 @@ SCRIPTS_URL="https://raw.githubusercontent.com/pyavitz/scripts/master/"
 set -o errexit
 set -o pipefail
 set -o nounset
+
+phase_begin () {
+	BUILD_PHASE="$1"
+	BUILD_PHASE_START=$SECONDS
+	echo "[BUILD-TIME] START: ${BUILD_PHASE} ($(date -Is))"
+}
+phase_end () {
+	echo "[BUILD-TIME] END: ${BUILD_PHASE} ($((SECONDS - BUILD_PHASE_START))s)"
+}
 
 mount -t proc proc proc/
 mount -t sysfs sys sys/
@@ -33,6 +43,7 @@ fi
 # dpkg: error: failed to open package info file '/var/lib/dpkg/available' for reading: No such file or directory
 if [[ "$DISTRO_VERSION" == "focal" ]]; then dpkg --clear-avail; fi
 
+phase_begin "base apt update, package upgrades and desktop packages"
 apt-get update
 apt-get install -y apt-utils
 
@@ -128,6 +139,7 @@ EOF
 fi
 apt -y clean
 apt -y autoclean
+phase_end
 
 # hostname / username / password
 if [[ "$HOSTNAME" == "default" ]]; then
@@ -402,6 +414,7 @@ if [[ "$BOARD" == "odroidc1" ]]; then make_uimage; fi
 
 # u-boot and kernel packages
 echo ""
+phase_begin "kernel packages and initramfs"
 apt update
 apt upgrade -y
 if [[ "$EFI" == "true" ]]; then
@@ -423,6 +436,7 @@ else
 	rm -f *.deb
 	sleep .50
 fi
+phase_end
 if [[ "$EFI" == "true" ]]; then
 	mkdir -p /boot/efi/EFI/BOOT
 	if [[ "$DISTRO" =~ ^(bianbu|ubuntu)$ ]]; then

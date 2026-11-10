@@ -1,0 +1,61 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Shell syntax
+        run: |
+          bash -n files/userscripts/uscripts
+          bash -n boards/z96a-v2/userscripts/uscripts
+          bash -n lib/source
+          bash -n lib/function/staging
+          bash -n boards/z96a-v2/tests/smoke-static.sh
+          bash -n boards/z96a-v2/tests/smoke-rootfs.sh
+          bash -n boards/z96a-v2/tests/smoke-device.sh
+          bash -n boards/z96a-v2/tools/build-in-container.sh
+          bash -n boards/z96a-v2/tools/ci-prepare-inputs.sh
+          bash -n boards/z96a-v2/tools/ci-validate-image.sh
+          bash -n boards/z96a-v2/tools/ci-collect-image.sh
+
+      - name: Shellcheck (board scripts)
+        run: |
+          shellcheck -S warning \
+            boards/z96a-v2/userscripts/uscripts \
+            boards/z96a-v2/tests/smoke-static.sh \
+            boards/z96a-v2/tests/smoke-rootfs.sh \
+            boards/z96a-v2/tests/smoke-device.sh \
+            boards/z96a-v2/tools/build-in-container.sh \
+            boards/z96a-v2/tools/ci-prepare-inputs.sh \
+            boards/z96a-v2/tools/ci-validate-image.sh \
+            boards/z96a-v2/tools/ci-collect-image.sh
+
+      - name: Python unit tests
+        run: python3 -m unittest discover -s boards/z96a-v2/tests -p 'test_*.py' -v
+
+      - name: Packaging preflight
+        run: make preflight board=z96a-v2
+
+      - name: Secret scan (local rules)
+        run: boards/z96a-v2/tools/scan-secrets.sh
+
+      - name: Secret scan (full history)
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Repository static smoke
+        run: boards/z96a-v2/tests/smoke-static.sh
+
+      - name: Whitespace check
+        run: git diff --check

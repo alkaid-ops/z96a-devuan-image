@@ -1,0 +1,129 @@
+#!/bin/bash
+
+# Module directory (phase 2 split: install/ configure/ verify/).
+Z96A_USCRIPTS_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+
+# Stage1 start: fail fast on inconsistent packaging inputs.
+run_function0 (){
+	set -eu
+	local preflight="boards/${BOARD:-z96a-v2}/tools/preflight.sh"
+	[ -x "$preflight" ] || return 0
+	"$preflight"
+}
+
+# Stage1, host side: optional untracked credentials are injected into the image
+# so real secrets never live in this repository.
+run_function1 (){
+	set -eu
+	install -d -m 0755 "${P_VALUE}/opt"
+	local conf="boards/${BOARD:-z96a-v2}/features.conf"
+	if [ -f "$conf" ]; then install -m 0644 "$conf" "${P_VALUE}/opt/z96a-features.conf"; fi
+	local src="boards/${BOARD:-z96a-v2}/credentials.local"
+	if [ -f "$src" ]; then install -m 0600 "$src" "${P_VALUE}/opt/z96a-credentials.env"; fi
+}
+
+run_function2 (){
+	set -euo pipefail
+	# Optional feature switches; defaults keep the validated image behaviour.
+	if [ -r /opt/z96a-features.conf ]; then . /opt/z96a-features.conf; fi
+	ENABLE_DESKTOP=${ENABLE_DESKTOP:-1}
+	ENABLE_APPS=${ENABLE_APPS:-1}
+	ENABLE_MULTIMEDIA=${ENABLE_MULTIMEDIA:-1}
+	ENABLE_VULKAN=${ENABLE_VULKAN:-1}
+	ENABLE_LOCALSEND=${ENABLE_LOCALSEND:-1}
+	install_required_deb() {
+		local pkg="$1" dir name expected
+		[ -f "$pkg" ] || { echo "Missing required package: $pkg" >&2; exit 1; }
+		dir=$(dirname "$pkg")
+		name=$(basename "$pkg")
+		if [ -f "$dir/SHA256SUMS" ]; then
+			expected=$(awk -v n="$name" '{ sub(/^\.\//, "", $2) } $2 == n { print $1; exit }' "$dir/SHA256SUMS")
+			if [ -z "$expected" ]; then
+				echo "Not listed in SHA256SUMS: $name" >&2
+				exit 1
+			fi
+			if ! printf '%s  %s\n' "$expected" "$pkg" | sha256sum -c --quiet -; then
+				echo "Checksum mismatch: $pkg" >&2
+				exit 1
+			fi
+		elif [ -f "$dir/$name.sha256" ]; then
+			( cd "$dir" && sha256sum -c --quiet "$name.sha256" )
+		else
+			echo "No checksum available for $pkg" >&2
+			exit 1
+		fi
+		DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$pkg"
+	}
+	# Ensure a distro package is installed even if a remove step ran earlier.
+	dependency_guard() {
+		local pkg="$1"
+		dpkg-query -W -f='${db:Status-Abbrev}' "$pkg" 2>/dev/null | grep -q '^ii' && return 0
+		DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$pkg"
+	}
+	# Credentials come only from the protected build environment or an
+	# untracked boards/<board>/credentials.local file. No repository defaults.
+	if [ -r "/opt/z96a-credentials.env" ]; then . /opt/z96a-credentials.env; fi
+	: "${Z96A_SSH_KEY:?set the Z96A_SSH_KEY GitHub Actions secret}"
+	Z96A_ROOT_PASSWORD=${Z96A_ROOT_PASSWORD:-}
+	Z96A_WIFI_SSID=${Z96A_WIFI_SSID:-}
+	Z96A_WIFI_PASSKEY=${Z96A_WIFI_PASSKEY:-}
+	local key="$Z96A_SSH_KEY"
+
+	. "$Z96A_USCRIPTS_DIR/install/10-base.sh"
+	. "$Z96A_USCRIPTS_DIR/configure/10-environment.sh"
+	. "$Z96A_USCRIPTS_DIR/install/20-multimedia.sh"
+	. "$Z96A_USCRIPTS_DIR/configure/20-hwdb.sh"
+	. "$Z96A_USCRIPTS_DIR/configure/30-locale.sh"
+	. "$Z96A_USCRIPTS_DIR/configure/40-input-method.sh"
+	. "$Z96A_USCRIPTS_DIR/configure/50-lock.sh"
+	. "$Z96A_USCRIPTS_DIR/configure/60-session.sh"
+	. "$Z96A_USCRIPTS_DIR/install/30-apps.sh"
+	. "$Z96A_USCRIPTS_DIR/configure/70-network.sh"
+	. "$Z96A_USCRIPTS_DIR/configure/80-x11.sh"
+	. "$Z96A_USCRIPTS_DIR/configure/85-theme.sh"
+	. "$Z96A_USCRIPTS_DIR/configure/88-services.sh"
+	. "$Z96A_USCRIPTS_DIR/configure/96-ownership.sh"
+	. "$Z96A_USCRIPTS_DIR/verify/99-seal.sh"
+	apt-get check
+	dpkg --audit
+
+	if [ -n "$Z96A_WIFI_SSID" ] && [ -n "$Z96A_WIFI_PASSKEY" ]; then
+		cat > /boot/credentials.txt <<EOF
+ENABLE="true"
+SSID="$Z96A_WIFI_SSID"
+PASSKEY="$Z96A_WIFI_PASSKEY"
+COUNTRYCODE="CN"
+MANUAL="false"
+IPADDR=""
+GATEWAY=""
+DNS=""
+HOSTNAME="z96a-devuan"
+EOF
+		chmod 0600 /boot/credentials.txt
+	fi
+
+}
+
+# Stage1 end: the image root (${P_VALUE}) is still mounted here, so record the
+# build identity inside the image as well as next to the artifacts.
+run_function3 (){
+	set -euo pipefail
+	local manifest="${Z96A_MANIFEST_TOOL:-boards/${BOARD}/tools/make-manifest.sh}"
+	[ -x "$manifest" ] || return 0
+	local runtime="${Z96A_BOARD_RUNTIME:-board.runtime}"
+	# Shrink the rootfs after kernel packages are in place: pruning earlier is
+	# undone by that install (firmware + apt lists come back).
+	if [ -x "boards/${BOARD}/tools/prune-rootfs.sh" ]; then
+		"boards/${BOARD}/tools/prune-rootfs.sh" "$P_VALUE" || true
+	fi
+	install -d -m 0755 "${P_VALUE}/etc/z96a"
+	# Record the overrides that customize_image applied (board.txt stays pristine).
+	if [ -f "$runtime" ]; then
+		install -m 0644 "$runtime" "${P_VALUE}/etc/z96a/board.runtime"
+		install -m 0644 board.txt "${P_VALUE}/etc/z96a/board.source.txt" 2>/dev/null || true
+	fi
+	"$manifest" "${P_VALUE}/etc/z96a/manifest.json" "${P_VALUE}"
+	install -d -m 0755 "${OUTPUT:-output/z96a-v2}"
+	cp -f "${P_VALUE}/etc/z96a/manifest.json" "${OUTPUT:-output/z96a-v2}/manifest.json" 2>/dev/null || true
+	cp -f "${P_VALUE}/etc/z96a/sbom.json" "${OUTPUT:-output/z96a-v2}/sbom.json" 2>/dev/null || true
+}

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Service
+ServiceTypes=LXQtPanel/Plugin
+Name=Z96A System Monitor
+Name[zh_CN]=系统监控
+Comment=CPU, memory and network speed
+Comment[zh_CN]=CPU、内存和网络速度
+Icon=utilities-system-monitor

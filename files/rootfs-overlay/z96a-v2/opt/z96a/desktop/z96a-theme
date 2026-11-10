@@ -1,0 +1,315 @@
+#!/usr/bin/python3
+"""Transactional LXQt/Openbox profile switcher for Z96A."""
+
+from __future__ import annotations
+
+import argparse
+import configparser
+import datetime as dt
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+
+APP_DIR = Path(__file__).resolve().parent
+PROFILE_DIR = Path(os.environ.get("Z96A_THEME_PROFILE_DIR", APP_DIR / "profiles"))
+HOME = Path.home()
+CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config"))
+STATE = Path(os.environ.get("XDG_STATE_HOME", HOME / ".local/state")) / "z96a/desktop-profiles"
+THEME_ROOTS = [Path(p) for p in os.environ.get(
+    "Z96A_THEME_ROOTS", ":".join(("/usr/share/themes", str(HOME / ".themes")))).split(":") if p]
+LXQT_THEME_ROOTS = [Path(p) for p in os.environ.get(
+    "Z96A_LXQT_THEME_ROOTS", ":".join(("/usr/share/lxqt/themes", str(HOME / ".local/share/lxqt/themes")))).split(":") if p]
+ICON_ROOTS = [Path(p) for p in os.environ.get(
+    "Z96A_ICON_ROOTS", ":".join(("/usr/share/icons", str(HOME / ".local/share/icons")))).split(":") if p]
+LXQT_CONFIG = CONFIG / "lxqt/lxqt.conf"
+PANEL_CONFIG = CONFIG / "lxqt/panel.conf"
+OPENBOX_CONFIG = CONFIG / "openbox/rc.xml"
+OPENBOX_LXQT_CONFIG = CONFIG / "openbox/lxqt-rc.xml"
+PCMANFM_QT_CONFIG = CONFIG / "pcmanfm-qt/z96a/settings.conf"
+MANAGED = ("lxqt/lxqt.conf", "lxqt/panel.conf", "openbox/rc.xml",
+           "openbox/lxqt-rc.xml", "pcmanfm-qt/z96a/settings.conf")
+
+
+class ProfileError(Exception):
+    pass
+
+
+def atomic_write(path: Path, data: bytes, mode: int = 0o600) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as output:
+            output.write(data)
+            output.flush()
+            os.fsync(output.fileno())
+        os.chmod(temp_name, mode)
+        os.replace(temp_name, path)
+    except Exception:
+        try:
+            os.unlink(temp_name)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def profile_data(name: str) -> tuple[dict, Path]:
+    if name not in ("windows7", "windows10", "windows11", "macos"):
+        raise ProfileError(f"未知 profile: {name}")
+    root = PROFILE_DIR / name
+    try:
+        profile = json.loads((root / "profile.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ProfileError(f"profile 配置无法读取: {exc}") from exc
+    panel = root / profile.get("panel", "")
+    if not panel.is_file() or panel.parent != root:
+        raise ProfileError("profile 面板配置缺失或路径无效")
+    if not any((base / profile["lxqt_theme"]).is_dir() for base in LXQT_THEME_ROOTS):
+        raise ProfileError(f"LXQt 主题未安装: {profile['lxqt_theme']}")
+    if not any((base / profile["icon_theme"]).is_dir() for base in ICON_ROOTS):
+        raise ProfileError(f"图标主题未安装: {profile['icon_theme']}")
+    ob_theme = profile["openbox_theme"]
+    if not any((base / ob_theme / "openbox-3/themerc").is_file() for base in THEME_ROOTS):
+        raise ProfileError(f"Openbox 主题资源缺失: {ob_theme}")
+    wallpaper = Path(profile.get("wallpaper", ""))
+    if not wallpaper.is_file():
+        raise ProfileError(f"桌面壁纸缺失: {wallpaper}")
+    return profile, panel
+
+
+def backup() -> Path:
+    STATE.mkdir(parents=True, exist_ok=True)
+    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    destination = STATE / f"backup-{stamp}"
+    destination.mkdir(mode=0o700)
+    manifest = {}
+    try:
+        for relative in MANAGED:
+            source = CONFIG / relative
+            present = source.is_file()
+            manifest[relative] = {"present": present}
+            if present:
+                target = destination / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+        atomic_write(destination / "manifest.json",
+                     (json.dumps(manifest, indent=2) + "\n").encode(), 0o600)
+    except Exception:
+        shutil.rmtree(destination, ignore_errors=True)
+        raise
+    return destination
+
+
+def restore_snapshot(snapshot: Path) -> None:
+    try:
+        manifest = json.loads((snapshot / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ProfileError(f"备份清单无法读取: {exc}") from exc
+    validated = {}
+    for relative in MANAGED:
+        item = manifest.get(relative)
+        if not isinstance(item, dict) or not isinstance(item.get("present"), bool):
+            raise ProfileError(f"备份清单缺少有效条目: {relative}")
+        source = snapshot / relative
+        if item["present"] and not source.is_file():
+            raise ProfileError(f"备份文件缺失: {relative}")
+        validated[relative] = (item["present"], source)
+
+    for relative, (present, source) in validated.items():
+        destination = CONFIG / relative
+        if present:
+            atomic_write(destination, source.read_bytes(), source.stat().st_mode & 0o777)
+        else:
+            destination.unlink(missing_ok=True)
+
+
+def strip_namespace(element: ET.Element) -> None:
+    """Openbox does not understand namespaced XML; drop the namespace tags."""
+    element.tag = element.tag.split("}")[-1]
+    for child in element:
+        strip_namespace(child)
+
+
+def update_openbox(data: dict, source: Path | None = None) -> bytes:
+    source = source or OPENBOX_CONFIG
+    template = None
+    if not source.exists():
+        # Start from the packaged defaults so key/mouse bindings, menu paths and
+        # the rest of the Openbox configuration stay intact; an empty root would
+        # silently drop every binding.
+        for candidate in (Path("/etc/xdg/openbox/rc.xml"),
+                          Path("/usr/share/openbox/rc.xml")):
+            if candidate.is_file():
+                template = candidate
+                break
+    parse_from = source if source.exists() else template
+    if parse_from is not None and parse_from.exists():
+        try:
+            tree = ET.parse(parse_from)
+            root = tree.getroot()
+        except ET.ParseError as exc:
+            raise ProfileError(f"Openbox 配置 XML 无效: {exc}") from exc
+        strip_namespace(root)
+    else:
+        root = ET.Element("openbox_config")
+        tree = ET.ElementTree(root)
+    theme = root.find("theme")
+    if theme is None:
+        theme = ET.SubElement(root, "theme")
+    name = theme.find("name")
+    if name is None:
+        name = ET.SubElement(theme, "name")
+    name.text = data["openbox_theme"]
+    # Z96A uses a single virtual desktop; the LXQt panel has no workspace pager.
+    desktops = root.find("desktops")
+    if desktops is None:
+        desktops = ET.Element("desktops")
+        root.insert(list(root).index(theme) + 1, desktops)
+    number = desktops.find("number")
+    if number is None:
+        number = ET.SubElement(desktops, "number")
+    number.text = "1"
+    ET.indent(tree, space="  ")
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True) + b"\n"
+
+
+def update_lxqt(data: dict) -> bytes:
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.optionxform = str
+    if LXQT_CONFIG.exists():
+        parser.read(LXQT_CONFIG, encoding="utf-8")
+    if not parser.has_section("General"):
+        parser.add_section("General")
+    if not parser.has_section("Qt"):
+        parser.add_section("Qt")
+    parser.set("General", "theme", data["lxqt_theme"])
+    parser.set("General", "icon_theme", data["icon_theme"])
+    parser.set("Qt", "style", data["qt_style"])
+    from io import StringIO
+    output = StringIO()
+    parser.write(output)
+    return output.getvalue().encode("utf-8")
+
+
+def update_pcmanfm_qt(data: dict) -> bytes:
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.optionxform = str
+    if PCMANFM_QT_CONFIG.exists():
+        parser.read(PCMANFM_QT_CONFIG, encoding="utf-8")
+    if not parser.has_section("Desktop"):
+        parser.add_section("Desktop")
+    if not parser.has_section("System"):
+        parser.add_section("System")
+    parser.set("Desktop", "Wallpaper", data["wallpaper"])
+    parser.set("Desktop", "WallpaperMode", data.get("wallpaper_mode", "zoom"))
+    parser.set("Desktop", "BgColor", data.get("bgcolor", "#000000"))
+    parser.set("Desktop", "FgColor", data.get("fgcolor", "#ffffff"))
+    parser.set("Desktop", "ShadowColor", data.get("shadow_color", "#80000000"))
+    parser.set("Desktop", "DesktopShortcuts",
+               data.get("desktop_shortcuts", "Home,Computer,Network,Trash"))
+    if data.get("icon_theme"):
+        parser.set("System", "FallbackIconThemeName", data["icon_theme"])
+    if data.get("font"):
+        parser.set("Desktop", "Font", data["font"])
+    if data.get("cell_margins"):
+        parser.set("Desktop", "DesktopCellMargins", data["cell_margins"])
+    if data.get("icon_size"):
+        parser.set("Desktop", "DesktopIconSize", str(data["icon_size"]))
+    from io import StringIO
+    output = StringIO()
+    parser.write(output)
+    return output.getvalue().encode("utf-8")
+
+
+def restart_session_ui(panel_bytes: bytes, data: dict) -> None:
+    if not os.environ.get("DISPLAY"):
+        return
+    env = os.environ.copy()
+    # Keep the LXQt menu prefix when the panel is restarted outside the session.
+    env.setdefault("XDG_MENU_PREFIX", "lxqt-")
+    env.setdefault("XDG_CURRENT_DESKTOP", "LXQt")
+    # The running panel and desktop keep their old configuration in memory and
+    # write it back on exit, so stop them first and then rewrite the files.
+    subprocess.run(["pkill", "-u", str(os.getuid()), "-x", "lxqt-panel"],
+                   check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(["pkill", "-u", str(os.getuid()), "-f",
+                    "^pcmanfm-qt --desktop --profile=z96a$"],
+                   check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(1.0)
+    atomic_write(PANEL_CONFIG, panel_bytes)
+    atomic_write(PCMANFM_QT_CONFIG, update_pcmanfm_qt(data))
+    if shutil.which("lxqt-panel"):
+        subprocess.Popen(["lxqt-panel"], env=env, start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if shutil.which("pcmanfm-qt"):
+        subprocess.Popen(["pcmanfm-qt", "--desktop", "--profile=z96a"], env=env,
+                         start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def apply_profile(name: str) -> Path:
+    data, panel = profile_data(name)
+    saved = backup()
+    try:
+        panel_bytes = panel.read_bytes()
+        atomic_write(LXQT_CONFIG, update_lxqt(data))
+        atomic_write(PANEL_CONFIG, panel_bytes)
+        if OPENBOX_LXQT_CONFIG.exists():
+            atomic_write(OPENBOX_LXQT_CONFIG,
+                         update_openbox(data, source=OPENBOX_LXQT_CONFIG))
+        atomic_write(OPENBOX_CONFIG, update_openbox(data, source=OPENBOX_CONFIG))
+        atomic_write(PCMANFM_QT_CONFIG, update_pcmanfm_qt(data))
+        if os.environ.get("DISPLAY") and shutil.which("openbox"):
+            subprocess.run(["openbox", "--reconfigure"], check=True, timeout=5)
+        restart_session_ui(panel_bytes, data)
+    except Exception as exc:
+        try:
+            restore_snapshot(saved)
+        except Exception as restore_exc:
+            raise ProfileError(f"切换失败 ({exc})，且自动回滚失败 ({restore_exc}); 备份: {saved}") from exc
+        raise ProfileError(f"切换失败，已恢复原配置: {exc}") from exc
+    return saved
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="切换 Z96A LXQt/Openbox 外观 profile")
+    commands = parser.add_subparsers(dest="command", required=True)
+    switch = commands.add_parser("switch")
+    switch.add_argument("profile", choices=("windows7", "windows10", "windows11", "macos"))
+    commands.add_parser("backup")
+    restore = commands.add_parser("restore")
+    restore.add_argument("snapshot", nargs="?", help="备份目录；默认使用最近一次备份")
+    commands.add_parser("list")
+    args = parser.parse_args()
+    try:
+        if args.command == "switch":
+            saved = apply_profile(args.profile)
+            print(f"已切换到 {args.profile}; 回滚备份: {saved}")
+            print("Qt 外观和面板可能需要注销并重新登录后完全生效。")
+        elif args.command == "backup":
+            print(backup())
+        elif args.command == "restore":
+            snapshots = sorted(STATE.glob("backup-*"))
+            snapshot = Path(args.snapshot).expanduser() if args.snapshot else (snapshots[-1] if snapshots else None)
+            if snapshot is None:
+                raise ProfileError("没有可恢复的备份")
+            restore_snapshot(snapshot)
+            print(f"已恢复: {snapshot}")
+        else:
+            for name in ("windows7", "windows10", "windows11", "macos"):
+                data, _ = profile_data(name)
+                print(f"{name}\t{data['label']}\t{data['openbox_theme']}\t{data['lxqt_theme']}")
+    except (OSError, ProfileError, subprocess.SubprocessError) as exc:
+        print(f"z96a-theme: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

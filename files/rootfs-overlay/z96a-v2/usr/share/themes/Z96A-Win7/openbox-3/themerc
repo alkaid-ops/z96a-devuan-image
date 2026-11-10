@@ -1,0 +1,86 @@
+!! Z96A Windows 7 Aero inspired Openbox theme
+!! Flat glass title bar, light blue gradient, white shadowed title text.
+
+border.width: 1
+padding.width: 6
+padding.height: 5
+window.handle.width: 0
+window.client.padding.width: 1
+window.client.padding.height: 1
+window.label.text.justify: center
+
+window.active.border.color: #3f74a8
+window.inactive.border.color: #a7bdd2
+window.*.client.color: #e8f1fa
+
+!! Active title bar: light Aero glass gradient
+window.active.title.bg: gradient splitvertical border
+window.active.title.bg.color: #a9d1f2
+window.active.title.bg.colorTo: #4b86c4
+window.active.title.bg.border.color: #2f6394
+window.active.label.bg: parentrelative
+window.active.label.text.color: #ffffff
+window.active.label.text.font: shadow=y:shadowoffset=1:shadowtint=60
+
+!! Inactive title bar
+window.inactive.title.bg: gradient splitvertical border
+window.inactive.title.bg.color: #f0f6fc
+window.inactive.title.bg.colorTo: #b2cbe2
+window.inactive.title.bg.border.color: #a9bdce
+window.inactive.label.bg: parentrelative
+window.inactive.label.text.color: #f4f9fe
+window.inactive.label.text.font: shadow=y:shadowoffset=1:shadowtint=25
+
+!! Buttons: flat glass fill (a parentrelative background gives Openbox no
+!! button extents, so the drawn glyphs would not be clickable), white glyphs.
+window.active.button.unpressed.bg: flat solid
+window.active.button.unpressed.bg.color: #8fbde6
+window.active.button.unpressed.image.color: #ffffff
+window.active.button.toggled.bg: flat solid
+window.active.button.toggled.bg.color: #7fb0dc
+window.active.button.toggled.image.color: #ffffff
+window.active.button.disabled.bg: flat solid
+window.active.button.disabled.bg.color: #a9cbe8
+window.active.button.disabled.image.color: #dbe8f4
+window.active.button.hover.bg: flat solid
+window.active.button.hover.bg.color: #a8cdf0
+window.active.button.hover.image.color: #ffffff
+window.active.button.pressed.bg: flat solid
+window.active.button.pressed.bg.color: #5f93c8
+window.active.button.pressed.image.color: #ffffff
+
+window.inactive.button.unpressed.bg: flat solid
+window.inactive.button.unpressed.bg.color: #c3d6e8
+window.inactive.button.unpressed.image.color: #eaf3fb
+window.inactive.button.hover.bg: flat solid
+window.inactive.button.hover.bg.color: #b9d4ee
+window.inactive.button.hover.image.color: #ffffff
+window.inactive.button.pressed.bg: flat solid
+window.inactive.button.pressed.bg.color: #9fbfdc
+
+window.active.title.separator.color: #5b8fc4
+window.inactive.title.separator.color: #c2d6e8
+
+!! Win7 style menus
+menu.border.width: 1
+menu.border.color: #8aa8c6
+menu.overlap.x: 0
+menu.overlap.y: 0
+menu.title.bg: gradient splitvertical border
+menu.title.bg.color: #cfe4f7
+menu.title.bg.colorTo: #7fb1e2
+menu.title.bg.border.color: #6a9ccd
+menu.title.text.color: #ffffff
+menu.title.text.font: shadow=y:shadowoffset=1:shadowtint=50
+menu.items.bg: flat solid
+menu.items.bg.color: #f2f7fc
+menu.items.text.color: #17293c
+menu.items.disabled.text.color: #9aa9b8
+menu.items.active.bg: flat solid
+menu.items.active.bg.color: #cde5fb
+menu.items.active.text.color: #102234
+menu.separator.width: 1
+menu.separator.padding.width: 2
+menu.separator.padding.height: 2
+menu.separator.color: #c8d8e8
+

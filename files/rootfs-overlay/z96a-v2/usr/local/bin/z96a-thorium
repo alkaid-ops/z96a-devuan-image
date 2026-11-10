@@ -1,0 +1,10 @@
+#!/bin/sh
+# RK3568: let the upstream thorium-browser wrapper choose the platform flags.
+# It sets --use-gl=egl (required for V4L2 NV12 DMA-BUF import on X11) and
+# resolves --hardware-video-device-path to the real /dev/videoN node.
+# Do NOT override --use-gl here: later flags win, and ANGLE GLES cannot
+# import the NV12 shared image, which makes video render black.
+export GTK_IM_MODULE=fcitx
+export QT_IM_MODULE=fcitx
+export XMODIFIERS=@im=fcitx
+exec /usr/bin/thorium-browser --lang=zh-CN "$@"

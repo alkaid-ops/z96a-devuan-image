@@ -33,11 +33,21 @@ customize_image > /dev/null 2>&1
 if [ $USCRIPTS -eq 1 ]; then uscripts_pre-stage1; fi
 # source board and family
 if [[ -f "board.txt" ]]; then . board.txt; else noboard; fi
+if [[ -f "board.runtime" ]]; then . board.runtime; fi
 source lib/function/${FAMILY}
 # clean
 if [[ -d "sysroot" ]] || [[ -d "p1" ]] || [[ -d "BOOT" ]] || [[ -f "shrink.img" ]]; then make clean; clear -x; fi
 # verbosity
 if [ $VERBOSE -eq 1 ]; then set -eux -o pipefail; else set -eu -o pipefail; fi
+BUILD_TOTAL_START=$SECONDS
+phase_begin () {
+	BUILD_PHASE="$1"
+	BUILD_PHASE_START=$SECONDS
+	echo "[BUILD-TIME] START: ${BUILD_PHASE} ($(date -Is))"
+}
+phase_end () {
+	echo "[BUILD-TIME] END: ${BUILD_PHASE} ($((SECONDS - BUILD_PHASE_START))s)"
+}
 mirrors
 # check output
 if [[ "$GENERIC_KERNEL" == "true" ]] && [[ "$BOARD" =~ ^(uefi-amd64|uefi-arm64) ]]; then
@@ -83,24 +93,65 @@ fi
 if [ $RAM -ne 0 ]; then IMAGE_FOLDER="ram/"; fi
 mkdir -p "$IMAGE_FOLDER"
 if [ $RAM -ne 0 ]; then mount -t tmpfs -o size=4G tmpfs $IMAGE_FOLDER; fi
+phase_begin "host image preparation"
 sources_list # apt distro.sources list
 setup
 # setup stage2
 files
 # user scripts stage1
 if [ $USCRIPTS -eq 1 ]; then uscripts_stage1; fi
+phase_end
 echo ""
+# Chroot result cache (phase 3): skip the expensive apt/userscript setup when
+# the build inputs are unchanged. CHROOT_CACHE=0 disables it.
+chroot_cache_tool="boards/${BOARD}/tools/chroot-cache.sh"
+# Pin the key at build start; inputs may change during the build.
+if [[ "${CHROOT_CACHE:-1}" != "0" ]] && [[ -x "$chroot_cache_tool" ]]; then
+	CHROOT_CACHE_KEY=$(BOARD="${BOARD}" "$chroot_cache_tool" key "$BOARD" 2>/dev/null || true)
+	export CHROOT_CACHE_KEY
+	if [[ -n "$CHROOT_CACHE_KEY" ]]; then
+		echo -e "chroot cache: key ${CHROOT_CACHE_KEY:0:12}"
+	fi
+fi
+chroot_cache_enabled (){
+	if [[ "${CHROOT_CACHE:-1}" == "0" ]]; then return 1; fi
+	[[ -x "$chroot_cache_tool" ]] || return 1
+	return 0
+}
+chroot_cache_restore (){
+	local root=$1
+	if chroot_cache_enabled && "$chroot_cache_tool" restore "$BOARD" "$root" "$root" >/dev/null 2>&1; then
+		echo -e "chroot cache: restored $root"
+		return 0
+	fi
+	return 1
+}
+chroot_cache_save (){
+	local root=$1
+	chroot_cache_enabled || return 0
+	"$chroot_cache_tool" save "$BOARD" "$root" "$root" >/dev/null 2>&1 &&
+		echo -e "chroot cache: saved $root"
+	return 0
+}
+
 # mount and chroot p1
 if [[ "$P_VALUE" == "p1" ]]; then
 	mount -o bind /dev p1/dev
 	mount -o bind /dev/pts p1/dev/pts
-	chroot p1 /root/stage2
+	phase_begin "target chroot package setup and initramfs"
+	if chroot_cache_restore p1; then
+		: # reused the prepared tree
+	else
+		chroot p1 /root/stage2
+	fi
+	phase_end
 	# unmount
 	umount p1/dev/pts
 	umount p1/dev
 	if [[ -f "p1/usr/bin/${STATIC}" ]]; then rm -f p1/usr/bin/${STATIC}; fi
+	chroot_cache_save p1
 	cp -f p1/root/kernel.release .
-	rm p1/root/stage2
+	rm -f p1/root/stage2
 	rm -f p1/root/{*.txt,kernel.release}
 	rm -fdr p1/var/cache/debconf/*
 	# user scripts fin-stage1
@@ -119,12 +170,17 @@ if [[ "$P_VALUE" == "p1" ]]; then
 	if [ $RAM -ne 0 ]; then umount "${IMAGE_FOLDER}"; fi
 	rmdir "${IMAGE_FOLDER}"
 	rmdir p1
+	phase_begin "filesystem shrink"
 	if [[ "$ENABLE_SHRINK" == "true" ]]; then shrink; else echo ""; echo -en "Shrink, disabled."; fi
+	phase_end
 	if [[ `type flash_tool_part` ]] &>/dev/null; then
 		if [ $VERBOSE -eq 1 ]; then flash_tool_part; else flash_tool_part > /dev/null 2>&1; fi
 	fi
+	phase_begin "final image compression and checksum"
 	finish_image
-	rm -f {part-uuid.txt,board.txt,kernel.release}
+	phase_end
+	echo "[BUILD-TIME] TOTAL: $((SECONDS - BUILD_TOTAL_START))s"
+	rm -f {part-uuid.txt,board.txt,board.runtime,kernel.release}
 	exit 0
 fi
 
@@ -145,7 +201,17 @@ if [[ "$P_VALUE" == "p2" ]]; then
 	fi
 	mount -o bind /dev p2/dev
 	mount -o bind /dev/pts p2/dev/pts
-	chroot p2 /root/stage2
+	phase_begin "target chroot package setup and initramfs"
+	# A cached tree is only usable when the boot partition also came back with
+	# a device tree; otherwise the kernel package postinst has to run again.
+	if chroot_cache_restore p2 && chroot_cache_restore p1 &&
+	   find p1 -name '*.dtb' -print -quit 2>/dev/null | grep -q .; then
+		:
+	else
+		echo -e "chroot cache: miss, running chroot setup"
+		chroot p2 /root/stage2
+	fi
+	phase_end
 	# unmount
 	umount p2/dev/pts
 	umount p2/dev
@@ -157,8 +223,12 @@ if [[ "$P_VALUE" == "p2" ]]; then
 		umount ${P_NORM}
 	fi
 	if [[ -f "p2/usr/bin/${STATIC}" ]]; then rm -f p2/usr/bin/${STATIC}; fi
+	# Store the prepared tree before transient files are removed, so a later
+	# build can skip the whole apt/userscript phase.
+	chroot_cache_save p2
+	chroot_cache_save p1
 	cp -f p2/root/kernel.release .
-	rm p2/root/stage2
+	rm -f p2/root/stage2
 	rm -f p2/root/{*.txt,kernel.release}
 	rm -fdr p2/var/cache/debconf/*
 	# user scripts fin-stage1
@@ -194,12 +264,17 @@ if [[ "$P_VALUE" == "p2" ]]; then
 	if [ $RAM -ne 0 ]; then umount "${IMAGE_FOLDER}"; fi
 	rmdir "${IMAGE_FOLDER}"
 	rmdir p1 p2
+	phase_begin "filesystem shrink"
 	if [[ "$ENABLE_SHRINK" == "true" ]]; then shrink; else echo ""; echo -en "Shrink, disabled."; fi
+	phase_end
 	if [[ `type flash_tool_part` ]] &>/dev/null; then
 		if [ $VERBOSE -eq 1 ]; then flash_tool_part; else flash_tool_part > /dev/null 2>&1; fi
 	fi
+	phase_begin "final image compression and checksum"
 	finish_image
-	rm -f {part-uuid.txt,board.txt,kernel.release}
+	phase_end
+	echo "[BUILD-TIME] TOTAL: $((SECONDS - BUILD_TOTAL_START))s"
+	rm -f {part-uuid.txt,board.txt,board.runtime,kernel.release}
 	exit 0
 fi
 

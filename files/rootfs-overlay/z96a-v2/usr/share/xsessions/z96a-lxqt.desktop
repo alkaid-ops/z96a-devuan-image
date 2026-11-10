@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=LXQt (Openbox)
+Comment=LXQt desktop session using Openbox
+Exec=startlxqt
+TryExec=startlxqt
+Type=Application
+DesktopNames=LXQt

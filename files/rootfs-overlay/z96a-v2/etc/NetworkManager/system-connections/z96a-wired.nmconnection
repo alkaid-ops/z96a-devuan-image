@@ -1,0 +1,21 @@
+[connection]
+id=Z96A Wired DHCP
+uuid=5ee20e57-d34e-494f-ba17-ecdf0163b214
+type=ethernet
+autoconnect=true
+autoconnect-priority=100
+
+[ethernet]
+mac-address=C8:4D:44:20:7D:92
+mtu=1500
+
+[ipv4]
+method=auto
+route-metric=100
+may-fail=false
+
+[ipv6]
+method=auto
+may-fail=false
+
+[proxy]

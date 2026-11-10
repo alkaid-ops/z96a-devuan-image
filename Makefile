@@ -36,7 +36,7 @@ KERNEL=sudo ./scripts/linux
 
 # image
 IMG=./scripts/stage1
-IMAGE=sudo ./scripts/stage1
+IMAGE=sudo --preserve-env=RELEASE_TAG,RELEASE_CHANNEL,CHROOT_CACHE,CHROOT_CACHE_DIR,CHROOT_CACHE_KEY,Z96A_SSH_KEY,Z96A_ROOT_PASSWORD,Z96A_WIFI_SSID,Z96A_WIFI_PASSKEY ./scripts/stage1
 STG2=./scripts/stage2
 XUSB=./scripts/usbboot
 USBBOOT=sudo ./scripts/usbboot
@@ -49,7 +49,22 @@ NCOMPILE=./scripts/.ncompile
 CHECK=./scripts/.check
 
 # BOARDS
-BOARDS=$(shell sudo rm -f board.txt; if [ -f lib/boards/${board} ]; then sudo cp lib/boards/${board} board.txt; fi)
+# Phase 2 M2: board.txt is generated from config/<board>.toml. The build
+# refuses to start when the TOML and lib/boards/<board> disagree, so a stale
+# hand-edited copy can never silently build a different image.
+define board_setup
+	@rm -f board.txt 2>/dev/null || sudo rm -f board.txt; \
+	if [ -x "boards/$(board)/tools/gen-board-config.sh" ]; then \
+		boards/$(board)/tools/gen-board-config.sh --check >/dev/null || { \
+			echo "ERROR: config/$(board).toml and lib/boards/$(board) disagree." >&2; \
+			echo "       run: make board-config board=$(board)" >&2; \
+			exit 1; \
+		}; \
+	fi; \
+	if [ -f "lib/boards/$(board)" ]; then \
+		cp "lib/boards/$(board)" board.txt 2>/dev/null || sudo cp "lib/boards/$(board)" board.txt; \
+	fi
+endef
 
 ifdef board
 include lib/boards/${board}
@@ -61,13 +76,13 @@ define create_config
 endef
 
 define build_uboot
-	@${BOARDS}
+	$(board_setup)
 	@chmod +x ${XUBOOT}
 	@${UBOOT}
 endef
 
 define build_kernel
-	@${BOARDS}
+	$(board_setup)
 	@chmod +x ${DTCLIST}
 	@chmod +x ${XKERNEL}
 	@${DTCLIST}
@@ -75,21 +90,21 @@ define build_kernel
 endef
 
 define build_image
-	@${BOARDS}
+	$(board_setup)
 	@chmod +x ${IMG}
 	@chmod +x ${STG2}
 	@${IMAGE}
 endef
 
 define create_rootfs
-	@${BOARDS}
+	$(board_setup)
 	@chmod +x ${RFS}
 	@chmod +x ${RFSX}
 	@${ROOTFS}
 endef 
 
 define build_usbboot
-	@${BOARDS}
+	$(board_setup)
 	@chmod +x ${XUSB}
 	@${USBBOOT}
 endef
@@ -108,6 +123,8 @@ help:
 	@echo "  make purge\t\t\tRemove sources"
 	@echo "  make purge-log\t\tRemove all logs"
 	@echo "  make purge-all\t\tRemove logs, output and sources"
+	@echo "  make board-config board=xxxx\tRegenerate config from config/<board>.toml"
+	@echo "  make preflight board=xxxx\tValidate packaging inputs"
 	@echo "  make check\t\t\tLatest revision of selected branch"
 	@echo ""
 	@echo "  make list\t\t\tList boards"
@@ -264,6 +281,22 @@ usbboot:
 	$(call build_usbboot)
 
 # MISCELLANEOUS
+# Regenerate board variables from config/<board>.toml (phase 2 single source).
+board-config:
+	@if [ -x "boards/$(board)/tools/gen-board-config.sh" ]; then \
+		boards/$(board)/tools/gen-board-config.sh --write; \
+	else \
+		echo "No config generator for board '$(board)'"; \
+	fi
+
+# Validate packaging inputs before a build (board-specific when available).
+preflight:
+	@if [ -n "$(board)" ] && [ -x "boards/$(board)/tools/preflight.sh" ]; then \
+		boards/$(board)/tools/preflight.sh; \
+	else \
+		echo "No preflight script for board '$(board)'"; \
+	fi
+
 check:
 	@chmod +x ${CHECK}
 	@${CHECK}

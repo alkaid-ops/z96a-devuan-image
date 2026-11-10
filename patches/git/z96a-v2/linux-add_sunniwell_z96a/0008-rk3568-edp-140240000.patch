@@ -1,0 +1,37 @@
+From: Local Z96A DTS verification
+Subject: [PATCH] rk3568: z96a: use 140.24MHz VPLL/DCLK_VP1 for eDP 60Hz
+
+The eDP panel EDID requests a 140.24MHz pixel clock (1920x1080@60,
+htotal 2124, vtotal 1100). The board DTS inherited the 132MHz
+VPLL/DCLK_VP1 setting from rk3568-evb1-v10, whose 132MHz is for a
+1080x1920 MIPI panel. With VPLL fixed at 132MHz, DCLK_VOP1 cannot
+reach 140.24MHz and the panel runs at 56.5Hz.
+
+Add the exact 140.24MHz PLL rate and use it for VPLL/DCLK_VP1.
+
+---
+ drivers/clk/rockchip/clk-rk3568.c                                | 1 +
+ arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts     | 2 +-
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+--- a/drivers/clk/rockchip/clk-rk3568.c
++++ b/drivers/clk/rockchip/clk-rk3568.c
+@@ -78,6 +78,7 @@ static struct rockchip_pll_rate_table rk3568_pll_rates[] = {
+ 	RK3036_PLL_RATE(216000000, 1, 72, 4, 2, 1, 0),
+ 	RK3036_PLL_RATE(200000000, 1, 100, 3, 4, 1, 0),
+ 	RK3036_PLL_RATE(148500000, 1, 99, 4, 4, 1, 0),
++	RK3036_PLL_RATE(140240000, 25, 1753, 3, 4, 1, 0),
+ 	RK3036_PLL_RATE(135000000, 2, 45, 4, 1, 1, 0),
+ 	RK3036_PLL_RATE(132000000, 1, 66, 6, 2, 1, 0),
+ 	RK3036_PLL_RATE(128000000, 1, 16, 3, 1, 1, 0),
+--- a/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
++++ b/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
+@@ -1018,7 +1018,7 @@
+ &vop {
+ 	assigned-clocks = <&cru DCLK_VOP0>, <&cru PLL_VPLL>, <&cru DCLK_VOP1>;
+ 	assigned-clock-parents = <&pmucru PLL_HPLL>, <&xin24m>, <&cru PLL_VPLL>;
+-	assigned-clock-rates = <0>, <132000000>, <132000000>;
++	assigned-clock-rates = <0>, <140240000>, <140240000>;
+ 
+ 	status = "okay";
+ };

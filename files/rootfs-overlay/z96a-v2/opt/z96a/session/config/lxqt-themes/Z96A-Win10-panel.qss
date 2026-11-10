@@ -1,0 +1,58 @@
+/* Z96A Windows 10 overrides, appended to the ambiance glass panel theme. */
+
+#TaskBar QToolButton {
+    margin: 0px 2px;
+    padding: 2px 6px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0px;
+    color: #ffffff;
+}
+
+#TaskBar QToolButton:hover {
+    background-color: rgba(255, 255, 255, 0.12);
+    border-bottom: 2px solid rgba(255, 255, 255, 0.35);
+}
+
+#TaskBar QToolButton:on {
+    background-color: rgba(255, 255, 255, 0.16);
+    border-bottom: 2px solid #4cc2ff;
+}
+
+#TaskBar QToolButton:pressed {
+    background-color: rgba(255, 255, 255, 0.24);
+}
+
+#TaskBar QToolButton[urgent="true"] {
+    border-bottom: 2px solid #ffb900;
+}
+
+#TaskBar LXQtGroupPopup {
+    background-color: #2b2b2b;
+    border: 1px solid #3a3a3a;
+    color: #ffffff;
+}
+
+#MainMenu {
+    margin: 0px 4px 0px 2px;
+    padding: 0px;
+    border: none;
+}
+
+#MainMenu:hover {
+    background-color: rgba(255, 255, 255, 0.14);
+    border-radius: 4px;
+}
+
+#MainMenu:pressed {
+    background-color: rgba(255, 255, 255, 0.22);
+    border-radius: 4px;
+}
+
+#WorldClock, #Mount, #Tray {
+    color: #ffffff;
+}
+
+#WorldClock {
+    font-weight: normal;
+}

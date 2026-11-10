@@ -1,0 +1,85 @@
+diff --git a/drivers/power/supply/bq257xx_charger.c b/drivers/power/supply/bq257xx_charger.c
+--- a/drivers/power/supply/bq257xx_charger.c
++++ b/drivers/power/supply/bq257xx_charger.c
+@@ -86,6 +86,7 @@
+ 	u32 vbat_max;
+ 	u32 ichg_max;
+ 	u32 vsys_min;
++	bool last_online;
+ 	const char *manufacturer;
+ };
+ 
+@@ -343,6 +344,25 @@
+ 
+ 	return regmap_write(pdata->bq->regmap, BQ25703_IIN_HOST,
+ 			    FIELD_PREP(BQ25703_IINDPM_MASK, reg));
++}
++
++/**
++ * bq25703_reset_vindpm() - Force a fresh VBUS detection
++ * @pdata: driver platform data
++ *
++ * After an unplug the charger keeps the VINDPM value derived from the
++ * previous VBUS. On this board the charging port QC chip may not restart
++ * negotiation, so AC_STAT stays low even after the adapter is reinserted.
++ * RESET_VINDPM stops the converter, re-detects VBUS and reloads VINDPM
++ * automatically; the bit self-clears.
++ *
++ * Return: Returns 0 on success or error if an error occurs.
++ */
++static int bq25703_reset_vindpm(struct bq257xx_chg *pdata)
++{
++	return regmap_update_bits(pdata->bq->regmap, BQ25703_CHARGE_OPTION_4,
++				  BQ25703_RESET_VINDPM,
++				  BQ25703_RESET_VINDPM);
+ }
+ 
+ /**
+@@ -587,10 +607,21 @@
+ 
+ 	/*
+ 	 * AC_STAT is the authoritative "adapter present" signal, whether the
+-	 * source is a plain DC adapter or a USB-C/PD source.
++	 * source is a plain DC adapter or a USB-C/PD source. The charger IRQ
++	 * can fire for unrelated status changes; only act on a real AC edge,
++	 * otherwise RESET_VINDPM on every interrupt would keep restarting the
++	 * converter and prevent negotiation.
+ 	 */
++	if (pdata->online == pdata->last_online)
++		goto notify;
++
++	pdata->last_online = pdata->online;
++
+ 	if (!pdata->online)
+ 		goto notify;
++
++	/* Input edge: ask the chip for one fresh VBUS/VINDPM detection. */
++	bq25703_reset_vindpm(pdata);
+ 
+ 	pdata->supplied = power_supply_am_i_supplied(pdata->charger);
+ 	if (pdata->supplied > 0) {
+@@ -757,6 +788,9 @@
+ 	if (ret)
+ 		return dev_err_probe(dev, ret, "Cannot initialize the charger\n");
+ 
++	pdata->chip->bq257xx_get_state(pdata);
++	pdata->last_online = pdata->online;
++
+ 	platform_set_drvdata(pdev, pdata);
+ 
+ 	if (bq->client->irq) {
+diff --git a/include/linux/mfd/bq257xx.h b/include/linux/mfd/bq257xx.h
+--- a/include/linux/mfd/bq257xx.h
++++ b/include/linux/mfd/bq257xx.h
+@@ -22,9 +22,11 @@
+ #define BQ25703_CHARGE_OPTION_1			0x30
+ #define BQ25703_CHARGE_OPTION_2			0x32
+ #define BQ25703_CHARGE_OPTION_3			0x34
++#define BQ25703_CHARGE_OPTION_4			0x35
+ #define BQ25703_ADC_OPTION			0x3a
+ 
+ #define BQ25703_EN_LWPWR			BIT(15)
++#define BQ25703_RESET_VINDPM			BIT(5)
+ #define BQ25703_WDTMR_ADJ_MASK			GENMASK(14, 13)
+ #define BQ25703_WDTMR_DISABLE			0
+ #define BQ25703_WDTMR_5_SEC			1

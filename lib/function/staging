@@ -276,6 +276,7 @@ if [[ `type user_function` ]] &>/dev/null; then
 	cat <(declare -f user_function) >> ${P_VALUE}/root/source.txt
 fi
 cp board.txt ${P_VALUE}/root
+if [[ -f board.runtime ]]; then cp board.runtime ${P_VALUE}/root; fi
 cp userdata.txt ${P_VALUE}/root
 # add misc files
 cp files/scripts/* ${P_VALUE}/root
@@ -290,13 +291,13 @@ board_information
 if [[ -f "files/asound/${BOARD}.state" ]]; then cp files/asound/${BOARD}.state ${P_VALUE}/root/asound.state; fi
 if [[ -f "files/asound/${BOARD}.conf" ]]; then cp files/asound/${BOARD}.conf ${P_VALUE}/root/asound.conf; fi
 # board support package files
-if [[ -d "files/bsp/${BOARD}/etc" ]]; then mkdir -p ${P_VALUE}/etc; cp -fr files/bsp/${BOARD}/etc/* ${P_VALUE}/etc/; fi
+if [[ -d "files/rootfs-overlay/${BOARD}/etc" ]]; then mkdir -p ${P_VALUE}/etc; cp -fr files/rootfs-overlay/${BOARD}/etc/* ${P_VALUE}/etc/; fi
 # Z96A application payload and user configuration
-if [[ -d "files/bsp/${BOARD}/home" || -d "files/bsp/${BOARD}/opt" || -d "files/bsp/${BOARD}/usr" ]]; then
+if [[ -d "files/rootfs-overlay/${BOARD}/home" || -d "files/rootfs-overlay/${BOARD}/opt" || -d "files/rootfs-overlay/${BOARD}/usr" ]]; then
 	for dir in home opt usr; do
-		if [[ -d "files/bsp/${BOARD}/${dir}" ]]; then
+		if [[ -d "files/rootfs-overlay/${BOARD}/${dir}" ]]; then
 			mkdir -p "${P_VALUE}/${dir}"
-			cp -a "files/bsp/${BOARD}/${dir}/." "${P_VALUE}/${dir}/"
+			cp -a "files/rootfs-overlay/${BOARD}/${dir}/." "${P_VALUE}/${dir}/"
 		fi
 	done
 fi
@@ -309,35 +310,35 @@ if [[ -f "files/tweaks/${BOARD}" ]]; then mkdir -p ${P_VALUE}/usr/bin; cp files/
 # user account service
 if [ $USERACCT -eq 1 ]; then mkdir -p ${P_VALUE}/root/useracct; cp -r files/useracct/* ${P_VALUE}/root/useracct; fi
 # arm kmod fixups
-if [[ "$ARCH" == "arm" && "$DISTRO_VERSION" =~ ^(excalibur|kali-rolling|trixie|resolute)$ && -f "files/bsp/${ARCH}/usr/share/initramfs-tools/hooks/kmod" ]]; then
+if [[ "$ARCH" == "arm" && "$DISTRO_VERSION" =~ ^(excalibur|kali-rolling|trixie|resolute)$ && -f "files/rootfs-overlay/${ARCH}/usr/share/initramfs-tools/hooks/kmod" ]]; then
 	mkdir -p ${P_VALUE}/etc/opt
 	mkdir -p ${P_VALUE}/usr/share/initramfs-tools/hooks
 	if [[ -f "${P_VALUE}/usr/share/initramfs-tools/hooks/kmod" ]]; then
 		mv -f ${P_VALUE}/usr/share/initramfs-tools/hooks/kmod ${P_VALUE}/etc/opt/kmod.orig
 	fi
-	cp -f files/bsp/${ARCH}/usr/share/initramfs-tools/hooks/kmod ${P_VALUE}/usr/share/initramfs-tools/hooks/
+	cp -f files/rootfs-overlay/${ARCH}/usr/share/initramfs-tools/hooks/kmod ${P_VALUE}/usr/share/initramfs-tools/hooks/
 	chmod +x /usr/share/initramfs-tools/hooks/kmod
 fi
 # more recent hook-functions are not supported on amlogic-t7 5.15.y kernels
-if [[ "$SERIES" == "amlogic-t7" && -f "files/bsp/${BOARD}/usr/share/initramfs-tools/hook-functions" ]]; then
+if [[ "$SERIES" == "amlogic-t7" && -f "files/rootfs-overlay/${BOARD}/usr/share/initramfs-tools/hook-functions" ]]; then
 	# current "hook-functions" file taken from Ubuntu Noble
 	mkdir -p ${P_VALUE}/etc/opt
 	mkdir -p ${P_VALUE}/usr/share/initramfs-tools
 	if [[ -f "${P_VALUE}/usr/share/initramfs-tools/hook-functions" ]]; then
 		mv -f ${P_VALUE}/usr/share/initramfs-tools/hook-functions ${P_VALUE}/etc/opt/hook-functions.orig
 	fi
-	cp -f files/bsp/${BOARD}/usr/share/initramfs-tools/hook-functions ${P_VALUE}/usr/share/initramfs-tools/
+	cp -f files/rootfs-overlay/${BOARD}/usr/share/initramfs-tools/hook-functions ${P_VALUE}/usr/share/initramfs-tools/
 fi
 # raspberrypi addons
-if [[ "$FAMILY" == "broadcom" ]] && [[ -d "files/bsp/${BOARD}" ]]; then
+if [[ "$FAMILY" == "broadcom" ]] && [[ -d "files/rootfs-overlay/${BOARD}" ]]; then
 	mkdir -p ${P_VALUE}/etc/udev/rules.d
-	cp -r files/bsp/${BOARD}/etc/udev/rules.d/*.rules ${P_VALUE}/etc/udev/rules.d/
+	cp -r files/rootfs-overlay/${BOARD}/etc/udev/rules.d/*.rules ${P_VALUE}/etc/udev/rules.d/
 	if [[ "$BOARD" =~ ^(raspberrypi4|raspberrypi5)$ ]]; then xorg_v3d_conf; fi
 fi
 # bianbu grub fixup
 if [[ "$EFI" == "true" && "$DISTRO" == "bianbu" ]]; then
-	if [[ -f "files/bsp/${DISTRO}/etc/grub.d/10_linux-${DISTRO_VERSION}" ]]; then
-		cp files/bsp/${DISTRO}/etc/grub.d/10_linux-${DISTRO_VERSION} ${P_VALUE}/root/10_linux-${DISTRO_VERSION}
+	if [[ -f "files/rootfs-overlay/${DISTRO}/etc/grub.d/10_linux-${DISTRO_VERSION}" ]]; then
+		cp files/rootfs-overlay/${DISTRO}/etc/grub.d/10_linux-${DISTRO_VERSION} ${P_VALUE}/root/10_linux-${DISTRO_VERSION}
 		chmod +x ${P_VALUE}/root/10_linux-${DISTRO_VERSION}
 	fi
 fi
@@ -452,7 +453,19 @@ mkimage -C none -A ${ARCH} -T script -d p1/boot.cmd p1/boot.scr
 
 customize_image (){
 if [[ ! -f "custom.txt" ]]; then echo "custom.txt is missing! Run make config."; exit 1; fi
-# Edit board.txt variables before the file gets sourced
+# Phase 2 M4: board-specific generator writes board.runtime instead of editing
+# board.txt in place. board.txt stays a pristine copy of config/<board>.toml.
+# BOARD is not sourced yet here (customize_image runs before board.txt), so
+# recover it from board.txt itself.
+if [[ -z "${BOARD:-}" ]] && [[ -r board.txt ]]; then
+	BOARD=$(sed -n 's/^BOARD="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' board.txt | head -n 1)
+fi
+if [[ -n "${BOARD:-}" ]] && [[ -f "boards/${BOARD}/tools/gen-board-runtime.py" ]]; then
+	python3 "boards/${BOARD}/tools/gen-board-runtime.py" board.txt custom.txt > board.runtime || {
+		echo "board runtime generation failed" >&2; exit 1; }
+	return 0
+fi
+# Legacy fallback for boards without a generator: edit board.txt variables
 if [[ "$FSTYPE" =~ ^(btrfs|xfs)$ ]]; then
 	# U-Boot doesn't support booting directly from these fstypes so force a boot partition
 	if [[ `grep -w 'P_VALUE="p1"' "board.txt"` ]]; then sed -i 's/P_VALUE="p1"/P_VALUE="p2"/g' board.txt; fi

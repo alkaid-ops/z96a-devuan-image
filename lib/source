@@ -130,6 +130,19 @@ uscripts_stage1 (){
 if [[ -f "files/userscripts/uscripts" ]]; then
 	mkdir -p ${P_VALUE}/root/userscripts;
 	cp -fr files/userscripts/* ${P_VALUE}/root/userscripts/;
+	# Board-specific user script (optional). Kept out of files/rootfs-overlay so it is
+	# never copied into the image root filesystem.
+	if [[ -n "${BOARD:-}" && -f "boards/${BOARD}/userscripts/uscripts" ]]; then
+		cp -f "boards/${BOARD}/userscripts/uscripts" "${P_VALUE}/root/userscripts/board-uscripts";
+		printf '%s\n' "$BOARD" > "${P_VALUE}/root/userscripts/board";
+		# Phase 2 module split: copy install/configure/verify alongside the entry.
+		for sub in install configure verify; do
+			if [[ -d "boards/${BOARD}/userscripts/${sub}" ]]; then
+				mkdir -p "${P_VALUE}/root/userscripts/${sub}";
+				cp -f "boards/${BOARD}/userscripts/${sub}"/*.sh "${P_VALUE}/root/userscripts/${sub}/" 2>/dev/null || true;
+			fi
+		done
+	fi
 	if [[ -f "${P_VALUE}/root/userscripts/README.md" ]]; then
 		rm -f ${P_VALUE}/root/userscripts/README.md;
 	fi

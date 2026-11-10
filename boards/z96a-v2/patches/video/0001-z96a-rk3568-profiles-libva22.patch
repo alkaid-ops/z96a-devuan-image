@@ -1,0 +1,174 @@
+diff --git a/meson.build b/meson.build
+index 9471d74..d7e001b 100644
+--- a/meson.build
++++ b/meson.build
+@@ -37,7 +37,7 @@ core_sources = files(
+   'src/v4l2stateless_probe.c',
+   'src/v4l2stateless_h264.c',
+   'src/v4l2stateless_hevc.c',
+-  'src/v4l2stateless_av1.c',
++  'src/v4l2stateless_av1_stub.c',
+   'src/v4l2stateless_vp8.c',
+   'src/v4l2stateless_mpeg2.c',
+   'src/v4l2stateless_format.c',
+diff --git a/src/v4l2stateless.c b/src/v4l2stateless.c
+index 3d4c9b4..d8f92cd 100644
+--- a/src/v4l2stateless.c
++++ b/src/v4l2stateless.c
+@@ -43,15 +43,11 @@ static const VAProfile v4l2sl_profiles[] = {
+     VAProfileH264ConstrainedBaseline,
+     VAProfileH264Main,
+     VAProfileH264High,
+-    VAProfileH264High10,
+-    VAProfileH264High422,
+     VAProfileHEVCMain,
+-    VAProfileHEVCMain10,
+     /* AV1 re-advertised 2026-09-03: the original hang suspects are both
+      * gone — the per-vaInitialize reopen storm was killed by the boot
+      * probe cache (27e8b7a), and the PSU that hard-hung the box under
+      * load was replaced. Translate path retained bit-exact history. */
+-    VAProfileAV1Profile0,
+     VAProfileVP8Version0_3,
+     VAProfileMPEG2Simple,
+     VAProfileMPEG2Main,
+@@ -69,11 +65,7 @@ static const struct {
+     { VAProfileH264ConstrainedBaseline, VA_RT_FORMAT_YUV420 },
+     { VAProfileH264Main,       VA_RT_FORMAT_YUV420 },
+     { VAProfileH264High,       VA_RT_FORMAT_YUV420 },
+-    { VAProfileH264High10,     VA_RT_FORMAT_YUV420_10 },
+-    { VAProfileH264High422,    VA_RT_FORMAT_YUV422 | VA_RT_FORMAT_YUV422_10 },
+     { VAProfileHEVCMain,       VA_RT_FORMAT_YUV420 },
+-    { VAProfileHEVCMain10,     VA_RT_FORMAT_YUV420_10 },
+-    { VAProfileAV1Profile0,    VA_RT_FORMAT_YUV420 },
+     { VAProfileVP8Version0_3,  VA_RT_FORMAT_YUV420 },
+     { VAProfileMPEG2Simple,    VA_RT_FORMAT_YUV420 },
+     { VAProfileMPEG2Main,      VA_RT_FORMAT_YUV420 },
+@@ -89,11 +81,7 @@ static const struct {
+     { VAProfileH264ConstrainedBaseline, V4L2SL_CODEC_H264 },
+     { VAProfileH264Main,    V4L2SL_CODEC_H264 },
+     { VAProfileH264High,    V4L2SL_CODEC_H264 },
+-    { VAProfileH264High10,  V4L2SL_CODEC_H264 },
+-    { VAProfileH264High422, V4L2SL_CODEC_H264 },
+     { VAProfileHEVCMain,    V4L2SL_CODEC_HEVC },
+-    { VAProfileHEVCMain10,  V4L2SL_CODEC_HEVC },
+-    { VAProfileAV1Profile0, V4L2SL_CODEC_AV1 },
+     { VAProfileVP8Version0_3, V4L2SL_CODEC_VP8 },
+     { VAProfileMPEG2Simple, V4L2SL_CODEC_MPEG2 },
+     { VAProfileMPEG2Main,   V4L2SL_CODEC_MPEG2 },
+@@ -1011,7 +999,8 @@ v4l2sl_create_context(VADriverContextP ctx,
+      * buffers already exist. GStreamer REQBUFS(0)s first, then SPS,
+      * then NV15. HEVC keeps the create-time queue because its SPS is
+      * global-only and already sequenced that way. */
+-    if (context->codec != V4L2SL_CODEC_H264) {
++    if (context->codec != V4L2SL_CODEC_H264 &&
++        context->codec != V4L2SL_CODEC_HEVC) {
+         uint32_t cap = v4l2sl_capture_fourcc_from_rt(context->rt_format);
+         int ok = v4l2sl_ensure_capture(context, picture_width, picture_height,
+                                        cap) == 0;
+diff --git a/src/v4l2stateless.h b/src/v4l2stateless.h
+index f4b2c62..2de01b7 100644
+--- a/src/v4l2stateless.h
++++ b/src/v4l2stateless.h
+@@ -17,6 +17,21 @@
+ #include <linux/v4l2-controls.h>
+ #include <linux/videodev2.h>
+ 
++/* Fallback definitions for build environments whose UAPI headers predate
++ * the newer stateless fourccs. Runtime support is still probed per device. */
++#ifndef V4L2_PIX_FMT_AV1_FRAME
++#define V4L2_PIX_FMT_AV1_FRAME v4l2_fourcc('A', 'V', '0', '1')
++#endif
++#ifndef V4L2_PIX_FMT_NV15
++#define V4L2_PIX_FMT_NV15 v4l2_fourcc('N', 'V', '1', '5')
++#endif
++#ifndef V4L2_PIX_FMT_NV20
++#define V4L2_PIX_FMT_NV20 v4l2_fourcc('N', 'V', '2', '0')
++#endif
++#ifndef V4L2_AV1_TOTAL_REFS_PER_FRAME
++#define V4L2_AV1_TOTAL_REFS_PER_FRAME 8
++#endif
++
+ struct gbm_bo;   /* opaque — only v4l2stateless_gbm.c includes <gbm.h> */
+ 
+ /* Codec identifiers */
+diff --git a/src/v4l2stateless_av1_stub.c b/src/v4l2stateless_av1_stub.c
+new file mode 100644
+index 0000000..9352b28
+--- /dev/null
++++ b/src/v4l2stateless_av1_stub.c
+@@ -0,0 +1,16 @@
++#include "v4l2stateless.h"
++
++void v4l2sl_av1_dpb_model_reset(struct v4l2sl_context *ctx)
++{
++    (void)ctx;
++}
++
++VAStatus v4l2sl_av1_translate(struct v4l2sl_context *ctx,
++                              struct v4l2sl_buffer **buffers,
++                              int num_buffers)
++{
++    (void)ctx;
++    (void)buffers;
++    (void)num_buffers;
++    return VA_STATUS_ERROR_UNSUPPORTED_PROFILE;
++}
+diff --git a/src/v4l2stateless_format.c b/src/v4l2stateless_format.c
+index 4f4412d..6e543fc 100644
+--- a/src/v4l2stateless_format.c
++++ b/src/v4l2stateless_format.c
+@@ -16,6 +16,10 @@
+ 
+ #include "v4l2stateless.h"
+ 
++#ifndef DRM_FORMAT_NV20
++#define DRM_FORMAT_NV20 fourcc_code('N', 'V', '2', '0')
++#endif
++
+ uint32_t v4l2sl_capture_fourcc_from_rt(unsigned int rt_format)
+ {
+     if (rt_format & VA_RT_FORMAT_YUV422_10)
+diff --git a/src/v4l2stateless_h264.c b/src/v4l2stateless_h264.c
+index e2e0242..b24baa1 100644
+--- a/src/v4l2stateless_h264.c
++++ b/src/v4l2stateless_h264.c
+@@ -148,12 +148,10 @@ void h264_fill_sps(struct v4l2_ctrl_h264_sps *sps,
+     } else if (profile == VAProfileH264Main) {
+         sps->profile_idc = 77;
+         sps->constraint_set_flags = 0;
+-    } else if (profile == VAProfileH264High422 ||
+-               pic->seq_fields.bits.chroma_format_idc == 2) {
++    } else if (pic->seq_fields.bits.chroma_format_idc == 2) {
+         sps->profile_idc = 122;
+         sps->constraint_set_flags = 0;
+-    } else if (profile == VAProfileH264High10 ||
+-               pic->bit_depth_luma_minus8 >= 2) {
++    } else if (pic->bit_depth_luma_minus8 >= 2) {
+         sps->profile_idc = 110;
+         sps->constraint_set_flags = 0;
+     } else {
+diff --git a/src/v4l2stateless_hevc.c b/src/v4l2stateless_hevc.c
+index d13978b..3e85815 100644
+--- a/src/v4l2stateless_hevc.c
++++ b/src/v4l2stateless_hevc.c
+@@ -269,16 +269,10 @@ VAStatus v4l2sl_hevc_translate(struct v4l2sl_context *ctx,
+     sps_ctrls.controls = &sps_ctrl;
+     sps_ctrls.count = 1;
+ 
+-    /* Sequence-level control: resubmit only when the payload changed. */
+-    _Static_assert(sizeof(sps) <= sizeof(ctx->g_ctrl_payload), "grow cache");
+-    if (!ctx->g_ctrl_valid ||
+-        memcmp(ctx->g_ctrl_payload, &sps, sizeof(sps)) != 0) {
+-        if (v4l2sl_set_global_controls(v4l2_fd, &sps_ctrls) < 0) {
+-            fprintf(stderr, "v4l2stateless: failed to set HEVC SPS\n");
+-            return VA_STATUS_ERROR_OPERATION_FAILED;
+-        }
+-        memcpy(ctx->g_ctrl_payload, &sps, sizeof(sps));
+-        ctx->g_ctrl_valid = 1;
++    /* Linux 7.2 rkvdec accepts HEVC SPS as a request-scoped control. */
++    if (v4l2sl_set_request_controls(request_fd, v4l2_fd, &sps_ctrls) < 0) {
++        fprintf(stderr, "v4l2stateless: failed to set HEVC SPS request control\n");
++        return VA_STATUS_ERROR_OPERATION_FAILED;
+     }
+ 
+     {

@@ -1,0 +1,71 @@
+#!/bin/sh
+# Z96A charging LED policy:
+#   AC online, capacity >= 90%  -> green on, red off
+#   AC online, capacity <  90%  -> red on, green off
+#   AC offline                  -> both off
+#
+# The kernel's default bq257xx LED triggers are detached first, because this
+# policy is capacity-based and cannot be expressed with the power-supply triggers.
+
+set -u
+
+LED_DIR=${Z96A_LED_DIR:-/sys/class/leds}
+BAT=${Z96A_BAT:-/sys/class/power_supply/bq257xx-fgu}
+CHG=${Z96A_CHG:-/sys/class/power_supply/bq257xx-charger}
+WHITE=$LED_DIR/white:power
+RED=$LED_DIR/red:charging
+GREEN=$LED_DIR/green:charging
+THRESHOLD=${Z96A_CHARGE_LED_THRESHOLD:-90}
+
+wait_for_hw() {
+	# Keep retrying at boot until both the LEDs and power supplies exist.
+	while [ ! -d "$RED" ] || [ ! -d "$GREEN" ] ||
+	      [ ! -r "$BAT/capacity" ] || [ ! -r "$CHG/online" ]; do
+		sleep 1
+	done
+}
+
+set_led() {
+	led=$1
+	value=$2
+	[ -d "$led" ] || return 0
+	echo "$value" > "$led/brightness" 2>/dev/null || true
+}
+
+detach_triggers() {
+	for led in "$RED" "$GREEN"; do
+		[ -d "$led" ] || continue
+		echo none > "$led/trigger" 2>/dev/null || true
+	done
+}
+
+wait_for_hw
+detach_triggers
+
+# The power LED next to Caps Lock is the system-running indicator, not a
+# charger-presence LED. Keep it solid while the system is up; the DTS
+# default-trigger must not be bq257xx-charger-online.
+if [ -d "$WHITE" ]; then
+	echo default-on > "$WHITE/trigger" 2>/dev/null || true
+fi
+
+while :; do
+	online=$(cat "$CHG/online" 2>/dev/null || echo 0)
+	capacity=$(cat "$BAT/capacity" 2>/dev/null || echo 0)
+	case "$capacity" in
+		''|*[!0-9]*) capacity=0 ;;
+	esac
+
+	if [ "$online" = "1" ] && [ "$capacity" -ge "$THRESHOLD" ]; then
+		set_led "$RED" 0
+		set_led "$GREEN" 1
+	elif [ "$online" = "1" ]; then
+		set_led "$RED" 1
+		set_led "$GREEN" 0
+	else
+		set_led "$RED" 0
+		set_led "$GREEN" 0
+	fi
+
+	sleep 2
+done

@@ -1,0 +1,9 @@
+# USB Keyboard VID:0x6080 PID:0x8060
+evdev:input:b0003v6080p8060*
+ KEYBOARD_KEY_700FA=micmute         # F2 Mic mute: KEY_REFRESH -> KEY_MICMUTE
+ KEYBOARD_KEY_700FB=wlan            # F8 Wi-Fi switch: KEY_CALC -> KEY_WLAN
+ KEYBOARD_KEY_700F8=pause             # Pause: KEY_UNKNOWN -> KEY_PAUSE
+ KEYBOARD_KEY_700FC=battery         # F9 Battery: KEY_UNKNOWN -> KEY_BATTERY
+ KEYBOARD_KEY_700F4=touchpad_toggle # F11 Touchpad toggle: KEY_FIND -> KEY_TOUCHPAD_TOGGLE
+ KEYBOARD_KEY_700F5=touchpad_toggle # F11 Touchpad toggle: KEY_SCROLLUP -> KEY_TOUCHPAD_TOGGLE
+ KEYBOARD_KEY_700E9=switchvideomode # F10 Projector: KEY_STOPCD -> KEY_SWITCHVIDEOMODE

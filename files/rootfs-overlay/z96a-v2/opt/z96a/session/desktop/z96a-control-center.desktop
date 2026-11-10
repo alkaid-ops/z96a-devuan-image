@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=配置中心
+Name[en_US]=Control Center
+Comment=调整 LXQt 与系统设置
+TryExec=lxqt-config
+Exec=lxqt-config
+Icon=preferences-system
+Terminal=false
+Categories=Settings;DesktopSettings;Qt;LXQt;
+StartupNotify=true

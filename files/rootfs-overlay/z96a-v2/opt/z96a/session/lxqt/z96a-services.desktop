@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Z96A Session Services
+Exec=/usr/local/bin/z96a-lxqt-services
+OnlyShowIn=LXQt;
+Terminal=false
+NoDisplay=true
+X-LXQt-Module=true
+X-GNOME-Autostart-enabled=true

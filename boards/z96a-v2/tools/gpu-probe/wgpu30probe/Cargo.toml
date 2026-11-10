@@ -1,0 +1,10 @@
+[package]
+name = "wgpu30probe"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wgpu = "30.0.1"
+pollster = "0.4"
+env_logger = "0.11"
+log = "0.4"

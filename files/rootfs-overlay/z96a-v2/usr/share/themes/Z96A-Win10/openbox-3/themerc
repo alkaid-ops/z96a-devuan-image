@@ -1,0 +1,74 @@
+!! Z96A Windows 10 inspired Openbox theme
+!! Flat white title bar, dark text, thin grey border, red-free hover.
+
+border.width: 1
+padding.width: 6
+padding.height: 5
+window.handle.width: 0
+window.client.padding.width: 1
+window.client.padding.height: 1
+window.label.text.justify: left
+
+window.active.border.color: #d6d6d6
+window.inactive.border.color: #e6e6e6
+window.*.client.color: #ffffff
+
+window.active.title.bg: flat solid border
+window.active.title.bg.color: #ffffff
+window.active.title.bg.border.color: #d6d6d6
+window.active.label.bg: parentrelative
+window.active.label.text.color: #1b1b1b
+window.active.label.text.font: sans:9
+
+window.inactive.title.bg: flat solid border
+window.inactive.title.bg.color: #f7f7f7
+window.inactive.title.bg.border.color: #e6e6e6
+window.inactive.label.bg: parentrelative
+window.inactive.label.text.color: #9a9a9a
+
+window.active.button.unpressed.bg: flat solid
+window.active.button.unpressed.bg.color: #ffffff
+window.active.button.unpressed.image.color: #333333
+window.active.button.toggled.bg: flat solid
+window.active.button.toggled.bg.color: #eaeaea
+window.active.button.toggled.image.color: #1b1b1b
+window.active.button.disabled.bg: flat solid
+window.active.button.disabled.bg.color: #ffffff
+window.active.button.disabled.image.color: #c8c8c8
+window.active.button.hover.bg: flat solid
+window.active.button.hover.bg.color: #e5e5e5
+window.active.button.hover.image.color: #000000
+window.active.button.pressed.bg: flat solid
+window.active.button.pressed.bg.color: #cccccc
+window.active.button.pressed.image.color: #000000
+
+window.inactive.button.unpressed.bg: flat solid
+window.inactive.button.unpressed.bg.color: #f7f7f7
+window.inactive.button.unpressed.image.color: #a0a0a0
+window.inactive.button.hover.bg: flat solid
+window.inactive.button.hover.bg.color: #e8e8e8
+window.inactive.button.hover.image.color: #000000
+window.inactive.button.pressed.bg: flat solid
+window.inactive.button.pressed.bg.color: #d4d4d4
+
+window.active.title.separator.color: #e8e8e8
+window.inactive.title.separator.color: #ededed
+
+menu.border.width: 1
+menu.border.color: #d0d0d0
+menu.overlap.x: 0
+menu.overlap.y: 0
+menu.title.bg: flat solid
+menu.title.bg.color: #f2f2f2
+menu.title.text.color: #1b1b1b
+menu.items.bg: flat solid
+menu.items.bg.color: #ffffff
+menu.items.text.color: #1b1b1b
+menu.items.disabled.text.color: #a0a0a0
+menu.items.active.bg: flat solid
+menu.items.active.bg.color: #e5f1fb
+menu.items.active.text.color: #000000
+menu.separator.width: 1
+menu.separator.padding.width: 3
+menu.separator.padding.height: 3
+menu.separator.color: #e0e0e0

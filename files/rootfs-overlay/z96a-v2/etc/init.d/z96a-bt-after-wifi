@@ -1,0 +1,28 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          z96a-bt-after-wifi
+# Required-Start:    $network $remote_fs
+# Required-Stop:
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Load RTL8822CS Bluetooth after Wi-Fi
+### END INIT INFO
+
+case "$1" in
+	start)
+		start-stop-daemon --start --background --make-pidfile --pidfile /run/z96a-bt-after-wifi.pid --exec /usr/local/sbin/z96a-bt-after-wifi
+		;;
+	stop)
+		start-stop-daemon --stop --pidfile /run/z96a-bt-after-wifi.pid --retry 5
+		;;
+	restart)
+		"$0" stop
+		"$0" start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}" >&2
+		exit 3
+		;;
+esac
+
+exit 0

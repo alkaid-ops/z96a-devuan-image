@@ -1,0 +1,320 @@
+diff -ruN a/cfg.cpp b/cfg.cpp
+--- a/cfg.cpp	2024-05-30 00:45:14
++++ b/cfg.cpp	2026-10-30 22:12:28
+@@ -135,6 +135,13 @@
+ 	options.insert(option("show_username", "1"));
+ 	options.insert(option("show_welcome_msg", "0"));
+ 	options.insert(option("tty_lock", "1"));
++	options.insert(option("power_status_font", "Noto Sans CJK SC:size=12:bold"));
++	options.insert(option("power_status_color", "#FFFFFF"));
++	options.insert(option("power_status_shadow_color", "#000000"));
++	options.insert(option("power_status_x", "50%"));
++	options.insert(option("power_status_y", "80"));
++	options.insert(option("power_status_shadow_xoffset", "1"));
++	options.insert(option("power_status_shadow_yoffset", "1"));
+ 
+ 	error = "";
+ }
+diff -ruN a/debian/changelog b/debian/changelog
+--- a/debian/changelog	2025-12-15 17:58:48
++++ b/debian/changelog	2026-10-30 23:01:36
+@@ -1,3 +1,10 @@
++slim (1.4.1-1devuan1+excalibur2+z96a1) excalibur; urgency=medium
++
++  * Z96A: render AC/battery and suspend countdown in slimlock.
++  * Z96A: publish lock-ready state for the power policy daemon.
++
++ -- Z96A Build <z96a@localhost>  Thu, 30 Oct 2026 22:00:00 +0800
++
+ slim (1.4.1-1devuan1+excalibur2) excalibur-proposed-updates; urgency=medium
+ 
+   * Update patch to fix 1.4.1 auto_login regression (See: #857).
+diff -ruN a/debian/slim.docs b/debian/slim.docs
+--- a/debian/slim.docs	2025-12-15 17:58:48
++++ b/debian/slim.docs	2026-10-30 22:12:28
+@@ -1,3 +1 @@
+ README
+-THEMES
+-TODO
+diff -ruN a/panel.cpp b/panel.cpp
+--- a/panel.cpp	2024-05-30 00:45:14
++++ b/panel.cpp	2026-10-31 00:00:36
+@@ -12,6 +12,10 @@
+  */
+ 
+ #include <sstream>
++#include <fstream>
++#include <map>
++#include <cstdio>
++#include <cstring>
+ #include <poll.h>
+ #include <libgen.h>
+ #include <X11/extensions/Xrandr.h>
+@@ -64,6 +68,9 @@
+ 	welcomefont = XftFontOpenName(Dpy, Scr, cfg->getOption("welcome_font").c_str());
+ 	enterfont = XftFontOpenName(Dpy, Scr, cfg->getOption("username_font").c_str());
+ 	msgfont = XftFontOpenName(Dpy, Scr, cfg->getOption("msg_font").c_str());
++	powerfont = XftFontOpenName(Dpy, Scr, cfg->getOption("power_status_font").c_str());
++	if (powerfont == NULL)
++		powerfont = XftFontOpenName(Dpy, Scr, "sans:size=12:bold");
+ 
+ 	Visual* visual = DefaultVisual(Dpy, Scr);
+ 	Colormap colormap = DefaultColormap(Dpy, Scr);
+@@ -80,6 +87,10 @@
+ 					  cfg->getOption("session_color").c_str(), &sessioncolor);
+ 	XftColorAllocName(Dpy, visual, colormap,
+ 					  cfg->getOption("session_shadow_color").c_str(), &sessionshadowcolor);
++	XftColorAllocName(Dpy, visual, colormap,
++					  cfg->getOption("power_status_color").c_str(), &powercolor);
++	XftColorAllocName(Dpy, visual, colormap,
++					  cfg->getOption("power_status_shadow_color").c_str(), &powershadowcolor);
+ 
+ 	/* Load properties from config / theme */
+ 	input_name_x = cfg->getIntOption("input_name_x");
+@@ -88,6 +99,8 @@
+ 	input_pass_y = cfg->getIntOption("input_pass_y");
+ 	inputShadowXOffset = cfg->getIntOption("input_shadow_xoffset");
+ 	inputShadowYOffset = cfg->getIntOption("input_shadow_yoffset");
++	power_shadow_xoffset = cfg->getIntOption("power_status_shadow_xoffset");
++	power_shadow_yoffset = cfg->getIntOption("power_status_shadow_yoffset");
+ 
+ 	if (input_pass_x < 0 || input_pass_y < 0){ /* single inputbox mode */
+ 		input_pass_x = input_name_x;
+@@ -186,12 +199,16 @@
+ 	XftColorFree(Dpy, visual, colormap, &msgshadowcolor);
+ 	XftColorFree(Dpy, visual, colormap, &sessioncolor);
+ 	XftColorFree(Dpy, visual, colormap, &sessionshadowcolor);
++	XftColorFree(Dpy, visual, colormap, &powercolor);
++	XftColorFree(Dpy, visual, colormap, &powershadowcolor);
+ 
+ 	XFreeGC(Dpy, TextGC);
+ 	XftFontClose(Dpy, font);
+ 	XftFontClose(Dpy, msgfont);
+ 	XftFontClose(Dpy, welcomefont);
+ 	XftFontClose(Dpy, enterfont);
++	if (powerfont)
++		XftFontClose(Dpy, powerfont);
+ 
+ 	delete bgImg;
+ 	delete image;
+@@ -450,7 +467,7 @@
+ 
+ 	while (loop)
+ 	{
+-		if (XPending(Dpy) || poll(&x11_pfd, 1, -1) > 0)
++		if (XPending(Dpy) || poll(&x11_pfd, 1, 1000) > 0)
+ 		{
+ 			while(XPending(Dpy))
+ 			{
+@@ -473,6 +490,7 @@
+ 				MsgExtents.width = 0;
+ 			}
+ 		}
++		UpdatePowerStatus();
+ 	}
+ 
+ 	return;
+@@ -516,6 +534,96 @@
+ 	XftDrawDestroy (draw);
+ 	TextCursor(SHOW);
+ 	ShowText();
++	UpdatePowerStatus(true);
++}
++
++void Panel::UpdatePowerStatus(bool force)
++{
++	if (mode != Mode_Lock || !powerfont)
++		return;
++
++	char path[256];
++	const char *runtime = getenv("XDG_RUNTIME_DIR");
++	if (runtime && *runtime)
++		snprintf(path, sizeof(path), "%s/z96a-power/status", runtime);
++	else
++		snprintf(path, sizeof(path), "/run/user/%u/z96a-power/status", (unsigned)getuid());
++
++	map<string, string> values;
++	ifstream input(path);
++	string line;
++	while (getline(input, line)) {
++		size_t pos = line.find('=');
++		if (pos != string::npos)
++			values[line.substr(0, pos)] = line.substr(pos + 1);
++	}
++
++	string source = values.count("POWER_SOURCE") ? values["POWER_SOURCE"] : "UNKNOWN";
++	string btstat = values.count("BATTERY_STATUS") ? values["BATTERY_STATUS"] : "Unknown";
++	string policy = values.count("POLICY_STATE") ? values["POLICY_STATE"] : "WAITING";
++	int present = values.count("BATTERY_PRESENT") ? atoi(values["BATTERY_PRESENT"].c_str()) : -1;
++	int percent = values.count("BATTERY_PERCENT") ? atoi(values["BATTERY_PERCENT"].c_str()) : -1;
++	int remain = values.count("SUSPEND_REMAINING") ? atoi(values["SUSPEND_REMAINING"].c_str()) : -1;
++	int critical_remaining = values.count("CRITICAL_REMAINING") ? atoi(values["CRITICAL_REMAINING"].c_str()) : -1;
++
++	string source_text = source == "AC" ? "交流电" : (source == "BATTERY" ? "电池" : "电源未知");
++	string btstat_text = "状态未知";
++	if (btstat == "Charging") btstat_text = "充电中";
++	else if (btstat == "Discharging") btstat_text = "放电中";
++	else if (btstat == "Full") btstat_text = "已充满";
++	else if (btstat == "Not charging") btstat_text = "未充电";
++
++	ostringstream text;
++	text << source_text;
++	if (present == 0)
++		text << " · 未检测到电池";
++	else if (present < 0)
++		text << " · 电池状态未知";
++	else if (percent >= 0)
++		text << " · 电量 " << percent << "% · " << btstat_text;
++	if (policy == "CRITICAL")
++		text << " · 即将关机 ";
++	if (policy == "CRITICAL" && critical_remaining >= 0) {
++		char critical_clock[32];
++		snprintf(critical_clock, sizeof(critical_clock), "%02d:%02d", critical_remaining / 60, critical_remaining % 60);
++		text << critical_clock;
++	} else if (policy == "CRITICAL") {
++		text << "等待确认";
++	} else if (policy == "LOW_BATTERY")
++		text << " · 自动挂起已禁用";
++	else if (policy == "ERROR")
++		text << " · 电源策略错误";
++	else if (remain < 0)
++		text << " · 挂起已禁用";
++	else {
++		char clock[32];
++		if (remain >= 3600)
++			snprintf(clock, sizeof(clock), "%d:%02d:%02d", remain / 3600, (remain / 60) % 60, remain % 60);
++		else
++			snprintf(clock, sizeof(clock), "%02d:%02d", remain / 60, remain % 60);
++		text << " · 挂起 " << clock;
++	}
++
++	string next = text.str();
++	if (!force && next == power_status_text)
++		return;
++
++	XClearArea(Dpy, Root, power_extents.x, power_extents.y,
++		power_extents.width + 4, power_extents.height + 4, false);
++	XftDraw *draw = XftDrawCreate(Dpy, Root,
++		DefaultVisual(Dpy, Scr), DefaultColormap(Dpy, Scr));
++	XftTextExtents8(Dpy, powerfont, reinterpret_cast<const XftChar8*>(next.c_str()),
++		next.length(), &power_extents);
++	power_x = Cfg::absolutepos(cfg->getOption("power_status_x"), viewport.width, power_extents.width);
++	power_y = Cfg::absolutepos(cfg->getOption("power_status_y"), viewport.height, power_extents.height);
++	power_extents.x = power_x;
++	power_extents.y = power_y - power_extents.height;
++	SlimDrawString8(draw, &powercolor, powerfont, power_x, power_y, next,
++		&powershadowcolor, power_shadow_xoffset, power_shadow_yoffset);
++	power_extents_valid = true;
++	power_status_text = next;
++	XFlush(Dpy);
++	XftDrawDestroy(draw);
+ }
+ 
+ void Panel::EraseLastChar(std::string &formerString)
+diff -ruN a/panel.h b/panel.h
+--- a/panel.h	2024-05-30 00:45:14
++++ b/panel.h	2026-10-30 22:12:28
+@@ -99,6 +99,7 @@
+ 	bool OnKeyPress(XEvent& event);
+ 	void ShowText();
+ 	void ShowSession();
++	void UpdatePowerStatus(bool force = false);
+ 
+ 	void SlimDrawString8(XftDraw *d, XftColor *color, XftFont *font,
+ 							int x, int y, const std::string &str,
+@@ -132,6 +133,16 @@
+ 	XftFont *enterfont;
+ 	XftColor entercolor;
+ 	XftColor entershadowcolor;
++	XftFont *powerfont;
++	XftColor powercolor;
++	XftColor powershadowcolor;
++	int power_x;
++	int power_y;
++	int power_shadow_xoffset;
++	int power_shadow_yoffset;
++	std::string power_status_text;
++	XGlyphInfo power_extents;
++	bool power_extents_valid;
+ 	ActionType action;
+ 	FieldType field;
+ 	XGlyphInfo MsgExtents;
+diff -ruN a/slimlock.cpp b/slimlock.cpp
+--- a/slimlock.cpp	2024-05-30 00:45:14
++++ b/slimlock.cpp	2026-10-30 23:01:36
+@@ -25,6 +25,7 @@
+ #include <sys/stat.h>
+ #include <sys/file.h>
+ #include <errno.h>
++#include <cstdlib>
+ 
+ #include "cfg.h"
+ #include "util.h"
+@@ -60,8 +61,43 @@
+ static BOOL dpms_state, using_dpms;
+ 
+ static int term;	// Used by a C callback function
++static char lock_ready_path[256];
+ 
++static void make_lock_ready_path(void)
++{
++	const char *runtime = getenv("XDG_RUNTIME_DIR");
++	if (runtime && *runtime)
++		snprintf(lock_ready_path, sizeof(lock_ready_path),
++			"%s/z96a-power/lock-ready", runtime);
++	else
++		snprintf(lock_ready_path, sizeof(lock_ready_path),
++			"/run/user/%u/z96a-power/lock-ready", (unsigned)getuid());
++}
+ 
++static void write_lock_ready(void)
++{
++	char tmp[280];
++	FILE *fp;
++	if (!lock_ready_path[0])
++		make_lock_ready_path();
++	snprintf(tmp, sizeof(tmp), "%s.tmp.%u", lock_ready_path, (unsigned)getpid());
++	fp = fopen(tmp, "w");
++	if (!fp)
++		return;
++	fprintf(fp, "%u\n", (unsigned)getpid());
++	fclose(fp);
++	if (rename(tmp, lock_ready_path) != 0)
++		unlink(tmp);
++}
++
++static void remove_lock_ready(void)
++{
++	if (!lock_ready_path[0])
++		make_lock_ready_path();
++	unlink(lock_ready_path);
++}
++
++
+ static void die(const char *errstr, ...)
+ {
+ 	va_list ap;
+@@ -225,6 +261,7 @@
+ 
+ 	pthread_t raise_thread;
+ 	pthread_create(&raise_thread, NULL, RaiseWindow, NULL);
++	write_lock_ready();
+ 
+ 	/* Init Root */
+ 	LoginPanel->setBackground();
+@@ -249,6 +286,7 @@
+ 
+ 	LoginPanel->ClosePanel();
+ 	delete LoginPanel;
++	remove_lock_ready();
+ 
+ 	// Get DPMS stuff back to normal
+ 	if (using_dpms) {
+@@ -322,6 +360,7 @@
+ 
+ 	LoginPanel->ClosePanel();
+ 	delete LoginPanel;
++	remove_lock_ready();
+ 
+ 	die(APPNAME": Caught signal; dying\n");
+ }
