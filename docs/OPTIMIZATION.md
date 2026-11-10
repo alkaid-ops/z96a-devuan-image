@@ -744,7 +744,7 @@ QEMU 只验证 rootfs/启动结构，不证明 RK3568 硬件能力。
 | 环节 | 频率 | 载体 | 是否阻塞合并 |
 |---|---|---|---|
 | PR 快速检查 | 每次提交 | CI（静态 + 单元 + 预检） | 是 |
-| Tag 发布构建 | 版本 Tag | self-hosted 构建机 + `validate-image.sh` + Release | 是（未通过不发布） |
+| Tag 发布构建 | 版本 Tag | GitHub-hosted `ubuntu-24.04` + `validate-image.sh` + Release | 是（未通过不发布） |
 | Nightly 构建 | 每晚 | 构建机 + `smoke-static --image` + `smoke-rootfs --chroot` | 是 |
 | 真机 HIL | 每周或发版前 | 专用测试板（优先）/ 固定 USB 启动介质 | 否，但结果必须归档 |
 
