@@ -50,7 +50,7 @@ Tag 必须指向默认分支上的提交；`release.yml` 会检查 `git merge-ba
 GitHub-hosted runner 每次为临时机器，因此输入通过 `actions/cache` 保留，
 缓存 miss 时从不可变的 `inputs-v1` Release 下载并逐文件校验。缓存 key 为
 `z96a-inputs-v1-Linux`；更新输入时发布新 `inputs-vN` 并同步更新 workflow key。
-chroot 缓存在当前 hosted job 内使用，不跨 job 持久保存。
+临时 runner 不跨 job 保存 chroot 缓存，当前构建显式关闭该缓存；这只影响构建耗时。
 
 ```text
 $Z96A_CACHE_ROOT/
@@ -58,7 +58,7 @@ $Z96A_CACHE_ROOT/
 │   ├── packages/     内置应用 .deb（含内部 build artifact 包）
 │   ├── tarball/      devuan-excalibur-minimal-rootfs-arm64.tar.xz
 │   └── debs/         linux-image-*.deb、linux-headers-*.deb、u-boot-*.deb
-└── chroot/           chroot-cache.sh 的 p1/p2 结果（当前 job 内可重建）
+└── chroot/           预留目录（当前 GitHub-hosted 构建不使用）
 ```
 
 生成输入 Release（仅在维护输入版本时执行）：
