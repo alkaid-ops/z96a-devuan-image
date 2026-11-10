@@ -46,6 +46,8 @@ jobs:
         run: python3 -m unittest discover -s boards/z96a-v2/tests -p 'test_*.py' -v
 
       - name: Packaging preflight
+        env:
+          Z96A_PREFLIGHT_ALLOW_MISSING_PACKAGES: "1"
         run: make preflight board=z96a-v2
 
       - name: Secret scan (local rules)

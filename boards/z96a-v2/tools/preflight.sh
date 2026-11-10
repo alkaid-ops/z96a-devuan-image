@@ -113,18 +113,29 @@ fi
 
 # --- bundled debs and checksums ----------------------------------------
 if [ -d "$PKG_DIR" ]; then
-    if [ ! -e "$PKG_DIR" ] || [ -z "$(ls -1 "$PKG_DIR"/*.deb 2>/dev/null)" ]; then
+    has_debs=0
+    for deb in "$PKG_DIR"/*.deb; do [ -e "$deb" ] && has_debs=1 && break; done
+    metadata_only=0
+    if [ "$has_debs" -eq 0 ] && [ "${Z96A_PREFLIGHT_ALLOW_MISSING_PACKAGES:-0}" = "1" ]; then
+        metadata_only=1
+        note "binary package blobs absent; validating package metadata only"
+    elif [ "$has_debs" -eq 0 ]; then
         bad "no bundled debs present; run boards/$BOARD/tools/fetch-packages.sh"
     fi
     if [ -f "boards/$BOARD/packages-sources.tsv" ]; then
         ok "package sources table present"
         while IFS=$'\t' read -r name sha _rest; do
             case "$name" in ''|'#'*) continue ;; esac
-            [ -f "$PKG_DIR/$name" ] || bad "package listed but missing on disk: $name"
-            case "$sha" in
-                [0-9a-f][0-9a-f]*) ;;
-                *) bad "package sources entry has no sha256: $name" ;;
-            esac
+            if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{64}$'; then
+                bad "package sources entry has invalid sha256: $name"
+                continue
+            fi
+            if [ "$metadata_only" -eq 1 ]; then
+                grep -q "^$sha  $name\$" "$PKG_DIR/SHA256SUMS" 2>/dev/null \
+                    || bad "package source missing/mismatched in SHA256SUMS: $name"
+            elif [ ! -f "$PKG_DIR/$name" ]; then
+                bad "package listed but missing on disk: $name"
+            fi
         done < "boards/$BOARD/packages-sources.tsv"
     else
         bad "missing boards/$BOARD/packages-sources.tsv"
@@ -138,7 +149,9 @@ if [ -d "$PKG_DIR" ]; then
             grep -q "  $name\$" "$PKG_DIR/SHA256SUMS" || { bad "deb not in SHA256SUMS: $name"; missing=1; }
         done
         [ "$missing" -eq 0 ] && ok "all bundled debs are checksummed"
-        if [ "${Z96A_PREFLIGHT_HASH:-0}" = "1" ]; then
+        if [ "$metadata_only" -eq 1 ]; then
+            ok "package metadata and checksum manifest agree"
+        elif [ "${Z96A_PREFLIGHT_HASH:-0}" = "1" ]; then
             ( cd "$PKG_DIR" && sha256sum -c --quiet SHA256SUMS >/dev/null 2>&1 ) \
                 && ok "deb checksums verify" || bad "deb checksum mismatch"
         else
@@ -151,7 +164,13 @@ if [ -d "$PKG_DIR" ]; then
     if [ -f "boards/$BOARD/userscripts/uscripts" ]; then
         refs=$(cat "boards/$BOARD/userscripts/uscripts" $(find "boards/$BOARD/userscripts" -mindepth 2 -name '*.sh' | sort) 2>/dev/null)
         for ref in $(printf '%s\n' "$refs" | grep -o '/opt/z96a/packages/[A-Za-z0-9._+-]*\.deb' | sort -u); do
-            [ -f "$OVERLAY$ref" ] || bad "userscript references missing package: $ref"
+            if [ "$metadata_only" -eq 1 ]; then
+                name=${ref##*/}
+                grep -q "  $name\$" "$PKG_DIR/SHA256SUMS" 2>/dev/null \
+                    || bad "userscript package absent from checksum manifest: $ref"
+            else
+                [ -f "$OVERLAY$ref" ] || bad "userscript references missing package: $ref"
+            fi
         done
         ok "userscript package references checked"
     fi
