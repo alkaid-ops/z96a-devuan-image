@@ -2,6 +2,7 @@ name: build
 
 # Manual image build. Produces an Actions artifact only; it never publishes a
 # GitHub release. Use a version tag to publish (see release.yml).
+# Dispatch is available from the default branch after repository secrets exist.
 on:
   workflow_dispatch:
     inputs:

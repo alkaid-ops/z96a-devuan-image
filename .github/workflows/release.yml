@@ -3,6 +3,7 @@ name: release
 # Tag a commit with vX.Y.Z (or vX.Y) to build, validate and publish an image.
 # The tag must already point at a commit on the default branch's release line;
 # moving or deleting a published tag is not supported.
+# Keep the workflow file on the default branch so tag events are discoverable.
 on:
   push:
     tags:
