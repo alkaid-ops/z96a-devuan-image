@@ -8,7 +8,10 @@
 
 	chmod 0755 /usr/local/sbin/z96a-bt-after-wifi /etc/init.d/z96a-bt-after-wifi
 	update-rc.d z96a-bt-after-wifi defaults 99 01 >/dev/null 2>&1 || true
-	chmod 0600 /etc/NetworkManager/system-connections/*.nmconnection
+	for nmconnection in /etc/NetworkManager/system-connections/*.nmconnection; do
+		[ -e "$nmconnection" ] || continue
+		chmod 0600 "$nmconnection"
+	done
 	chmod 0755 /usr/local/sbin/z96a-network-up /etc/init.d/z96a-network-up
 	update-rc.d z96a-network-up defaults 99 01 >/dev/null 2>&1 || true
 	chmod 0755 /usr/local/sbin/z96a-charge-led /etc/init.d/z96a-charge-led

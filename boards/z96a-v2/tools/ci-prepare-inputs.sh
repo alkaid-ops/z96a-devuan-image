@@ -94,6 +94,30 @@ if ! ls "$OUTPUT"/u-boot-*_"${UV}"-*.deb >/dev/null 2>&1; then
     fail=$((fail + 1))
 fi
 
+# The image partition writer flashes these blobs into the raw disk before the
+# target rootfs is mounted. They are also packaged inside the U-Boot deb for
+# installation in the image, so restore the host-side copies on clean runners.
+if [ "$fail" -eq 0 ]; then
+    uboot_deb=$(find "$OUTPUT" -maxdepth 1 -type f -name "u-boot-*_${UV}-*.deb" -print -quit)
+    uboot_tmp=$(mktemp -d)
+    if dpkg-deb --extract "$uboot_deb" "$uboot_tmp"; then
+        uboot_blob_dir=$(find "$uboot_tmp/usr/lib" -mindepth 1 -maxdepth 1 -type d -print -quit)
+        for blob in idbloader.bin u-boot.bin; do
+            if [ -s "$uboot_blob_dir/$blob" ]; then
+                cp -f "$uboot_blob_dir/$blob" "$OUTPUT/$blob"
+                echo "input cache: restored U-Boot $blob"
+            else
+                echo "MISSING $blob in $uboot_deb" >&2
+                fail=$((fail + 1))
+            fi
+        done
+    else
+        echo "cannot extract U-Boot package: $uboot_deb" >&2
+        fail=$((fail + 1))
+    fi
+    rm -rf "$uboot_tmp"
+fi
+
 if [ "$fail" -eq 0 ]; then
     echo "INPUTS: PASS ($CACHE)"
     exit 0
