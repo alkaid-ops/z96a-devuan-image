@@ -232,7 +232,7 @@ jobs:
           set -eu
           img=$(ls -t output/z96a-v2/image/*.img.xz | head -n 1)
           mkdir -p output/ci/release
-          cp -l "$img" "$img.sha256" output/ci/release/
+          cp "$img" "$img.sha256" output/ci/release/
           cp output/z96a-v2/manifest.json output/z96a-v2/sbom.json \
              output/ci/build-evidence.json output/ci/build.log output/ci/release/
           ls -lh output/ci/release

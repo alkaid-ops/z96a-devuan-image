@@ -380,6 +380,11 @@ class BuildPreflightTests(unittest.TestCase):
         collector = (ROOT / "boards" / BOARD / "tools/ci-collect-image.sh").read_text(errors="replace")
         self.assertIn('--tag) TAG=${2-}; shift 2 ;;', collector)
 
+    def test_release_staging_does_not_require_hardlinks(self):
+        workflow = (ROOT / ".github/workflows/build-image.yml").read_text(errors="replace")
+        self.assertIn('cp "$img" "$img.sha256" output/ci/release/', workflow)
+        self.assertNotIn('cp -l "$img"', workflow)
+
 
 class CredentialPolicyTests(unittest.TestCase):
     def test_ssh_credentials_are_optional_and_fail_closed(self):
