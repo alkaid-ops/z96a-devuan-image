@@ -25,7 +25,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --log) LOG=${2:?}; shift 2 ;;
         --validation) VALIDATION=${2:?}; shift 2 ;;
-        --tag) TAG=${2:?}; shift 2 ;;
+        --tag) TAG=${2-}; shift 2 ;;
         --channel) CHANNEL=${2:?}; shift 2 ;;
         --help|-h) sed -n '2,14p' "$0"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;

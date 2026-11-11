@@ -376,6 +376,10 @@ class BuildPreflightTests(unittest.TestCase):
         self.assertIn("udevadm settle --timeout=10", validator)
         self.assertIn('while [ "$attempt" -lt 10 ]', validator)
 
+    def test_image_evidence_accepts_empty_manual_release_tag(self):
+        collector = (ROOT / "boards" / BOARD / "tools/ci-collect-image.sh").read_text(errors="replace")
+        self.assertIn('--tag) TAG=${2-}; shift 2 ;;', collector)
+
 
 class CredentialPolicyTests(unittest.TestCase):
     def test_ssh_credentials_are_optional_and_fail_closed(self):
