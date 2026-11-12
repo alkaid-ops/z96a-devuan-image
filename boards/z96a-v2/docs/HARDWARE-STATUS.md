@@ -21,7 +21,7 @@
 | Type-C 控制器 HUSB311 | `tcpci_rt1711h`，`port0` host/source | ✅（非本次充电输入故障层；OTG device 不处理） |
 | USB 3.1 切换 D3EB | `gpio_sbu_mux` 绑定 `usb-switch` | ✅ |
 | 充电芯片 SC8886 | `bq257xx-charger` | 🟡（正常充电器稳定；已知旧充电器导致输入抖动） |
-| 电池 SHT 3585130-2S | `bq257xx-fgu`（OCV 回退）；RK817 库仑计需 RK809/2S 驱动补丁；`battery-thermal` 温度 | 🟡 |
+| 电池 SHT 3585130-2S | RK817 PMIC 库仑计 `rk817-battery`（100% / 8.387V / 5Ah）；`bq257xx-fgu` OCV 已停用；`battery-thermal` 温度 | ✅ |
 | 霍尔开关 MH248 | `gpio-keys-hall`，`event0` | ✅ |
 | 音频 ADC 3×ES7202 | i2c `0x30/31/32` 均绑定 `es7202`；`z96a_mic` 原生 6ch | ✅（见下） |
 | 音频 codec RK809 | `rk817-codec` + `rk809-sound`；差分 MIC（codec reg `0x27=0xf0`） | ✅ |
@@ -50,7 +50,7 @@
 - **X11 视频呈现**：1080p 实测 1920×1080≈47fps、1600×900≈58fps、1280×720≈59–60fps；瓶颈是 Panfrost 每帧 NV12/dmabuf 渲染成本。mpv 调参已穷尽；Mesa 26.1.6 隔离测试曾更慢（313 vs 244 丢帧）。**注意：为 Vulkan/PanVK，镜像已把系统 Mesa 升到 26.1.6（excalibur-backports），视频需在新基线上复测。** 细节见 `references/MPV-X11-4K-HEVC.md`。
 - **eMMC 速度**：已移除 `0010-z96a-emmc-hs400.patch`；内核 DTS 保持 HS200 / `max-frequency=200MHz`，不启用 `mmc-hs400-1_8v`，与原厂 U-Boot/内核一致。HS400 下 eMMC 写入曾出现 I/O error。
 - **电池温度**：`CONFIG_GENERIC_ADC_THERMAL=y`；`.84` 已用临时 `thermal-generic-adc.ko` 验证 `battery-thermal` 31.5°C。
-- **电池计量（2026-11-13）**：原厂用 RK817 PMIC 库仑计；mainline `rk817_charger` 已能绑定，但驱动是 RK817 单节实现，本板 RK809 + 2S + 140/20 分压会被算成 1% / 3.997V。已恢复 DTB 并用 `blacklist-rk817-gauge.conf` 暂停它，`bq257xx-fgu`（OCV）继续作为回退；待补 RK809/2S 驱动后再启用。
+- **电池计量（2026-11-13）**：已启用 RK817 PMIC 库仑计 `rk817-battery`：100% / 8.387V / 5Ah，`present=1`；upower 只显示这一块电池（42.02Wh）。`bq257xx-fgu` 电压 OCV 已 unbind 并 blacklist，不再叠加；待完整充放电周期观察长期漂移。
 - **充电灯**：`z96a-charge-led` 启动时解除内核默认 `bq257xx-fgu-*` trigger。
 - **充电输入 A/B（2026-11-10）**：正常充电器稳定 `online=1 / Charging`；旧充电器造成 SC8886 `AC_STAT` 和 `online` 周期抖动。HUSB311/TCPM 在好坏充电器下状态一致，不是本次故障层。不要用 0014、运行时重绑定或恢复服务掩盖输入异常。
 - **F8/F9**：LXQt `globalkeyshortcuts.conf` 已绑定 `XF86WLAN`、`XF86Battery` 到 `z96a-hotkey`。

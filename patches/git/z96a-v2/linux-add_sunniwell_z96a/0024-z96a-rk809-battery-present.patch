@@ -1,0 +1,14 @@
+--- a/drivers/power/supply/rk817_charger.c
++++ b/drivers/power/supply/rk817_charger.c
+@@ -430,7 +430,10 @@
+ 
+ 	/* Check if battery still present. */
+ 	regmap_read(charger->rk808->regmap, RK817_PMIC_CHRG_STS, &reg);
+-	charger->battery_present = (reg & RK817_BAT_EXS);
++	if (charger->is_rk809)
++		charger->battery_present = true;
++	else
++		charger->battery_present = (reg & RK817_BAT_EXS);
+ 
+ 	/* Get which type of charge we are using (if any). */
+ 	regmap_read(charger->rk808->regmap, RK817_PMIC_CHRG_STS, &reg);

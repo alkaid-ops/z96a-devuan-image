@@ -278,17 +278,18 @@ charger {
   2. 按 `bat_res_up/bat_res_down` 做分压还原；
   3. 2S 电压范围（最大 8.404V）的 sanity check 和 OCV 初始化；
   4. 充电状态用库仑计电流方向判断（外部充电走 SC8886，PMIC charger 状态不可靠）。
-- 当前已把 `.84` DTB 恢复为 `...dtb.pre-rk817-gauge`（无 `charger` 节点），
-  并启用 `blacklist-rk817-gauge.conf` 禁止 `rk817_charger` 自动绑定；
-  `bq257xx-fgu`（OCV，当前 97%）保持为回退。
-- 已实现（源码与构建产物，**尚未安装/未验证**）：
-  - `0021-z96a-rk809-2s-gauge.patch`：`rk817_charger` 增加 RK809/2S 校准、分压、状态；
-  - `0022-z96a-battery-5000mah-divider.patch`：电池 5000mAh/8.4V + `bat-res-up/down=140/20`；
-  - 已用当前 7.2.12 的 `/proc/config.gz` 编出 `rk817_charger.ko`
-    （vermagic `7.2.12 SMP preempt mod_unload aarch64`）；
-  - 已生成基于当前 `f06d` DTB 的 `...-gauge-v2.dtb`（带 `charger`、140/20、5000mAh）。
-  - 产物位置：`rea-z97a/build/out/rk817-gauge/`。
-  - 等用户明确说“开始”后再替换模块/DTB 并重启验证；当前未动 `.84`。
+- 2026-11-13 已验证（`.84`，未再重启）：
+  - 已安装 `0021 + 0024` 编出的 `rk817_charger.ko`（vermagic `7.2.12 SMP preempt mod_unload aarch64`）；
+  - DTB 为基于当前 `f06d` 的 `...-gauge-v2.dtb`（带 `charger`、140/20、5000mAh）；
+  - `rk817-battery`：`present=1`、`status=Full`、`capacity=100`、
+    `voltage_avg=8.387V`、`current_avg≈69–75mA`、`charge_full=5Ah`；
+  - `bq257xx-charger` 仍在充电（约 64mA）；`bq257xx-fgu`（电压 OCV）已 unbind
+    并在 `/etc/modprobe.d/blacklist-bq257xx-fgu.conf` 中永久 blacklist；
+  - upower 只剩一块 `battery_rk817_battery`：**100% / 42.02Wh / 8.387V**，
+    不再把两块“电池”叠加成 83Wh / 99%。
+  - 补丁 `0024-z96a-rk809-battery-present.patch` 修复 RK809 `BAT_EXS` 不可靠
+    （vendor 对 RK809 直接返回有电池）；否则满电校准不跑，容量会停在 5%。
+  - 仍需一个完整充放电周期观察库仑计长期漂移；当前满电数据已正确。
 - 首次启动会用 NVRAM/设计容量做初始 SOC，之后库仑计累积；需要几个充放电周期观察精度。
 
 ## 5. Type-C / USB-PD（中优先级）
