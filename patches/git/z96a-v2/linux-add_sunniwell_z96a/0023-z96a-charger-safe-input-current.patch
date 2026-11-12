@@ -1,5 +1,3 @@
-diff --git a/drivers/power/supply/bq257xx_charger.c b/drivers/power/supply/bq257xx_charger.c
-index c84a9fa..cd7a461 100644
 --- a/drivers/power/supply/bq257xx_charger.c
 +++ b/drivers/power/supply/bq257xx_charger.c
 @@ -12,10 +12,20 @@
@@ -23,7 +21,17 @@ index c84a9fa..cd7a461 100644
  /**
   * struct bq257xx_chip_info - chip specific routines
   * @default_iindpm_uA: default input current limit in microamps
-@@ -424,7 +434,8 @@ static int bq25703_hw_init(struct bq257xx_chg *pdata)
+@@ -87,6 +97,9 @@
+ 	u32 ichg_max;
+ 	u32 vsys_min;
+ 	bool last_online;
++	int last_iindpm;
++	int last_vbat;
++	struct delayed_work ac_work;
+ 	const char *manufacturer;
+ };
+ 
+@@ -424,7 +437,8 @@
  	if (ret)
  		return ret;
  
@@ -33,7 +41,7 @@ index c84a9fa..cd7a461 100644
  	if (ret)
  		return ret;
  
-@@ -474,8 +485,13 @@ static int bq257xx_set_charger_property(struct power_supply *psy,
+@@ -474,8 +488,13 @@
  	struct bq257xx_chg *pdata = power_supply_get_drvdata(psy);
  
  	switch (prop) {
@@ -49,7 +57,7 @@ index c84a9fa..cd7a461 100644
  
  	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE_MAX:
  		return pdata->chip->bq257xx_set_vbatreg(pdata, val->intval);
-@@ -596,12 +612,11 @@ static int bq257xx_property_is_writeable(struct power_supply *psy,
+@@ -596,12 +615,11 @@
   * input current; a plain DC adapter has no supplier and keeps the default
   * input current limit.
   */
@@ -64,7 +72,7 @@ index c84a9fa..cd7a461 100644
  
  	pdata->chip->bq257xx_get_state(pdata);
  
-@@ -625,7 +640,7 @@ static void bq257xx_external_power_changed(struct power_supply *psy)
+@@ -625,7 +643,7 @@
  
  	pdata->supplied = power_supply_am_i_supplied(pdata->charger);
  	if (pdata->supplied > 0) {
@@ -73,7 +81,7 @@ index c84a9fa..cd7a461 100644
  						POWER_SUPPLY_PROP_USB_TYPE,
  						&val);
  		if (!ret) {
-@@ -634,21 +649,67 @@ static void bq257xx_external_power_changed(struct power_supply *psy)
+@@ -634,21 +652,67 @@
  			if ((pdata->usb_type == POWER_SUPPLY_USB_TYPE_PD) ||
  			    (pdata->usb_type == POWER_SUPPLY_USB_TYPE_PD_DRP) ||
  			    (pdata->usb_type == POWER_SUPPLY_USB_TYPE_PD_PPS)) {
@@ -147,7 +155,7 @@ index c84a9fa..cd7a461 100644
  }
  
  static irqreturn_t bq257xx_irq_handler_thread(int irq, void *private)
-@@ -768,6 +829,10 @@ static int bq257xx_charger_probe(struct platform_device *pdev)
+@@ -768,6 +832,10 @@
  
  	platform_set_drvdata(pdev, pdata);
  
@@ -158,7 +166,7 @@ index c84a9fa..cd7a461 100644
  	psy_cfg.drv_data = pdata;
  	psy_cfg.fwnode = dev_fwnode(dev);
  	psy_cfg.supplied_to = bq257xx_supplied_to;
-@@ -804,7 +869,13 @@ static int bq257xx_charger_probe(struct platform_device *pdev)
+@@ -804,7 +872,13 @@
  			dev_err_probe(dev, ret, "Charger get irq failed\n");
  	}
  
