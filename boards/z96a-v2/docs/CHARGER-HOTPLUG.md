@@ -1,7 +1,7 @@
 # Z96A 充电器热插拔兼容性（B 场景）— 分析与修复（0023）
 
 日期：2026-11-13
-状态：**根因修正 + 补丁 + 编译验证 + 上机验证通过**（模块热加载，无需重启）
+状态：**根因修正 + 补丁 + 编译验证 + 真机验证通过（含自适应退避 B）**（模块热加载，无需重启）
 适用：`southchip,sc8886s` / BQ25703 兼容充电器（`bq257xx-charger` 驱动）
 
 ## 1. 现象（B 场景）
@@ -39,9 +39,16 @@
 3. **去重写**：缓存 `iindpm`/`vbat`，值未变化不写；`ichg` 因芯片在拔出时
    会清掉该寄存器，保留每次 AC=1 重写（写失败不更新缓存，后续会重试）。
 4. **AC=0 清理缓存**，不做任何编程；插入后重新走两阶段。
-5. **输入限流按 DT 执行**：`input-current-limit-microamp`（3A）；
-   PD/PD_DRP/PD_PPS 源仍可从供应商 `CURRENT_MAX` 取协商值（限制在 DT 上限内）。
-   不再使用 1.55A 的硬性保守值（该假设已被实测否定）。
+5. **自适应输入限流（B 方案）**：
+   - 默认按 DT `input-current-limit-microamp`（3A）运行
+   - 15s 窗口内检测到 ≥3 次 AC 边沿 → 限流降 0.5A
+     （3A→2.5A→2A→1.5A→1A 下限）
+   - 输入稳定 60s 后 → 每 60s 升回 0.5A，直到 DT 上限
+   - 降/升档打印 `bq257xx: unstable input, backoff to ...` /
+     `bq257xx: stable input, step-up to ...`
+   - `iindpm_cur` 必须在 `parse_dt()` 之后初始化（否则会从 0 起步，
+     实测曾把 3A 覆盖成 500mA）
+   - PD/PD_DRP/PD_PPS 源仍可从供应商 `CURRENT_MAX` 取协商值（限制在 DT 上限内）
 
 未改动：充电电流 1A、充电电压 8.4V、电池参数。
 
@@ -77,8 +84,22 @@ IRQ 计数 = 5（只有插拔边沿，无中断风暴）
 dmesg 无新的 recovery/超时记录
 ```
 
-因此最终结论：**根因是 AC 边沿事件处理风暴，不是 3A 限流拉塌**；
+因此结论：**根因是 AC 边沿事件处理风暴，不是 3A 限流拉塌**；
 去抖 + 两阶段 + 去重写即可稳定，同时保留正常 3A 充电能力。
+
+自适应退避（B）真机实测（2026-11-13）：
+
+```
+两次拔插（10s 内）：
+  bq257xx: unstable input, backoff to 2500 mA
+  IIN_HOST = 0x3100 (2.5A), AC_STAT=0x8400 稳定, Charging
+
+稳定 60s 后：
+  bq257xx: stable input, step-up to 3000 mA
+  IIN_HOST = 0x3b00 (3A), AC_STAT=0x8400 稳定, Charging
+```
+
+（早期日志里的 500mA/1000mA 两条来自初始化顺序 bug 的旧模块，修复后不再出现。）
 
 ## 5. 上机复测方法
 
@@ -90,6 +111,6 @@ cat /sys/class/power_supply/bq257xx-charger/status   # Charging
 
 ## 6. 后续可选
 
-- 若遇到真正供电能力不足的适配器（3A 下反复掉 AC），再加**自适应退避**
-  （3A→2A→1.5A，稳定后恢复），而不是默认降额。
 - VINDPM（reg 0x0A）目前仍未配置，可作为下一层输入电压保护。
+- 自适应退避的档位/窗口/稳定时间如在实际适配器上不合适，可再调参
+  （`BQ257XX_IINDPM_STEP_UA`、`AC_WINDOW_MS`、`AC_STABLE_MS`）。

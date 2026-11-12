@@ -1,6 +1,6 @@
 --- a/drivers/power/supply/bq257xx_charger.c
 +++ b/drivers/power/supply/bq257xx_charger.c
-@@ -12,10 +12,19 @@
+@@ -12,10 +12,32 @@
  #include <linux/power_supply.h>
  #include <linux/property.h>
  #include <linux/regmap.h>
@@ -17,20 +17,38 @@
 + */
 +#define BQ257XX_AC_DEBOUNCE_MS	300
 +
++/*
++ * Z96A adaptive input-current backoff. Start at the DT maximum; only step
++ * down when the adapter keeps dropping AC_STAT in a short window, and step
++ * back up after the input has been stable for a while. A good adapter then
++ * always runs at full rate, while a marginal one settles at what it can
++ * actually supply.
++ */
++#define BQ257XX_IINDPM_STEP_UA	500000
++#define BQ257XX_IINDPM_FLOOR_UA	1000000
++#define BQ257XX_AC_WINDOW_MS	15000
++#define BQ257XX_AC_EDGE_LIMIT	3
++#define BQ257XX_AC_STABLE_MS	60000
++
  /**
   * struct bq257xx_chip_info - chip specific routines
   * @default_iindpm_uA: default input current limit in microamps
-@@ -87,6 +96,9 @@
+@@ -87,6 +109,14 @@
  	u32 ichg_max;
  	u32 vsys_min;
  	bool last_online;
 +	int last_iindpm;
 +	int last_vbat;
 +	struct delayed_work ac_work;
++	struct delayed_work rise_work;
++	u32 iindpm_cur;
++	unsigned int ac_edges;
++	unsigned long ac_win_start;
++	unsigned long ac_last_edge;
  	const char *manufacturer;
  };
  
-@@ -474,8 +486,13 @@
+@@ -474,8 +504,13 @@
  	struct bq257xx_chg *pdata = power_supply_get_drvdata(psy);
  
  	switch (prop) {
@@ -46,16 +64,30 @@
  
  	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE_MAX:
  		return pdata->chip->bq257xx_set_vbatreg(pdata, val->intval);
-@@ -596,36 +613,39 @@
+@@ -596,36 +631,73 @@
   * input current; a plain DC adapter has no supplier and keeps the default
   * input current limit.
   */
 -static void bq257xx_external_power_changed(struct power_supply *psy)
++static void bq257xx_note_edge(struct bq257xx_chg *pdata)
++{
++	unsigned long now = jiffies;
++
++	if (time_after(now,
++		       pdata->ac_win_start + msecs_to_jiffies(BQ257XX_AC_WINDOW_MS))) {
++		pdata->ac_edges = 0;
++		pdata->ac_win_start = now;
++	}
++
++	pdata->ac_edges++;
++	pdata->ac_last_edge = now;
++}
++
 +static void bq257xx_program_limits(struct bq257xx_chg *pdata)
  {
 -	struct bq257xx_chg *pdata = power_supply_get_drvdata(psy);
  	union power_supply_propval val;
-+	u32 imax = pdata->iindpm_max;
++	u32 imax = pdata->iindpm_cur;
  	int ret;
 -	int imax = pdata->iindpm_max;
  
@@ -70,17 +102,36 @@
 -	 */
 -	if (pdata->online == pdata->last_online)
 +	if (!pdata->online) {
++		if (pdata->last_online)
++			bq257xx_note_edge(pdata);
 +		pdata->last_online = false;
 +		pdata->last_iindpm = -1;
 +		pdata->last_vbat = -1;
++		cancel_delayed_work(&pdata->rise_work);
  		goto notify;
 +	}
  
 -	pdata->last_online = pdata->online;
--
--	if (!pdata->online)
 +	if (!pdata->last_online) {
 +		pdata->last_online = true;
++		bq257xx_note_edge(pdata);
++		cancel_delayed_work(&pdata->rise_work);
++
++		/*
++		 * If the adapter keeps dropping AC_STAT, step the input limit
++		 * down. Do it once per observation window so a single noisy
++		 * insertion does not immediately collapse to the floor.
++		 */
++		if (pdata->ac_edges >= BQ257XX_AC_EDGE_LIMIT) {
++			pdata->iindpm_cur = max_t(u32, BQ257XX_IINDPM_FLOOR_UA,
++				pdata->iindpm_cur - BQ257XX_IINDPM_STEP_UA);
++			pr_info("bq257xx: unstable input, backoff to %u mA\n",
++				pdata->iindpm_cur / 1000);
++			pdata->ac_edges = 0;
++			pdata->ac_win_start = jiffies;
++		}
+ 
+-	if (!pdata->online)
 +		/*
 +		 * Input edge: ask the chip for one fresh VBUS/VINDPM detection.
 +		 * RESET_VINDPM also reloads the input-current register to its
@@ -104,7 +155,7 @@
  						POWER_SUPPLY_PROP_USB_TYPE,
  						&val);
  		if (!ret) {
-@@ -634,21 +654,67 @@
+@@ -634,21 +706,110 @@
  			if ((pdata->usb_type == POWER_SUPPLY_USB_TYPE_PD) ||
  			    (pdata->usb_type == POWER_SUPPLY_USB_TYPE_PD_DRP) ||
  			    (pdata->usb_type == POWER_SUPPLY_USB_TYPE_PD_PPS)) {
@@ -143,10 +194,52 @@
 +		if (!ret)
 +			pdata->last_vbat = pdata->vbat_max;
 +	}
++
++	if (pdata->iindpm_cur < pdata->iindpm_max &&
++	    !delayed_work_pending(&pdata->rise_work)) {
++		unsigned long next = pdata->ac_last_edge +
++			msecs_to_jiffies(BQ257XX_AC_STABLE_MS);
++
++		if (time_after(next, jiffies))
++			schedule_delayed_work(&pdata->rise_work,
++					      next - jiffies);
++		else
++			schedule_delayed_work(&pdata->rise_work, 0);
++	}
  
  notify:
 -	power_supply_changed(psy);
 +	power_supply_changed(pdata->charger);
++}
++
++static void bq257xx_rise_work(struct work_struct *work)
++{
++	struct bq257xx_chg *pdata = container_of(work, struct bq257xx_chg,
++						 rise_work.work);
++	unsigned long stable_at;
++
++	if (!pdata->online)
++		return;
++
++	stable_at = pdata->ac_last_edge +
++		    msecs_to_jiffies(BQ257XX_AC_STABLE_MS);
++	if (time_after(stable_at, jiffies)) {
++		schedule_delayed_work(&pdata->rise_work,
++				      stable_at - jiffies);
++		return;
++	}
++
++	if (pdata->iindpm_cur < pdata->iindpm_max) {
++		pdata->iindpm_cur = min_t(u32, pdata->iindpm_max,
++					  pdata->iindpm_cur +
++					  BQ257XX_IINDPM_STEP_UA);
++		/* New stability epoch: next step-up waits another full window. */
++		pdata->ac_last_edge = jiffies;
++		pdata->last_iindpm = -1;
++		pr_info("bq257xx: stable input, step-up to %u mA\n",
++			pdata->iindpm_cur / 1000);
++		bq257xx_program_limits(pdata);
++	}
 +}
 +
 +static void bq257xx_ac_work(struct work_struct *work)
@@ -161,6 +254,7 @@
 +{
 +	struct bq257xx_chg *pdata = data;
 +
++	cancel_delayed_work_sync(&pdata->rise_work);
 +	cancel_delayed_work_sync(&pdata->ac_work);
 +}
 +
@@ -178,18 +272,31 @@
  }
  
  static irqreturn_t bq257xx_irq_handler_thread(int irq, void *private)
-@@ -768,6 +834,10 @@
+@@ -768,6 +929,13 @@
  
  	platform_set_drvdata(pdev, pdata);
  
 +	pdata->last_iindpm = -1;
 +	pdata->last_vbat = -1;
++	pdata->ac_win_start = jiffies;
++	pdata->ac_last_edge = jiffies - msecs_to_jiffies(BQ257XX_AC_STABLE_MS);
 +	INIT_DELAYED_WORK(&pdata->ac_work, bq257xx_ac_work);
++	INIT_DELAYED_WORK(&pdata->rise_work, bq257xx_rise_work);
 +
  	psy_cfg.drv_data = pdata;
  	psy_cfg.fwnode = dev_fwnode(dev);
  	psy_cfg.supplied_to = bq257xx_supplied_to;
-@@ -804,7 +874,13 @@
+@@ -784,6 +952,9 @@
+ 	if (ret)
+ 		return ret;
+ 
++	/* Start at the DT maximum; only an unstable input steps it down. */
++	pdata->iindpm_cur = pdata->iindpm_max;
++
+ 	ret = pdata->chip->bq257xx_hw_init(pdata);
+ 	if (ret)
+ 		return dev_err_probe(dev, ret, "Cannot initialize the charger\n");
+@@ -804,7 +975,13 @@
  			dev_err_probe(dev, ret, "Charger get irq failed\n");
  	}
  
