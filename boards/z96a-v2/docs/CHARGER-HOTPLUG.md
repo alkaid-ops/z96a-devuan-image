@@ -65,6 +65,20 @@ status = Charging, online=1, current_now=960000
 
 注意：`CONFIG_CHARGER_BQ257XX=m`，镜像构建会重编该模块；本次验证是替换
 `/lib/modules/7.2.12/.../bq257xx_charger.ko` 后热加载。
+重复热插拔实测（第二次，最终 A 版本）：插入后 `0s / +2s / +10s / +30s` 四次采样：
+
+```
+AC_STAT (0x20) = 0x8400   全程稳定
+IIN_HOST(0x0e) = 0x3b00   稳定为 DT 的 3.0A（印证 RESET_VINDPM 默认值 0x4100
+                          已被 200ms 后的第二阶段覆盖）
+ichg    (0x02) = 0x03c0   960mA
+status = Charging, online=1, current_now=960000
+IRQ 计数 = 5（只有插拔边沿，无中断风暴）
+dmesg 无新的 recovery/超时记录
+```
+
+因此最终结论：**根因是 AC 边沿事件处理风暴，不是 3A 限流拉塌**；
+去抖 + 两阶段 + 去重写即可稳定，同时保留正常 3A 充电能力。
 
 ## 5. 上机复测方法
 
