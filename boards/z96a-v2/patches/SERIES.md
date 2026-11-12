@@ -38,6 +38,7 @@
 | `0020-z96a-rk817-coulomb-gauge.patch` | RK817 PMIC 库仑计（`rk817-battery`），对齐原厂 `rk817,battery` |
 | `0021-z96a-rk809-2s-gauge.patch` | mainline `rk817_charger` 增加 RK809/2S 校准、分压、状态 |
 | `0022-z96a-battery-5000mah-divider.patch` | 电池 5000mAh/8.4V + `bat-res-up/down`（140/20） |
+| `0023-z96a-charger-safe-input-current.patch` | 兼容差充电器：非 PD 输入限流保守化 + AC 边沿去抖/去重写 |
 
 `.old` 后缀和 `remote-head/` 是 rebase 过程的中间产物，稳定后清理（见 `docs/TODO.md`）。
 

@@ -1,0 +1,175 @@
+diff --git a/drivers/power/supply/bq257xx_charger.c b/drivers/power/supply/bq257xx_charger.c
+index c84a9fa..cd7a461 100644
+--- a/drivers/power/supply/bq257xx_charger.c
++++ b/drivers/power/supply/bq257xx_charger.c
+@@ -12,10 +12,20 @@
+ #include <linux/power_supply.h>
+ #include <linux/property.h>
+ #include <linux/regmap.h>
++#include <linux/workqueue.h>
+ 
+ /* Forward declaration of driver data. */
+ struct bq257xx_chg;
+ 
++/*
++ * Z96A: a conservative input current limit for non-PD sources. U-Boot
++ * programs 0x1e00 (1.55 A) on the same BQ25703-compatible charger; weak
++ * "compatibility poor" adapters collapse below the 3 A DT maximum, making
++ * AC_STAT oscillate and finally latch off.
++ */
++#define BQ257XX_SAFE_IINDPM_UA	1550000
++#define BQ257XX_AC_DEBOUNCE_MS	300
++
+ /**
+  * struct bq257xx_chip_info - chip specific routines
+  * @default_iindpm_uA: default input current limit in microamps
+@@ -424,7 +434,8 @@ static int bq25703_hw_init(struct bq257xx_chg *pdata)
+ 	if (ret)
+ 		return ret;
+ 
+-	ret = pdata->chip->bq257xx_set_iindpm(pdata, pdata->iindpm_max);
++	ret = pdata->chip->bq257xx_set_iindpm(pdata,
++			min_t(u32, pdata->iindpm_max, BQ257XX_SAFE_IINDPM_UA));
+ 	if (ret)
+ 		return ret;
+ 
+@@ -474,8 +485,13 @@ static int bq257xx_set_charger_property(struct power_supply *psy,
+ 	struct bq257xx_chg *pdata = power_supply_get_drvdata(psy);
+ 
+ 	switch (prop) {
+-	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
+-		return pdata->chip->bq257xx_set_iindpm(pdata, val->intval);
++	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT: {
++		int ret = pdata->chip->bq257xx_set_iindpm(pdata, val->intval);
++
++		if (!ret)
++			pdata->last_iindpm = val->intval;
++		return ret;
++	}
+ 
+ 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE_MAX:
+ 		return pdata->chip->bq257xx_set_vbatreg(pdata, val->intval);
+@@ -596,12 +612,11 @@ static int bq257xx_property_is_writeable(struct power_supply *psy,
+  * input current; a plain DC adapter has no supplier and keeps the default
+  * input current limit.
+  */
+-static void bq257xx_external_power_changed(struct power_supply *psy)
++static void bq257xx_program_limits(struct bq257xx_chg *pdata)
+ {
+-	struct bq257xx_chg *pdata = power_supply_get_drvdata(psy);
+ 	union power_supply_propval val;
++	u32 imax = min_t(u32, pdata->iindpm_max, BQ257XX_SAFE_IINDPM_UA);
+ 	int ret;
+-	int imax = pdata->iindpm_max;
+ 
+ 	pdata->chip->bq257xx_get_state(pdata);
+ 
+@@ -625,7 +640,7 @@ static void bq257xx_external_power_changed(struct power_supply *psy)
+ 
+ 	pdata->supplied = power_supply_am_i_supplied(pdata->charger);
+ 	if (pdata->supplied > 0) {
+-		ret = power_supply_get_property_from_supplier(psy,
++		ret = power_supply_get_property_from_supplier(pdata->charger,
+ 						POWER_SUPPLY_PROP_USB_TYPE,
+ 						&val);
+ 		if (!ret) {
+@@ -634,21 +649,67 @@ static void bq257xx_external_power_changed(struct power_supply *psy)
+ 			if ((pdata->usb_type == POWER_SUPPLY_USB_TYPE_PD) ||
+ 			    (pdata->usb_type == POWER_SUPPLY_USB_TYPE_PD_DRP) ||
+ 			    (pdata->usb_type == POWER_SUPPLY_USB_TYPE_PD_PPS)) {
+-				ret = power_supply_get_property_from_supplier(psy,
++				ret = power_supply_get_property_from_supplier(
++						pdata->charger,
+ 						POWER_SUPPLY_PROP_CURRENT_MAX,
+ 						&val);
+-				if (!ret && val.intval)
+-					imax = val.intval;
++				if (!ret && val.intval > 0)
++					imax = clamp_t(u32, val.intval,
++						BQ25703_IINDPM_MIN_UA,
++						pdata->iindpm_max);
+ 			}
+ 		}
+ 	}
+ 
++	/*
++	 * The chip clears its charge-current register when the input is
++	 * removed, so always rewrite it on a (debounced) insertion. The input
++	 * current limit only changes when it really changes: this stops the
++	 * AC-edge interrupt storm from rewriting 3 A on every toggle.
++	 */
+ 	pdata->chip->bq257xx_set_ichg(pdata, pdata->ichg_max);
+-	pdata->chip->bq257xx_set_iindpm(pdata, imax);
+-	pdata->chip->bq257xx_set_vbatreg(pdata, pdata->vbat_max);
++
++	if (pdata->last_iindpm != (int)imax) {
++		ret = pdata->chip->bq257xx_set_iindpm(pdata, imax);
++		if (!ret)
++			pdata->last_iindpm = imax;
++	}
++	if (pdata->last_vbat != (int)pdata->vbat_max) {
++		ret = pdata->chip->bq257xx_set_vbatreg(pdata, pdata->vbat_max);
++		if (!ret)
++			pdata->last_vbat = pdata->vbat_max;
++	}
+ 
+ notify:
+-	power_supply_changed(psy);
++	power_supply_changed(pdata->charger);
++}
++
++static void bq257xx_ac_work(struct work_struct *work)
++{
++	struct bq257xx_chg *pdata = container_of(work, struct bq257xx_chg,
++						 ac_work.work);
++
++	bq257xx_program_limits(pdata);
++}
++
++static void bq257xx_ac_cancel(void *data)
++{
++	struct bq257xx_chg *pdata = data;
++
++	cancel_delayed_work_sync(&pdata->ac_work);
++}
++
++static void bq257xx_external_power_changed(struct power_supply *psy)
++{
++	struct bq257xx_chg *pdata = power_supply_get_drvdata(psy);
++
++	/*
++	 * Debounce. The charger INT also fires for charge-status changes, and
++	 * a collapsing input makes AC_STAT bounce; programming the hardware on
++	 * every edge is exactly what turns a weak adapter into a latch-off.
++	 */
++	schedule_delayed_work(&pdata->ac_work,
++			      msecs_to_jiffies(BQ257XX_AC_DEBOUNCE_MS));
+ }
+ 
+ static irqreturn_t bq257xx_irq_handler_thread(int irq, void *private)
+@@ -768,6 +829,10 @@ static int bq257xx_charger_probe(struct platform_device *pdev)
+ 
+ 	platform_set_drvdata(pdev, pdata);
+ 
++	pdata->last_iindpm = -1;
++	pdata->last_vbat = -1;
++	INIT_DELAYED_WORK(&pdata->ac_work, bq257xx_ac_work);
++
+ 	psy_cfg.drv_data = pdata;
+ 	psy_cfg.fwnode = dev_fwnode(dev);
+ 	psy_cfg.supplied_to = bq257xx_supplied_to;
+@@ -804,7 +869,13 @@ static int bq257xx_charger_probe(struct platform_device *pdev)
+ 			dev_err_probe(dev, ret, "Charger get irq failed\n");
+ 	}
+ 
+-	return ret;
++	ret = devm_add_action_or_reset(dev, bq257xx_ac_cancel, pdata);
++	if (ret)
++		return ret;
++
++	schedule_delayed_work(&pdata->ac_work,
++			      msecs_to_jiffies(BQ257XX_AC_DEBOUNCE_MS));
++	return 0;
+ }
+ 
+ static void bq257xx_charger_shutdown(struct platform_device *pdev)
