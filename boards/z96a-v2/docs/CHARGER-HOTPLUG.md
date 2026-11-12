@@ -1,7 +1,7 @@
 # Z96A 充电器热插拔兼容性（B 场景）— 分析与修复（0023）
 
 日期：2026-11-13
-状态：**补丁 + 编译验证完成；未刷机、未上机验证**
+状态：**补丁 + 编译验证 + 上机热插拔验证通过**（模块热加载，无需重启）
 适用：`southchip,sc8886s` / BQ25703 兼容充电器（`bq257xx-charger` 驱动）
 
 ## 1. 现象（B 场景）
@@ -73,9 +73,24 @@ U-Boot 稳定的关键不是“握手协议”，而是 **1.55A 输入限流 + �
 
 ## 4. 验证状态
 
-- 全序列 `0001..0023` 顺序应用：**零 reject**
-- 内核 `Image` 编译：**0 error / 0 warning**（临时应用 0012+0023 后编译，随后已还原源码）
-- **尚未上机**：需要实测“开机后插/重插兼容性差充电器”是否不再出现 AC 1/0 振荡
+- 全序列 `0001..0024` 顺序应用：**零 reject**
+- 驱动模块 `bq257xx_charger.ko`：编译 **0 error / 0 warning**，vermagic `7.2.12`
+- **上机验证通过**（2026-11-13）：替换模块后 `modprobe -r bq257xx_charger`
+  → `modprobe bq257xx_charger` 热加载，无需重启
+
+实测（兼容性差的充电器，插入后 0s / +9s / +60s 三次采样）：
+
+```
+AC_STAT (0x20) = 0x8400   稳定，不再 1/0 来回跳
+IIN_HOST(0x0e) = 0x1e00   1.55A（修复前 0x3b00 = 3A）
+ichg    (0x02) = 0x03c0   960mA
+status = Charging, online=1, current_now=960000
+充电器 INT 计数 = 1（仅一次插入边沿，无中断风暴）
+dmesg 无新的 "charger input recovery timed out"
+```
+
+注意：`CONFIG_CHARGER_BQ257XX=m`，所以镜像构建会重编该模块；本次验证是替换
+`/lib/modules/7.2.12/.../bq257xx_charger.ko` 后热加载。
 
 ## 5. 上机验证方法
 
