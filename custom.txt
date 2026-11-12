@@ -18,6 +18,17 @@ IMG_COMPRESSION="xz"
 user_function (){
 	if [[ "$BOARD" != "z96a-v2" ]]; then return 0; fi
 
+	# --- Z96A initramfs Plymouth assets (staged into /root by stage1) ---
+	SRC=/root/z96a-chroot-files
+	if [ -d "$SRC" ]; then
+		install -m 0755 "$SRC/initramfs/hook" /etc/initramfs-tools/hooks/z96a-plymouth
+		cp "$SRC/initramfs/modules" /etc/initramfs-tools/modules
+		cp "$SRC/initramfs/initramfs.conf" /etc/initramfs-tools/initramfs.conf
+		mkdir -p /usr/share/plymouth/themes
+		cp -a "$SRC/theme/alkaid" /usr/share/plymouth/themes/
+		rm -rf "$SRC"
+	fi
+
 	# --- Z96A boot/display: LOGO -> Plymouth animation -> desktop ---
 	# The DRM stack is loaded by slim (the bootloader logo stays on screen).
 	# Plymouth plays the Alkaid animation; we also repaint the last known
@@ -50,10 +61,14 @@ Z96A_HELPER
         sleep 0.1
       done
       paint_fb /usr/share/plymouth/themes/alkaid/logo-bgra.bin.gz
-      if [ -e "$CARD" ] && [ -x /usr/sbin/plymouthd ] && [ -x /usr/bin/plymouth ]; then
-        /usr/sbin/plymouthd --mode=boot --pid-file=/run/z96a-plymouth.pid 2>/dev/null || true
-        sleep 0.2
-        /usr/bin/plymouth --show-splash 2>/dev/null || true
+      if [ -e "$CARD" ] && [ -x /usr/bin/plymouth ]; then
+        if ! /usr/bin/plymouth --ping 2>/dev/null; then
+          if [ -x /usr/sbin/plymouthd ]; then
+            /usr/sbin/plymouthd --mode=boot --pid-file=/run/z96a-plymouth.pid 2>/dev/null || true
+            sleep 0.2
+            /usr/bin/plymouth --show-splash 2>/dev/null || true
+          fi
+        fi
         [ "$ANIM_SECS" -gt 0 ] && sleep "$ANIM_SECS"
         /usr/bin/plymouth quit 2>/dev/null || true
         paint_fb /usr/share/plymouth/themes/alkaid/last-bgra.bin.gz

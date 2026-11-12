@@ -397,13 +397,14 @@ echo -en "$BOARD: "; echo -e "extlinux.conf"
 if [[ "$P_VALUE" == "p1" ]]; then BOOT_PATH="p1/boot"; else BOOT_PATH="p1"; fi
 FDT="../${FAMILY}/${DTB}.dtb"
 FDTDIR="../${FAMILY}"
-CMDLINE="append earlyprintk ${CONSOLE} rw root=PARTUUID=${ROOT_PARTUUID} rootwait ${ROOT_FSTYPE} fsck.repair=yes ${LOGLEVEL} ${EXTRA} init=/sbin/init"
+SPLASH_ARG=""
+if [[ "$BOARD" == "z96a-v2" ]]; then SPLASH_ARG="splash"; fi
+CMDLINE="append earlyprintk ${CONSOLE} rw root=PARTUUID=${ROOT_PARTUUID} rootwait ${ROOT_FSTYPE} fsck.repair=yes ${LOGLEVEL} ${EXTRA} ${SPLASH_ARG} init=/sbin/init"
 CHECK=`echo "$INSTALLED_KERNEL" | sed -e 's/^\(.\{4\}\).*/\1/' | sed 's/-//g'`
 # z96a-v2 boots without an initramfs: usb-storage/scsi/block/ext4 are built in
 # and the kernel resolves root=PARTUUID itself.  This keeps the boot logo on
 # screen and removes the initrd decompress + udev coldplug stage.
 INITRD_LINE="	initrd ../${BOOT_INITRD}"
-if [[ "$BOARD" == "z96a-v2" ]]; then INITRD_LINE="	#initrd ../${BOOT_INITRD}"; fi
 mkdir -p ${BOOT_PATH}/extlinux
 if [[ -f "${BOOT_PATH}/extlinux/extlinux.conf" ]]; then rm -f ${BOOT_PATH}/extlinux/extlinux.conf; fi
 tee ${BOOT_PATH}/extlinux/extlinux.conf <<EOF
@@ -423,7 +424,7 @@ EOF
 # Keep the Plymouth logo asset as the single source; it is the same BGRA
 # framebuffer image, gzipped.
 if [[ "$BOARD" == "z96a-v2" ]]; then
-	LOGO_SRC="files/rootfs-overlay/${BOARD}/usr/share/plymouth/themes/alkaid/logo-bgra.bin.gz"
+	LOGO_SRC="boards/${BOARD}/chroot-files/theme/alkaid/logo-bgra.bin.gz"
 	if [[ -f "$LOGO_SRC" ]]; then
 		cp -f "$LOGO_SRC" "${BOOT_PATH}/z96a-logo.bin.gz"
 	else

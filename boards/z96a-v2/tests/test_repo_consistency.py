@@ -814,7 +814,7 @@ class BootLogoAssetTests(unittest.TestCase):
         self.assertIn('"$BOARD" == "z96a-v2"', text)
 
     def test_logo_source_exists(self):
-        src = ROOT / "files/rootfs-overlay" / BOARD / "usr/share/plymouth/themes/alkaid/logo-bgra.bin.gz"
+        src = ROOT / "boards" / BOARD / "chroot-files/theme/alkaid/logo-bgra.bin.gz"
         self.assertTrue(src.is_file(), f"missing logo source {src}")
 
     def test_logo_requirement_is_documented(self):

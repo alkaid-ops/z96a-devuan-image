@@ -100,6 +100,12 @@ setup
 files
 # user scripts stage1
 if [ $USCRIPTS -eq 1 ]; then uscripts_stage1; fi
+# board files that must exist inside the chroot before stage2 runs (e.g.
+# initramfs Plymouth assets, which have to be in place when the kernel
+# package regenerates the initrd)
+if [[ -d "boards/${BOARD}/chroot-files" ]]; then
+	cp -a "boards/${BOARD}/chroot-files" "${P_VALUE}/root/z96a-chroot-files"
+fi
 phase_end
 echo ""
 # Chroot result cache (phase 3): skip the expensive apt/userscript setup when

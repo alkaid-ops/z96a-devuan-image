@@ -1,4 +1,4 @@
 # Z96A boot animation window in seconds before the display manager starts.
 # The Alkaid intro is 6.1 s at 9.9 fps; 7 s lets it finish and hold the last
 # frame until X modesets.
-Z96A_ANIM_SECONDS=7
+Z96A_ANIM_SECONDS=2

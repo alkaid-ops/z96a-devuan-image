@@ -1,0 +1,12 @@
+panel-edp
+analogix_dp
+rockchipdrm
+usb-storage
+sd_mod
+scsi_mod
+xhci-hcd
+ext4
+jbd2
+crc32c
+pwm_bl
+rtc_rk808

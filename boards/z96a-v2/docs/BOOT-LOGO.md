@@ -98,53 +98,76 @@ vccio3（SD 卡槽 IO），固定 1.8V 对 3.3V SD 卡有影响，需按实际�
 - `EVIOCSKEYCODE ... Invalid argument`：USB 键盘不支持运行期键码重映射。
 - `simple-amplifier: supply VCC not found, using dummy regulator`：功放供电用 dummy 兜底。
 
-## 3. 开机动画（Plymouth Alkaid）
+## 3. 开机动画（Plymouth Alkaid，initramfs 早期启动）
 
-在 LOGO 交接方案之上，把「内核启动→登录页」这段用 Plymouth 动画覆盖。设计源是
-Alkaid OS 的 SMIL SVG（`boards/z96a-v2/assets/alakid-boot.svg`），**设备端不安装任何 SVG/Chromium 运行时**。
+设计源是 Alkaid OS 的 SMIL SVG（`boards/z96a-v2/assets/alakid-boot.svg`）。
+设备端不安装任何 SVG/Chromium 运行时：开发机把 SVG 预渲染成 PNG 帧，设备只读帧序列。
 
-### 3.1 管线
+### 3.1 帧序列与主题
 
 ```
-SVG(SMIL) --Chromium(setCurrentTime)--> 61 张 1080p PNG（0–6s @10fps）
-          --索引色量化(256色)--> 13MB 帧序列
+SVG(SMIL) --Chromium(setCurrentTime)--> 120 张 1080p PNG
+          --256 色索引量化--> 26MB 帧序列
           --Plymouth script 主题(懒加载)--> DRM 全屏动画
 ```
 
-- 主题：`files/rootfs-overlay/z96a-v2/usr/share/plymouth/themes/alkaid/`
-  - `alkaid.plymouth` 必须包含 `[script]` 组（`ImageDir`/`ScriptFile`），否则
-    脚本路径为 NULL，`plymouthd` 启动时崩溃
-  - `alkaid.script`：只预加载第 0 帧，其余在 refresh 回调里逐帧解码；
-    变量必须写 `global.idx` / `global.finished`（函数内直接赋值是局部变量，
-    否则每帧重置、动画停在第一帧）
-  - `logo-bgra.bin.gz` / `last-bgra.bin.gz`：给 framebuffer 补画用（见 3.3）
-- `Plymouth.SetRefreshRate(10)`：按 10Hz 推进；索引色帧实测 **9.9 fps**、正片 **6.1s**
+时间结构（`RefreshRate=10`，实测 ~9.9 fps）：
 
-### 3.2 slim 集成（`custom.txt` 构建时打补丁）
+| 帧区间 | 内容 |
+|---|---|
+| `f0000..f0060` | 原正片 0–6.0s（星空/地球/星座/字标） |
+| `f0061..f0119` | SVG 的持续段 6.1–11.9s（地球自转 + 星点闪烁） |
+| 循环回 `f0080` | 8.0–11.9s 无缝循环段（接缝平均差 ~1.8/255） |
+
+主题位于 `boards/z96a-v2/chroot-files/theme/alkaid/`：
+
+- `alkaid.plymouth` 必须包含 `[script]` 组（`ImageDir`/`ScriptFile`），否则脚本路径为
+  NULL，`plymouthd` 启动时崩溃
+- `alkaid.script` 只预加载第 0 帧，其余在 refresh 回调里逐帧解码；变量必须写
+  `global.idx` / `global.finished`（函数内直接赋值是局部变量，否则每帧重置、动画停在第一帧）
+- `logo-bgra.bin.gz` / `last-bgra.bin.gz` 供 slim 往 framebuffer 补画
+
+### 3.2 initramfs 集成（动画在 root 挂载前开始）
+
+`boards/z96a-v2/chroot-files/` 由 `scripts/stage1` 复制到 `${P_VALUE}/root/z96a-chroot-files`，
+`custom.txt` 在 chroot 内把它安装到：
+
+| 文件 | 作用 |
+|---|---|
+| `/etc/initramfs-tools/hooks/z96a-plymouth` | 拷贝 `plymouthd`、插件、DRM renderer、主题、`plymouthd.conf`；并删除 initrd 里的 `blacklist rockchipdrm` |
+| `/etc/initramfs-tools/modules` | `panel-edp`、`analogix_dp`、`rockchipdrm`（DRM 在 initramfs 就 probe） |
+| `/etc/initramfs-tools/initramfs.conf` | `MODULES=list`（USB/ext4/xhci 都是内建，不需要额外模块） |
+| `/usr/share/plymouth/themes/alkaid` | 运行期主题（slim 也用它补画） |
+
+安装时机在 **kernel 包安装之前**，因此 kernel postinst 触发的 `update-initramfs` 会把
+Plymouth 与主题打进 initrd。Plymouth 的 `init-premount/plymouth` 在 root 挂载前启动
+动画；`lib/function/staging` 为 z96a-v2 启用 extlinux `initrd ../uInitrd` 并在 cmdline
+加入 `splash`。
+
+### 3.3 slim 交接
 
 `/etc/init.d/slim` 在启动 X 前：
 
 1. 等 DRM card（`/dev/dri/by-path/platform-display-subsystem-card`）
-2. `paint_fb logo-bgra.bin.gz` —— 把 U-Boot logo 画进 DRM fb（衔接 LOGO→动画）
-3. `plymouthd --mode=boot` + `show-splash`，播放 `Z96A_ANIM_SECONDS`（默认 7s）
-4. `plymouth quit` + `paint_fb last-bgra.bin.gz` —— 动画最后一帧撑到 X modeset
-5. 启动 X
+2. `paint_fb logo-bgra.bin.gz`（无 initrd 时的兜底衔接）
+3. `plymouth --ping`：若 initramfs 已启动则不再启动第二个 `plymouthd`；否则本地启动
+4. 保持 `Z96A_ANIM_SECONDS`（默认 2s）后 `plymouth quit`
+5. `paint_fb last-bgra.bin.gz`，然后启动 X
 
-`/etc/slim.conf` 增加 `-novtswitch vt01`：X 留在当前 VT，不申请 VT 切换，避免
-`plymouth quit --retain-splash` 留下的内核 VT 死锁（现象：X 卡在 `vt_event_wait`、
-`chvt` 超时）。
+`/etc/slim.conf` 使用 `-novtswitch vt01`：X 留在当前 VT，避免 `retain-splash` 造成的
+内核 VT 死锁（X 卡在 `vt_event_wait`、`chvt` 超时）。
 
-### 3.3 关闭 framebuffer console（defconfig）
+### 3.4 无控制台文字
 
-`# CONFIG_FRAMEBUFFER_CONSOLE is not set`。否则 fbcon 会在两处重绘 tty1 启动日志：
-DRM 初始化绑定时、Plymouth 退出后。关闭后启动日志只进 dmesg/串口，屏幕不再出现
-`Starting SMP IRQ Balancer` 之类的文字。
+`defconfig` 关闭 `CONFIG_FRAMEBUFFER_CONSOLE`：fbcon 不再在 DRM 初始化 / Plymouth
+退出时重绘 tty1 的启动日志；日志只进 dmesg/串口。
 
-### 3.4 实测时间线（内核时间）
+### 3.5 实测
 
 ```
-mount ~2.3s → DRM 12.5s → Plymouth 首帧 ~12.5s → 动画 6.1s
-→ 最后一帧 → X 20s → 登录页
+Run /init ~5.5s → DRM 初始化 ~6.1s → Plymouth 动画（initramfs 内开始）
+→ root mount ~7.4s → switch_root → rc → slim → X → 登录页
 ```
 
-用户观感：`LOGO →（极短切换）→ Alkaid 动画 → 登录页`，无启动日志文字。
+用户观感：LOGO 保持到 DRM 接管，随后 Alkaid 动画连续播放（正片 + 持续段 + 无缝循环），
+最后直接进入带同一帧背景的登录页；无控制台文字、无明显黑屏。

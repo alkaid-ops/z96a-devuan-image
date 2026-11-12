@@ -8,13 +8,13 @@ logo.sprite.SetOpacity(1);
 
 Plymouth.SetRefreshRate(10);
 global.idx = 0;
-global.finished = 0;
 
 fun refresh_callback()
   {
-    if (global.finished) return;
     global.idx = global.idx + 1;
-    if (global.idx == 1) { logo.sprite.SetImage(Image("f0001.png")); }
+    if (global.idx >= 120) { global.idx = 80; }
+    if (global.idx == 0) { logo.sprite.SetImage(Image("f0000.png")); }
+    else if (global.idx == 1) { logo.sprite.SetImage(Image("f0001.png")); }
     else if (global.idx == 2) { logo.sprite.SetImage(Image("f0002.png")); }
     else if (global.idx == 3) { logo.sprite.SetImage(Image("f0003.png")); }
     else if (global.idx == 4) { logo.sprite.SetImage(Image("f0004.png")); }
@@ -74,10 +74,65 @@ fun refresh_callback()
     else if (global.idx == 58) { logo.sprite.SetImage(Image("f0058.png")); }
     else if (global.idx == 59) { logo.sprite.SetImage(Image("f0059.png")); }
     else if (global.idx == 60) { logo.sprite.SetImage(Image("f0060.png")); }
-    else
-      {
-        global.finished = 1;
-      }
+    else if (global.idx == 61) { logo.sprite.SetImage(Image("f0061.png")); }
+    else if (global.idx == 62) { logo.sprite.SetImage(Image("f0062.png")); }
+    else if (global.idx == 63) { logo.sprite.SetImage(Image("f0063.png")); }
+    else if (global.idx == 64) { logo.sprite.SetImage(Image("f0064.png")); }
+    else if (global.idx == 65) { logo.sprite.SetImage(Image("f0065.png")); }
+    else if (global.idx == 66) { logo.sprite.SetImage(Image("f0066.png")); }
+    else if (global.idx == 67) { logo.sprite.SetImage(Image("f0067.png")); }
+    else if (global.idx == 68) { logo.sprite.SetImage(Image("f0068.png")); }
+    else if (global.idx == 69) { logo.sprite.SetImage(Image("f0069.png")); }
+    else if (global.idx == 70) { logo.sprite.SetImage(Image("f0070.png")); }
+    else if (global.idx == 71) { logo.sprite.SetImage(Image("f0071.png")); }
+    else if (global.idx == 72) { logo.sprite.SetImage(Image("f0072.png")); }
+    else if (global.idx == 73) { logo.sprite.SetImage(Image("f0073.png")); }
+    else if (global.idx == 74) { logo.sprite.SetImage(Image("f0074.png")); }
+    else if (global.idx == 75) { logo.sprite.SetImage(Image("f0075.png")); }
+    else if (global.idx == 76) { logo.sprite.SetImage(Image("f0076.png")); }
+    else if (global.idx == 77) { logo.sprite.SetImage(Image("f0077.png")); }
+    else if (global.idx == 78) { logo.sprite.SetImage(Image("f0078.png")); }
+    else if (global.idx == 79) { logo.sprite.SetImage(Image("f0079.png")); }
+    else if (global.idx == 80) { logo.sprite.SetImage(Image("f0080.png")); }
+    else if (global.idx == 81) { logo.sprite.SetImage(Image("f0081.png")); }
+    else if (global.idx == 82) { logo.sprite.SetImage(Image("f0082.png")); }
+    else if (global.idx == 83) { logo.sprite.SetImage(Image("f0083.png")); }
+    else if (global.idx == 84) { logo.sprite.SetImage(Image("f0084.png")); }
+    else if (global.idx == 85) { logo.sprite.SetImage(Image("f0085.png")); }
+    else if (global.idx == 86) { logo.sprite.SetImage(Image("f0086.png")); }
+    else if (global.idx == 87) { logo.sprite.SetImage(Image("f0087.png")); }
+    else if (global.idx == 88) { logo.sprite.SetImage(Image("f0088.png")); }
+    else if (global.idx == 89) { logo.sprite.SetImage(Image("f0089.png")); }
+    else if (global.idx == 90) { logo.sprite.SetImage(Image("f0090.png")); }
+    else if (global.idx == 91) { logo.sprite.SetImage(Image("f0091.png")); }
+    else if (global.idx == 92) { logo.sprite.SetImage(Image("f0092.png")); }
+    else if (global.idx == 93) { logo.sprite.SetImage(Image("f0093.png")); }
+    else if (global.idx == 94) { logo.sprite.SetImage(Image("f0094.png")); }
+    else if (global.idx == 95) { logo.sprite.SetImage(Image("f0095.png")); }
+    else if (global.idx == 96) { logo.sprite.SetImage(Image("f0096.png")); }
+    else if (global.idx == 97) { logo.sprite.SetImage(Image("f0097.png")); }
+    else if (global.idx == 98) { logo.sprite.SetImage(Image("f0098.png")); }
+    else if (global.idx == 99) { logo.sprite.SetImage(Image("f0099.png")); }
+    else if (global.idx == 100) { logo.sprite.SetImage(Image("f0100.png")); }
+    else if (global.idx == 101) { logo.sprite.SetImage(Image("f0101.png")); }
+    else if (global.idx == 102) { logo.sprite.SetImage(Image("f0102.png")); }
+    else if (global.idx == 103) { logo.sprite.SetImage(Image("f0103.png")); }
+    else if (global.idx == 104) { logo.sprite.SetImage(Image("f0104.png")); }
+    else if (global.idx == 105) { logo.sprite.SetImage(Image("f0105.png")); }
+    else if (global.idx == 106) { logo.sprite.SetImage(Image("f0106.png")); }
+    else if (global.idx == 107) { logo.sprite.SetImage(Image("f0107.png")); }
+    else if (global.idx == 108) { logo.sprite.SetImage(Image("f0108.png")); }
+    else if (global.idx == 109) { logo.sprite.SetImage(Image("f0109.png")); }
+    else if (global.idx == 110) { logo.sprite.SetImage(Image("f0110.png")); }
+    else if (global.idx == 111) { logo.sprite.SetImage(Image("f0111.png")); }
+    else if (global.idx == 112) { logo.sprite.SetImage(Image("f0112.png")); }
+    else if (global.idx == 113) { logo.sprite.SetImage(Image("f0113.png")); }
+    else if (global.idx == 114) { logo.sprite.SetImage(Image("f0114.png")); }
+    else if (global.idx == 115) { logo.sprite.SetImage(Image("f0115.png")); }
+    else if (global.idx == 116) { logo.sprite.SetImage(Image("f0116.png")); }
+    else if (global.idx == 117) { logo.sprite.SetImage(Image("f0117.png")); }
+    else if (global.idx == 118) { logo.sprite.SetImage(Image("f0118.png")); }
+    else if (global.idx == 119) { logo.sprite.SetImage(Image("f0119.png")); }
   }
 
 Plymouth.SetRefreshFunction(refresh_callback);
