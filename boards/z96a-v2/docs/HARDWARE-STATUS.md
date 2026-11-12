@@ -24,6 +24,7 @@
 | 电池 SHT 3585130-2S | `bq257xx-fgu`；`battery-thermal` 温度 | ✅ |
 | 霍尔开关 MH248 | `gpio-keys-hall`，`event0` | ✅ |
 | 音频 ADC 3×ES7202 | i2c `0x30/31/32` 均绑定 `es7202`；`z96a_mic` 原生 6ch | ✅（见下） |
+| 音频 codec RK809 | `rk817-codec` + `rk809-sound`；差分 MIC（codec reg `0x27=0xf0`） | ✅ |
 | 音频功放 AW8737AFCR | `simple-amplifier`，播放时 GPIO3_A6 使能 | ✅ |
 | DC-DC TCS4525 | `fan53555`，`vdd_cpu 1150mV` | ✅ |
 | 扬声器/分立 MOS/保护板 | 无 Linux 驱动或按用户要求不处理 | N/A |

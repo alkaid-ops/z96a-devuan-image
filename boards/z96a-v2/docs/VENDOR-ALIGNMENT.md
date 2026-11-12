@@ -291,4 +291,26 @@ low-temp 调整
 2. 删除 HS400 补丁——修复 eMMC 写入可靠性。
 3. WiFi SDR104——性能对齐，测试后启用。
 4. 充电器/PD——安全相关，单独评审。
-5. NPU/OPP/SPI/背光/eDP/音频——按需求逐步处理。
+5. NPU/OPP/SPI/背光/eDP——按需求逐步处理；音频已完成 mic-in-differential 对齐。
+
+## 11. 音频对齐（2026-11-12）
+
+### 已对齐 / 已验证
+
+- 原厂与 mainline 的 I2S1 引脚、格式、MCLK 比例一致；`rk809-sound` 使用 `i2s1_8ch` + RK809 codec。
+- 耳机检测：原厂 `rk-headset`（GPIO3_C2）与 mainline `simple-audio-card,hp-det-gpios` 使用同一 GPIO，pinctrl 均为 `pull-none`。
+- 功放：原厂 `spk-ctl-gpios`（GPIO3_A6，active-high，pull-up）与 mainline `spk_amp`（`simple-audio-amplifier`）使用同一 GPIO/pinctrl；实测播放时 GPIO 拉高。
+- 原厂 RK809 codec 节点带 `rockchip,mic-in-differential`；mainline 已补上同样的 codec 子节点。实测 PMIC regmap `0x27 = 0xf0`（bit7 已置位）。
+- 实测：`rk817_ext` 播放 OK；ES7202 6ch 采集 OK；RK809 模拟 MIC 2ch 采集可打开；耳机 jack 输入设备存在；扬声器功放 GPIO 正常。
+
+### 有意保留的差异
+
+- **PDM / ES7202**：原厂只声明 2 个 codec（0x30/0x32）、3 个 PDM 引脚、`path-map = <1 3 0 2>`；mainline 使用 3 个 codec（0x30/0x31/0x32）、`pdmm0_sdi1/2/3`、`path-map = <1 2 3 0>`，并配合补丁 0011 提供原生 6ch。实测 6ch 全部有数据（ch0/1 MIC、ch2/3 AEC、ch4/5 headset/loopback），这是有意的功能增强，不回退到原厂 2ch 配置。
+- **RK809 功放/音量属性**：原厂 `use-ext-amplifier`、`spk-use-aw8737s`、`spk-ctl-gpios`、`hp-volume`、`spk-volume` 是 Rockchip 厂商 codec 驱动私有属性；mainline `rk817-codec` 不解析这些，改由 `simple-audio-amplifier` + `simple-audio-card` routing 实现同等功能，不能原样照搬。
+- **SPDIF / bt-sound**：原厂使能 `spdif-sound` 和 `bt-sound`（i2s2 + bt-sco）；mainline 未启用 SPDIF，蓝牙音频走 BlueZ/HCI SCO。当前板子的扬声器/耳机/HDMI 不依赖 SPDIF，未贸然启用。
+- **HDMI mclk-fs**：原厂 vendor HDMI card 用 128，mainline `simple-audio-card` 基线用 256；未改，需接 HDMI sink 实测后再定。
+- 声卡名称：mainline 为 `rk817_ext` / `es7202-mic`，与原厂不同，仅命名差异。
+
+### 对应补丁
+
+- `0016-z96a-rk809-mic-diff.patch`：给 RK809 PMIC 增加 `codec { rockchip,mic-in-differential; }`。
