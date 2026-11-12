@@ -57,7 +57,7 @@
  
  	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE_MAX:
  		return pdata->chip->bq257xx_set_vbatreg(pdata, val->intval);
-@@ -596,12 +615,11 @@
+@@ -596,36 +615,39 @@
   * input current; a plain DC adapter has no supplier and keeps the default
   * input current limit.
   */
@@ -72,7 +72,41 @@
  
  	pdata->chip->bq257xx_get_state(pdata);
  
-@@ -625,7 +643,7 @@
+-	/*
+-	 * AC_STAT is the authoritative "adapter present" signal, whether the
+-	 * source is a plain DC adapter or a USB-C/PD source. The charger IRQ
+-	 * can fire for unrelated status changes; only act on a real AC edge,
+-	 * otherwise RESET_VINDPM on every interrupt would keep restarting the
+-	 * converter and prevent negotiation.
+-	 */
+-	if (pdata->online == pdata->last_online)
++	if (!pdata->online) {
++		pdata->last_online = false;
++		pdata->last_iindpm = -1;
++		pdata->last_vbat = -1;
+ 		goto notify;
++	}
+ 
+-	pdata->last_online = pdata->online;
+-
+-	if (!pdata->online)
++	if (!pdata->last_online) {
++		pdata->last_online = true;
++		/*
++		 * Input edge: ask the chip for one fresh VBUS/VINDPM detection.
++		 * RESET_VINDPM also reloads the input-current register to its
++		 * power-on default (3.3 A), so the limits must only be written
++		 * after it has settled; run this work once more shortly after.
++		 */
++		bq25703_reset_vindpm(pdata);
++		pdata->last_iindpm = -1;
++		pdata->last_vbat = -1;
++		schedule_delayed_work(&pdata->ac_work, msecs_to_jiffies(200));
+ 		goto notify;
+-
+-	/* Input edge: ask the chip for one fresh VBUS/VINDPM detection. */
+-	bq25703_reset_vindpm(pdata);
++	}
  
  	pdata->supplied = power_supply_am_i_supplied(pdata->charger);
  	if (pdata->supplied > 0) {
@@ -81,7 +115,7 @@
  						POWER_SUPPLY_PROP_USB_TYPE,
  						&val);
  		if (!ret) {
-@@ -634,21 +652,67 @@
+@@ -634,21 +656,67 @@
  			if ((pdata->usb_type == POWER_SUPPLY_USB_TYPE_PD) ||
  			    (pdata->usb_type == POWER_SUPPLY_USB_TYPE_PD_DRP) ||
  			    (pdata->usb_type == POWER_SUPPLY_USB_TYPE_PD_PPS)) {
@@ -155,7 +189,7 @@
  }
  
  static irqreturn_t bq257xx_irq_handler_thread(int irq, void *private)
-@@ -768,6 +832,10 @@
+@@ -768,6 +836,10 @@
  
  	platform_set_drvdata(pdev, pdata);
  
@@ -166,7 +200,7 @@
  	psy_cfg.drv_data = pdata;
  	psy_cfg.fwnode = dev_fwnode(dev);
  	psy_cfg.supplied_to = bq257xx_supplied_to;
-@@ -804,7 +872,13 @@
+@@ -804,7 +876,13 @@
  			dev_err_probe(dev, ret, "Charger get irq failed\n");
  	}
  

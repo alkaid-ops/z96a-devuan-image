@@ -92,6 +92,10 @@ dmesg 无新的 "charger input recovery timed out"
 注意：`CONFIG_CHARGER_BQ257XX=m`，所以镜像构建会重编该模块；本次验证是替换
 `/lib/modules/7.2.12/.../bq257xx_charger.ko` 后热加载。
 
+补充（重复热插拔实测）：`0012` 的 `RESET_VINDPM` 在 AC 边沿会把输入限流寄存器
+重新加载为芯片默认值（读到 `0x4100` = 3.3A）。因此 0023 采用两阶段：边沿先
+`RESET_VINDPM`，延迟 200ms 后再写入限制，最终 `IIN_HOST` 稳定为 `0x1e00`（1.55A）。
+
 ## 5. 上机验证方法
 
 ```bash
