@@ -51,7 +51,7 @@
 - **eMMC 速度**：已移除 `0010-z96a-emmc-hs400.patch`；内核 DTS 保持 HS200 / `max-frequency=200MHz`，不启用 `mmc-hs400-1_8v`，与原厂 U-Boot/内核一致。HS400 下 eMMC 写入曾出现 I/O error。
 - **电池温度**：`CONFIG_GENERIC_ADC_THERMAL=y`；`.84` 已用临时 `thermal-generic-adc.ko` 验证 `battery-thermal` 31.5°C。
 - **电池计量（2026-11-13）**：已启用 RK817 PMIC 库仑计 `rk817-battery`：100% / 8.387V / 5Ah，`present=1`；upower 只显示这一块电池（42.02Wh）。`bq257xx-fgu` 电压 OCV 已 unbind 并 blacklist，不再叠加；待完整充放电周期观察长期漂移。
-- **充电灯**：事件驱动。`rk817_charger` 每 8 秒采样，但只在整数 `capacity` 或 `charge_status` 变化时 `power_supply_changed`；eudev 规则 `/etc/udev/rules.d/99-z96a-charge-led.rules` 执行一次 `z96a-charge-led --once`。AC 在线 ≥90% 绿、<90% 红、拔掉灭；插拔由驱动 IRQ 立即通知；init.d 启动时 one-shot，无常驻轮询。**2026-11-13 实测**：eudev 3.2.14 + SysV 下无 2 秒进程；满电静置 45 秒无周期性 uevent；模块重载产生驱动 `change` 事件并保持绿灯；红灯/离线路径用阈值与假 `online=0` 验证通过。
+- **充电灯**：事件驱动。`rk817_charger` 每 8 秒采样，但只在整数 `capacity` 或 `charge_status` 变化时 `power_supply_changed`；eudev 规则 `/etc/udev/rules.d/99-z96a-charge-led.rules` 执行一次 `z96a-charge-led --once`。AC 在线 ≥90% 绿、<90% 红、拔掉灭；插拔由驱动 IRQ 立即通知；init.d 启动时 one-shot，无常驻轮询。**2026-11-13 实测**：eudev 3.2.14 + SysV 下无 2 秒进程；满电静置 45 秒无周期性 uevent；模块重载产生驱动 `change` 事件并保持绿灯；放电实测 03:54:04 100→99、03:57:29 99→98（间隔约 3m25s）；红灯/离线路径用阈值与假 `online=0` 验证通过。细节见 `CHARGE-LED-EVENTS.md`。
 - **充电输入 A/B（2026-11-10）**：正常充电器稳定 `online=1 / Charging`；旧充电器造成 SC8886 `AC_STAT` 和 `online` 周期抖动。HUSB311/TCPM 在好坏充电器下状态一致，不是本次故障层。不要用 0014、运行时重绑定或恢复服务掩盖输入异常。
 - **F8/F9**：LXQt `globalkeyshortcuts.conf` 已绑定 `XF86WLAN`、`XF86Battery` 到 `z96a-hotkey`。
 
