@@ -111,6 +111,7 @@
 - 亮度：直接读写 `/sys/class/backlight/backlight`；最低 5%，步进 5%。
 - 持久化：`~/.local/state/z96a/{volume-level,brightness-level}`，会话启动 `z96a-hotkey restore-hardware`。
 - OSD 复用 `z96a-system-tray --osd`；`z96a-volume-feedback` 监听 mixer 变化。
+- 电池图标：`z96a-system-tray` 默认 `BATTERY_DEVICE=/sys/class/power_supply/rk817-battery`；LXQt 自带 battery watcher 保持关闭，避免重复图标。
 - 不要再用轮询 `amixer` 的旧实现（曾把 ALSA 控制接口堵死）。
 
 ## 终端 / 网络 / 输入法 / 媒体

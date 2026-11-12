@@ -72,7 +72,7 @@ def volume_state() -> tuple[int | None, bool]:
     return percent, muted == 1
 
 
-BATTERY_DEVICE = os.environ.get("Z96A_BATTERY_DEVICE", "/sys/class/power_supply/bq257xx-fgu")
+BATTERY_DEVICE = os.environ.get("Z96A_BATTERY_DEVICE", "/sys/class/power_supply/rk817-battery")
 BATTERY_TEMP_ZONE = os.environ.get("Z96A_BATTERY_TEMP_ZONE", "/sys/class/thermal/thermal_zone2/temp")
 CPU_TEMP_ZONE = os.environ.get("Z96A_CPU_TEMP_ZONE", "/sys/class/thermal/thermal_zone0/temp")
 BATTERY_ICON_FILE = SIGNAL_DIR / "battery-status.svg"
