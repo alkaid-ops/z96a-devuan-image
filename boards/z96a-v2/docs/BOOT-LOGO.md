@@ -96,7 +96,7 @@ vccio3（SD 卡槽 IO），固定 1.8V 对 3.3V SD 卡有影响，需按实际�
 ## 3. 开机动画（Plymouth Alkaid）
 
 在 LOGO 交接方案之上，把「内核启动→登录页」这段用 Plymouth 动画覆盖。设计源是
-Alkaid OS 的 SMIL SVG（`alakid-boot.svg`），**设备端不安装任何 SVG/Chromium 运行时**。
+Alkaid OS 的 SMIL SVG（`boards/z96a-v2/assets/alakid-boot.svg`），**设备端不安装任何 SVG/Chromium 运行时**。
 
 ### 3.1 管线
 
