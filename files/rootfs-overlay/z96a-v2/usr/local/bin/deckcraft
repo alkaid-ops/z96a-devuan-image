@@ -1,0 +1,20 @@
+#!/bin/sh
+# Z96A: pin DeckCraft to the wgpu OpenGL ES backend.
+#
+# DeckCraft asks wgpu for its default limits, including
+# max_texture_dimension_3d = 2048. PanVK (Mesa 26.x on the Mali-G52) reports
+# 512 for that limit, so Vulkan device creation fails and the app exits at
+# startup whenever PanVK is the selected adapter:
+#
+#   WGPU error: Limit 'max_texture_dimension_3d' value 2048 is better than allowed 512
+#
+# /etc/environment sets PAN_I_WANT_A_BROKEN_VULKAN_DRIVER=1 so PanVK is usable
+# for the apps that need it (mpv, OxideTerm), which is exactly why the desktop
+# launch never reached GL on its own. Panfrost's OpenGL ES backend satisfies
+# the requested limits, so force that backend here only.
+#
+# The desktop entries call `deckcraft %F` by name, so this wrapper in
+# /usr/local/bin (first in the session PATH) takes precedence over /usr/bin.
+WGPU_BACKEND=gl
+export WGPU_BACKEND
+exec /usr/bin/deckcraft "$@"

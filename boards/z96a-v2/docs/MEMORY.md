@@ -40,6 +40,15 @@
 - `xrender` 能跑，但 `x11perf` scroll/copy 数字变高（192→370、190→344 /s）只是画到离屏 pixmap，不代表上屏更快。
 - 复测脚本：`../tools/lxqt_perf.py`（板端 `python3 lxqt_perf.py <mode>`，需手动启停 picom）。
 
+## ArtCraft / wgpu 应用（DeckCraft / GridCraft / WordCraft）
+
+- 这三个应用按 wgpu 默认 limits 申请设备，其中 `max_texture_dimension_3d = 2048`；PanVK（Mesa 26.1.6，Mali-G52）只暴露 **512**，于是设备创建失败、进程启动即退出：
+  `WGPU error: Limit 'max_texture_dimension_3d' value 2048 is better than allowed 512`
+- 触发条件：`/etc/environment` 里的 `PAN_I_WANT_A_BROKEN_VULKAN_DRIVER=1` 让 wgpu 选中 PanVK。该变量不能删（mpv/OxideTerm 需要 PanVK 硬件 Vulkan）。去掉变量时 wgpu 会落到 lavapipe（`libvulkan_lvp`，软件渲染，能开但很慢），**这不是修法**。
+- 修法：`/usr/local/bin/{deckcraft,gridcraft,wordcraft}` 包一层 `WGPU_BACKEND=gl`，改走 Panfrost OpenGL ES（硬件加速）。桌面项是 `Exec=deckcraft %F` 按名字查找，而 LXQt 会话 PATH 首位是 `/usr/local/bin`，所以双击图标也被覆盖。
+- 验证：GL 路径下 `/proc/<pid>/maps` 只有 `libEGL`、没有 `libvulkan`；DeckCraft 窗口标题 `DeckCraft`，GridCraft 新建表格标题 `Book1`。
+- OxideTerm 不受影响（它能在 PanVK 上正常创建设备）。
+
 ## 充电输入、LED 与电池
 
 - Z96A 两颗 LED 分工：`white:power`（Caps Lock 旁）是**系统运行灯**，应 `default-on` 常亮；`red:charging`/`green:charging`（C 口）是充电灯，由 `z96a-charge-led` 按 `online` + 电量控制（充电红、≥90% 绿、离线灭）。不要把 `white:power` 绑到 `bq257xx-charger-online`，否则充电器状态抖动会让系统灯闪。

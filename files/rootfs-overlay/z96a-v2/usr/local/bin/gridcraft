@@ -1,0 +1,14 @@
+#!/bin/sh
+# Z96A: pin GridCraft to the wgpu OpenGL ES backend.
+#
+# Same PanVK limit problem as DeckCraft: GridCraft requests
+# max_texture_dimension_3d = 2048 while PanVK reports 512, so Vulkan device
+# creation fails with
+#
+#   WGPU error: Limit 'max_texture_dimension_3d' value 2048 is better than allowed 512
+#
+# Panfrost's OpenGL ES backend satisfies the limits. The desktop entry calls
+# `gridcraft %F` by name, so this wrapper in /usr/local/bin wins over /usr/bin.
+WGPU_BACKEND=gl
+export WGPU_BACKEND
+exec /usr/bin/gridcraft "$@"

@@ -784,6 +784,26 @@ class DocumentationTests(unittest.TestCase):
         self.assertFalse(broken, "broken markdown links: " + ", ".join(broken))
 
 
+class ArtCraftWrapperTests(unittest.TestCase):
+    """ArtCraft apps must be pinned to the wgpu GL backend (PanVK limit 512)."""
+
+    WRAPPERS = ("deckcraft", "gridcraft", "wordcraft")
+
+    def test_wrappers_pin_wgpu_to_gl(self):
+        for name in self.WRAPPERS:
+            path = ROOT / "files/rootfs-overlay" / BOARD / "usr/local/bin" / name
+            self.assertTrue(path.is_file(), f"missing wrapper {path}")
+            self.assertTrue(path.stat().st_mode & 0o111, f"wrapper not executable: {path}")
+            text = path.read_text(errors="replace")
+            self.assertIn("WGPU_BACKEND=gl", text)
+            self.assertIn(f"exec /usr/bin/{name} \"$@\"", text)
+
+    def test_wrappers_explain_panvk_limit(self):
+        text = (ROOT / "boards" / BOARD / "docs" / "MEMORY.md").read_text(errors="replace")
+        self.assertIn("max_texture_dimension_3d", text)
+        self.assertIn("WGPU_BACKEND=gl", text)
+
+
 class KnownIssueTests(unittest.TestCase):
     """Recorded baseline issues. Reported, but not fatal during phase 0."""
 
