@@ -822,6 +822,17 @@ class BootLogoAssetTests(unittest.TestCase):
         self.assertIn("z96a-logo.bin.gz", doc)
 
 
+class PowerLedPolicyTests(unittest.TestCase):
+    """The system-running LED must survive late driver registration."""
+
+    def test_led_waits_for_power_led_and_reasserts(self):
+        text = (ROOT / "files/rootfs-overlay" / BOARD
+                / "usr/local/sbin/z96a-charge-led").read_text(errors="replace")
+        self.assertIn('[ ! -d "$WHITE" ]', text)
+        self.assertIn("ensure_power_led", text)
+        self.assertIn(r'grep -q "\[default-on\]"', text)
+
+
 class KnownIssueTests(unittest.TestCase):
     """Recorded baseline issues. Reported, but not fatal during phase 0."""
 

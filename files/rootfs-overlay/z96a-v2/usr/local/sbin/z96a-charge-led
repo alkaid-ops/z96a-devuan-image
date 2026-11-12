@@ -18,8 +18,11 @@ GREEN=$LED_DIR/green:charging
 THRESHOLD=${Z96A_CHARGE_LED_THRESHOLD:-90}
 
 wait_for_hw() {
-	# Keep retrying at boot until both the LEDs and power supplies exist.
-	while [ ! -d "$RED" ] || [ ! -d "$GREEN" ] ||
+	# Keep retrying at boot until the LEDs and power supplies exist. The
+	# system-running LED must be part of the wait: gpio-leds can register it
+	# after the charging pair, and a one-shot write before it exists would
+	# leave the power LED dark for the whole boot.
+	while [ ! -d "$RED" ] || [ ! -d "$GREEN" ] || [ ! -d "$WHITE" ] ||
 	      [ ! -r "$BAT/capacity" ] || [ ! -r "$CHG/online" ]; do
 		sleep 1
 	done
@@ -45,9 +48,19 @@ detach_triggers
 # The power LED next to Caps Lock is the system-running indicator, not a
 # charger-presence LED. Keep it solid while the system is up; the DTS
 # default-trigger must not be bq257xx-charger-online.
-if [ -d "$WHITE" ]; then
-	echo default-on > "$WHITE/trigger" 2>/dev/null || true
-fi
+#
+# Re-asserted every cycle: a DTB without linux,default-trigger leaves the
+# LED off at registration, and anything that clears the trigger (driver
+# rebind, suspend/resume, a stray write) would otherwise keep it dark until
+# the next boot.
+ensure_power_led() {
+	[ -d "$WHITE" ] || return 0
+	if ! grep -q "\[default-on\]" "$WHITE/trigger" 2>/dev/null; then
+		echo default-on > "$WHITE/trigger" 2>/dev/null || true
+	fi
+}
+
+ensure_power_led
 
 while :; do
 	online=$(cat "$CHG/online" 2>/dev/null || echo 0)
@@ -56,6 +69,7 @@ while :; do
 		''|*[!0-9]*) capacity=0 ;;
 	esac
 
+	ensure_power_led
 	if [ "$online" = "1" ] && [ "$capacity" -ge "$THRESHOLD" ]; then
 		set_led "$RED" 0
 		set_led "$GREEN" 1
