@@ -3,7 +3,7 @@
 # The SHA256 manifest is downloaded first; every input is verified before use.
 #
 # Usage: boards/z96a-v2/tools/ci-fetch-inputs.sh
-# Env: Z96A_INPUT_CACHE (required), Z96A_INPUTS_RELEASE (default inputs-v1),
+# Env: Z96A_INPUT_CACHE (required), Z96A_INPUTS_RELEASE (default inputs-v2),
 #      GITHUB_REPOSITORY (defaults to alkaid-ops/z96a-devuan-image).
 set -euo pipefail
 
@@ -11,7 +11,7 @@ ROOT=$(cd -- "$(dirname -- "$0")/../../.." && pwd)
 cd "$ROOT"
 
 CACHE=${Z96A_INPUT_CACHE:?set Z96A_INPUT_CACHE}
-RELEASE=${Z96A_INPUTS_RELEASE:-inputs-v1}
+RELEASE=${Z96A_INPUTS_RELEASE:-inputs-v2}
 REPOSITORY=${GITHUB_REPOSITORY:-alkaid-ops/z96a-devuan-image}
 BASE="https://github.com/${REPOSITORY}/releases/download/${RELEASE}"
 MANIFEST="$CACHE/SHA256SUMS.inputs"

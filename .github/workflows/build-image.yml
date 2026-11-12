@@ -159,7 +159,7 @@ jobs:
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ env.Z96A_CACHE_ROOT }}/input
-          key: z96a-inputs-v1-${{ runner.os }}
+          key: z96a-inputs-v2-${{ runner.os }}
 
       - name: Download and verify immutable build inputs
         env:
@@ -176,7 +176,7 @@ jobs:
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ env.Z96A_CACHE_ROOT }}/input
-          key: z96a-inputs-v1-${{ runner.os }}
+          key: z96a-inputs-v2-${{ runner.os }}
 
       - name: Packaging preflight
         env:
