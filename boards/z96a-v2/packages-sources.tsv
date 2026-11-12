@@ -7,7 +7,7 @@ WeChatLinux_arm64.deb	374732eda88a6f3a7e4eb315e64e5fac73ef17923d504d242964f19ed1
 WindInput-0.128.0-linux-arm64.deb	4a1f0c563081454fbab349fe2361d4f63d472c507c478488e627120c34492386	https://github.com/hyouc/WindInput	GPL-3.0
 deckcraft-0.11.1-linux-aarch64.deb	e8436c6838bd7c94133b597a3f5d824a51623506f1793be483716aed4a479a96	build artifact	internal
 gridcraft-0.12.1-linux-aarch64.deb	be827ee0b20cd77de837da376b0b06fef8a73b59ea8395effba9658d65a50849	build artifact	internal
-mpv_0.41.0-2_arm64_bookworm.deb	903822827cc24006933f5692f22d837a17d42f308222b78f035cefb4daf20979	build artifact	GPL-2.0+
+mpv_0.41.0-2_arm64_bookworm.deb	b0620554e27825b7521a7596a36692f951c3bef4c8f0f3b305138e53db2b5fef	https://github.com/alkaid-ops/mpv/releases/download/z96a-0.41.0-2/mpv_0.41.0-2_arm64_bookworm.deb	GPL-2.0+
 slim_1.4.1-1devuan1+excalibur2+z96a2_arm64.deb	39ab68dde4a645187bb4b76bbee681def06e1d6cfe82d86ecfd03d531de8e381	build artifact	GPL-2.0+
 thorium-browser_156.0.8078.28_arm64.deb	015d79db7fb099a917523a53e6d0c91c235e216018f6d9d06638e5704d0d1705	https://github.com/Alex313031/Thorium-Raspi/releases	BSD-3-Clause (Chromium)
 wordcraft-0.11.0-linux-aarch64.deb	ea97a4f4e92fa16dc809682786c40d34a6effbf7b8d1e8c00afdc97e2df23482	build artifact	internal

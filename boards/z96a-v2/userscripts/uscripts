@@ -67,9 +67,6 @@ run_function2 (){
 	Z96A_ROOT_PASSWORD=${Z96A_ROOT_PASSWORD:-}
 	Z96A_WIFI_SSID=${Z96A_WIFI_SSID:-}
 	Z96A_WIFI_PASSKEY=${Z96A_WIFI_PASSKEY:-}
-	# Sourced configure modules consume this shared local variable.
-	# shellcheck disable=SC2034
-	local key="$Z96A_SSH_KEY"
 
 	. "$Z96A_USCRIPTS_DIR/install/10-base.sh"
 	. "$Z96A_USCRIPTS_DIR/configure/10-environment.sh"

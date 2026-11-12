@@ -16,9 +16,9 @@ LANG=zh_CN.UTF-8
 LANGUAGE=zh_CN:zh
 LOCALEEOF
 	for line in LANG=zh_CN.UTF-8 LANGUAGE=zh_CN:zh; do
-		key=${line%%=*}
-		if grep -q "^${key}=" /etc/environment 2>/dev/null; then
-			sed -i "s#^${key}=.*#${line}#" /etc/environment
+		env_key=${line%%=*}
+		if grep -q "^${env_key}=" /etc/environment 2>/dev/null; then
+			sed -i "s#^${env_key}=.*#${line}#" /etc/environment
 		else
 			echo "${line}" >> /etc/environment
 		fi

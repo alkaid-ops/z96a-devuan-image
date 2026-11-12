@@ -9,9 +9,9 @@
 		LIBVA_DRIVERS_PATH=/usr/lib/aarch64-linux-gnu/dri \
 		VDPAU_DRIVER=va_gl \
 		PAN_I_WANT_A_BROKEN_VULKAN_DRIVER=1; do
-		key=${line%%=*}
-		if grep -q "^${key}=" /etc/environment 2>/dev/null; then
-			sed -i "s#^${key}=.*#${line}#" /etc/environment
+		env_key=${line%%=*}
+		if grep -q "^${env_key}=" /etc/environment 2>/dev/null; then
+			sed -i "s#^${env_key}=.*#${line}#" /etc/environment
 		else
 			echo "${line}" >> /etc/environment
 		fi

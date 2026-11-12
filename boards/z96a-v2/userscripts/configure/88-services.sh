@@ -15,9 +15,9 @@
 	mv -f /root/z96a-bt-after-wifi /usr/local/sbin/z96a-bt-after-wifi
 
 	install -d -m 0700 /root/.ssh /home/user/.ssh
-	if [ -n "${key:-}" ]; then
-		printf '%s\n' "$key" > /root/.ssh/authorized_keys
-		printf '%s\n' "$key" > /home/user/.ssh/authorized_keys
+	if [ -n "${Z96A_SSH_KEY:-}" ]; then
+		printf '%s\n' "$Z96A_SSH_KEY" > /root/.ssh/authorized_keys
+		printf '%s\n' "$Z96A_SSH_KEY" > /home/user/.ssh/authorized_keys
 		chmod 0600 /root/.ssh/authorized_keys /home/user/.ssh/authorized_keys
 	else
 		rm -f /root/.ssh/authorized_keys /home/user/.ssh/authorized_keys
@@ -26,31 +26,20 @@
 	chown -R user:user /home/user/.ssh
 
 	mkdir -p /etc/ssh/sshd_config.d
+	# Policy lives only in /etc/ssh/sshd_config: the drop-in directory must
+	# stay empty so a single file controls the effective sshd settings.
+	rm -f /etc/ssh/sshd_config.d/*.conf
 	if [ -n "${Z96A_ROOT_PASSWORD:-}" ]; then
 		printf 'root:%s\n' "$Z96A_ROOT_PASSWORD" | chpasswd
-		cat > /etc/ssh/sshd_config.d/99-z96a-root-login.conf <<'EOF'
-PermitRootLogin yes
-PasswordAuthentication yes
-EOF
+		sed -i 's/^#*PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config
 	else
 		random_password=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')
 		printf 'root:%s\n' "$random_password" | chpasswd
 		unset random_password
-		cat > /etc/ssh/sshd_config.d/99-z96a-root-login.conf <<'EOF'
-PermitRootLogin prohibit-password
-PasswordAuthentication no
-EOF
+		sed -i 's/^#*PermitRootLogin .*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
 	fi
-	if [ -z "${Z96A_ROOT_PASSWORD:-}" ]; then
-		if [ -n "${key:-}" ]; then
-			sed -i 's/^#*PermitRootLogin .*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
-		else
-			sed -i 's/^#*PermitRootLogin .*/PermitRootLogin no/' /etc/ssh/sshd_config
-		fi
-	else
-		sed -i 's/^#*PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config
-	fi
-	sed -i 's/^#*PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config
+	sed -i 's/^#*PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+	sed -i 's/^#*PubkeyAuthentication .*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
 	if [ -f /usr/local/bin/credentials ]; then
 		sed -i \
 			-e '\|^rm -f /etc/ssh/ssh_host_\*$|d' \

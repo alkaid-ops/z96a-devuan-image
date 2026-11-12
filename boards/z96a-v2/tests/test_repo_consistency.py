@@ -385,6 +385,28 @@ class BuildPreflightTests(unittest.TestCase):
         self.assertIn('cp "$img" "$img.sha256" output/ci/release/', workflow)
         self.assertNotIn('cp -l "$img"', workflow)
 
+    def test_input_cache_is_saved_only_on_miss(self):
+        workflow = (ROOT / ".github/workflows/build-image.yml").read_text(errors="replace")
+        self.assertIn("id: input-cache", workflow)
+        self.assertIn("if: steps.input-cache.outputs.cache-hit != 'true'", workflow)
+
+    def test_ci_skips_version_tags(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(errors="replace")
+        self.assertIn("tags-ignore:", workflow)
+        self.assertIn("- 'v*'", workflow)
+
+    def test_env_modules_do_not_clobber_ssh_key_variable(self):
+        # The environment loops used to assign to `key`, which leaked into
+        # 88-services.sh and wrote "SDL_IM_MODULE" into authorized_keys.
+        for name in ("10-environment.sh", "30-locale.sh", "60-session.sh"):
+            text = (ROOT / "boards" / BOARD / "userscripts/configure" / name).read_text(errors="replace")
+            self.assertNotRegex(text, r"\bkey=\$\{line", name)
+            self.assertIn("env_key=${line%%=*}", text, name)
+        services = (ROOT / "boards" / BOARD / "userscripts/configure/88-services.sh").read_text(errors="replace")
+        self.assertIn("${Z96A_SSH_KEY:-}", services)
+        self.assertNotIn('"$key"', services)
+        self.assertNotIn("local key=", userscripts_text())
+
 
 class CredentialPolicyTests(unittest.TestCase):
     def test_ssh_credentials_are_optional_and_fail_closed(self):
@@ -393,11 +415,38 @@ class CredentialPolicyTests(unittest.TestCase):
         ownership = (ROOT / "boards" / BOARD / "userscripts/configure/96-ownership.sh").read_text()
         workflow = (ROOT / ".github/workflows/build-image.yml").read_text()
         self.assertNotIn("Z96A_SSH_KEY:?", board_userscript)
-        self.assertIn("if [ -n \"${key:-}\" ]", services)
+        self.assertIn("if [ -n \"${Z96A_SSH_KEY:-}\" ]", services)
         self.assertIn("rm -f /root/.ssh/authorized_keys /home/user/.ssh/authorized_keys", services)
-        self.assertIn("PermitRootLogin no", services)
         self.assertIn("[ -e \"$nmconnection\" ] || continue", ownership)
         self.assertIn("required: false", workflow)
+
+    def test_sshd_policy_lives_in_main_config_with_empty_dropin_dir(self):
+        services = (ROOT / "boards" / BOARD / "userscripts/configure/88-services.sh").read_text()
+        # The drop-in directory must stay empty; policy comes from sshd_config.
+        self.assertIn("rm -f /etc/ssh/sshd_config.d/*.conf", services)
+        self.assertNotIn("99-z96a-root-login.conf", services)
+        self.assertIn("s/^#*PasswordAuthentication .*/PasswordAuthentication yes/", services)
+        self.assertIn("s/^#*PermitRootLogin .*/PermitRootLogin yes/", services)
+        self.assertIn("s/^#*PermitRootLogin .*/PermitRootLogin prohibit-password/", services)
+
+
+class AudioMuxTests(unittest.TestCase):
+    def test_rk817_mux_is_switched_to_the_active_output(self):
+        script = (ROOT / "files/rootfs-overlay" / BOARD / "usr/local/bin/z96a-audio-mux")
+        self.assertTrue(script.is_file(), script)
+        text = script.read_text(errors="replace")
+        self.assertIn('"Headphones Jack"', text.replace("'", '"'))
+        self.assertIn('sset "Playback Mux" HP', text)
+        self.assertIn('sset "Internal Speakers" off', text)
+        self.assertIn('sset "Internal Speakers" on', text)
+        self.assertIn("alsactl monitor", text)
+
+    def test_audio_mux_service_is_registered(self):
+        init = ROOT / "files/rootfs-overlay" / BOARD / "etc/init.d/z96a-audio-mux"
+        self.assertTrue(init.is_file(), init)
+        self.assertIn("Provides:          z96a-audio-mux", init.read_text(errors="replace"))
+        ownership = (ROOT / "boards" / BOARD / "userscripts/configure/96-ownership.sh").read_text()
+        self.assertIn("update-rc.d z96a-audio-mux defaults", ownership)
 
 
 class BootLayoutTests(unittest.TestCase):

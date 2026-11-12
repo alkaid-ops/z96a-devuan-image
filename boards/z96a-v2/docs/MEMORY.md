@@ -97,6 +97,7 @@
 ## 音频 / 亮度
 
 - RK817 按卡名 `rk817ext` 解析，不写死卡号（HDMI/es7202 卡号会变）。
+- **外放路由（2026-11-12 实测）**：外置功放输入取自 codec 的**耳机输出**（DTS routing：`Speaker Amp INL <- HPOL`、`Internal Speakers <- Speaker Amp OUTL`）。因此 `Playback Mux` 必须保持 **HP**；设为 **SPK** 会让功放断电（`GPIO3_A6 enable` 变低），表现为 mpv/浏览器/音量提示音**全系统无声**。`Internal Speakers` pin-switch 控制外放静音，插耳机时关。开机由 `/usr/local/bin/z96a-audio-mux`（init `z96a-audio-mux`）保证 `Mux=HP` 并按耳机检测联动开关。
 - 音量曲线（`z96a-hotkey`）：显示 0 = raw 0（静音）；显示 1–100 线性映射到 raw **178–255**（安全上限默认 255，可听下限为上限的 70%；`Z96A_VOLUME_MAX_LEVEL` / `Z96A_VOLUME_AUDIBLE_MIN` 可覆盖）。
 - 亮度：直接读写 `/sys/class/backlight/backlight`；最低 5%，步进 5%。
 - 持久化：`~/.local/state/z96a/{volume-level,brightness-level}`，会话启动 `z96a-hotkey restore-hardware`。

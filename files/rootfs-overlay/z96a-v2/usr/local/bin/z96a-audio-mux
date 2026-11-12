@@ -1,0 +1,65 @@
+#!/bin/sh
+# z96a-audio-mux — keep the RK817 output routed to the speaker amplifier.
+#
+# On the Z96A the internal speakers are driven by an external amplifier whose
+# input is fed from the codec's *headphone* outputs (HPOL/HPOR):
+#
+#   "Speaker Amp INL" <- "HPOL"      (DTS routing)
+#   "Internal Speakers" <- "Speaker Amp OUTL"
+#
+# So Playback Mux must stay on HP; selecting SPK bypasses the amplifier and
+# produces silence. The "Internal Speakers" pin switch is what mutes the
+# speaker path when headphones are plugged in.
+#
+# Usage: z96a-audio-mux [--once]
+#   --once    apply the current jack state and exit
+#   (none)    apply once, then watch ALSA control events forever
+set -eu
+
+CARD=${Z96A_AUDIO_CARD:-rk817ext}
+
+jack_plugged() {
+	# "Headphones Jack" is a CARD-interface control, so select it by name from
+	# `amixer contents` instead of the MIXER-only sget interface.
+	state=$(amixer -c "$CARD" contents 2>/dev/null | awk '
+		/iface=CARD,name=.Headphones Jack/ { found = 1 }
+		found && /values=/ { print; exit }
+	')
+	case "$state" in
+		*values=on*) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+apply_mux() {
+	# Always feed the amplifier from the headphone output pairs.
+	amixer -c "$CARD" sset "Playback Mux" HP >/dev/null 2>&1 || true
+	if jack_plugged; then
+		amixer -c "$CARD" sset "Internal Speakers" off >/dev/null 2>&1 || true
+	else
+		amixer -c "$CARD" sset "Internal Speakers" on >/dev/null 2>&1 || true
+	fi
+}
+
+wait_for_card() {
+	tries=0
+	while [ "$tries" -lt 20 ]; do
+		amixer -c "$CARD" contents >/dev/null 2>&1 && return 0
+		tries=$((tries + 1))
+		sleep 1
+	done
+	return 1
+}
+
+wait_for_card || exit 0
+apply_mux
+
+[ "${1:-}" = "--once" ] && exit 0
+
+# Control events are cheap to consume; poll-free jack tracking otherwise needs
+# a dedicated evdev reader.
+alsactl monitor 2>/dev/null | while IFS= read -r line; do
+	case "$line" in
+		*"Headphones Jack"*) apply_mux ;;
+	esac
+done

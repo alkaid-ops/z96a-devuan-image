@@ -64,7 +64,8 @@ need /usr/share/vulkan/implicit_layer.d/VkLayer_conformance.json
 
 echo "== services"
 for f in /etc/init.d/z96a-network-up /etc/init.d/z96a-charge-led \
-         /etc/init.d/z96a-bt-after-wifi /etc/init.d/z96a-ssh-hostkeys; do
+         /etc/init.d/z96a-bt-after-wifi /etc/init.d/z96a-ssh-hostkeys \
+         /etc/init.d/z96a-audio-mux /usr/local/bin/z96a-audio-mux; do
     need "$f"
 done
 need /home/user/.config/autostart/z96a-services.desktop

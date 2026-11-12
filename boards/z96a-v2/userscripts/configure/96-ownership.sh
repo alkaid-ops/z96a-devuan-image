@@ -16,6 +16,8 @@
 	update-rc.d z96a-network-up defaults 99 01 >/dev/null 2>&1 || true
 	chmod 0755 /usr/local/sbin/z96a-charge-led /etc/init.d/z96a-charge-led
 	update-rc.d z96a-charge-led defaults 20 01 >/dev/null 2>&1 || true
+	chmod 0755 /usr/local/bin/z96a-audio-mux /etc/init.d/z96a-audio-mux
+	update-rc.d z96a-audio-mux defaults 20 01 >/dev/null 2>&1 || true
 
 
 	# BSP files copied with ownership preservation must become system-owned.

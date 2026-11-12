@@ -3,9 +3,9 @@
 # Phase 2 module split: content and execution order unchanged.
 
 	for line in GTK_IM_MODULE=fcitx QT_IM_MODULE=fcitx XMODIFIERS=@im=fcitx SDL_IM_MODULE=fcitx; do
-		key=${line%%=*}
-		if grep -q "^${key}=" /etc/environment 2>/dev/null; then
-			sed -i "s#^${key}=.*#${line}#" /etc/environment
+		env_key=${line%%=*}
+		if grep -q "^${env_key}=" /etc/environment 2>/dev/null; then
+			sed -i "s#^${env_key}=.*#${line}#" /etc/environment
 
 		else
 			echo "${line}" >> /etc/environment
