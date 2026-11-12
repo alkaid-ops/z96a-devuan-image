@@ -281,7 +281,14 @@ charger {
 - 当前已把 `.84` DTB 恢复为 `...dtb.pre-rk817-gauge`（无 `charger` 节点），
   并启用 `blacklist-rk817-gauge.conf` 禁止 `rk817_charger` 自动绑定；
   `bq257xx-fgu`（OCV，当前 97%）保持为回退。
-- 需要先给 `rk817_charger.c` 补上 RK809/2S 支持，再重新启用 0020 和 DTB 节点。
+- 已实现（源码与构建产物，**尚未安装/未验证**）：
+  - `0021-z96a-rk809-2s-gauge.patch`：`rk817_charger` 增加 RK809/2S 校准、分压、状态；
+  - `0022-z96a-battery-5000mah-divider.patch`：电池 5000mAh/8.4V + `bat-res-up/down=140/20`；
+  - 已用当前 7.2.12 的 `/proc/config.gz` 编出 `rk817_charger.ko`
+    （vermagic `7.2.12 SMP preempt mod_unload aarch64`）；
+  - 已生成基于当前 `f06d` DTB 的 `...-gauge-v2.dtb`（带 `charger`、140/20、5000mAh）。
+  - 产物位置：`rea-z97a/build/out/rk817-gauge/`。
+  - 等用户明确说“开始”后再替换模块/DTB 并重启验证；当前未动 `.84`。
 - 首次启动会用 NVRAM/设计容量做初始 SOC，之后库仑计累积；需要几个充放电周期观察精度。
 
 ## 5. Type-C / USB-PD（中优先级）

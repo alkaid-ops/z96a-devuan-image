@@ -36,6 +36,8 @@
 | `0018-z96a-vop-handback-and-boot-fixes.patch` | 交接保留 LOGO（VP1 POST standby 清除 + 正确 regdone）、GPIO0 门控预开、VO genpd 常开 |
 | `0019-z96a-vop-mmu-and-led-dts.patch` | 关闭 VOP IOMMU、去掉 LED 默认 trigger（避免 5.6s 探测阻塞） |
 | `0020-z96a-rk817-coulomb-gauge.patch` | RK817 PMIC 库仑计（`rk817-battery`），对齐原厂 `rk817,battery` |
+| `0021-z96a-rk809-2s-gauge.patch` | mainline `rk817_charger` 增加 RK809/2S 校准、分压、状态 |
+| `0022-z96a-battery-5000mah-divider.patch` | 电池 5000mAh/8.4V + `bat-res-up/down`（140/20） |
 
 `.old` 后缀和 `remote-head/` 是 rebase 过程的中间产物，稳定后清理（见 `docs/TODO.md`）。
 

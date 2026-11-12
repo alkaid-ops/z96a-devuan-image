@@ -1,0 +1,150 @@
+--- a/drivers/power/supply/rk817_charger.c
++++ b/drivers/power/supply/rk817_charger.c
+@@ -95,6 +95,10 @@
+ 	int bat_voltage_min_design_uv;
+ 	int bat_voltage_max_design_uv;
+ 
++	bool is_rk809;
++	u32 bat_res_up;
++	u32 bat_res_down;
++
+ 	/* Values updated periodically by driver for display. */
+ 	int charge_now_uah;
+ 	int volt_avg_uv;
+@@ -183,9 +187,15 @@
+ 	vcalib1 = get_unaligned_be16(bulk_reg);
+ 
+ 	/* values were taken from BSP kernel */
+-	charger->voltage_k = (4025 - 2300) * 1000 /
+-			     ((vcalib1 - vcalib0) ? (vcalib1 - vcalib0) : 1);
+-	charger->voltage_b = 4025 - (charger->voltage_k * vcalib1) / 1000;
++	if (charger->is_rk809) {
++		charger->voltage_k = (1050 - 600) * 1000 /
++				     ((vcalib1 - vcalib0) ? (vcalib1 - vcalib0) : 1);
++		charger->voltage_b = 1050 - (charger->voltage_k * vcalib1) / 1000;
++	} else {
++		charger->voltage_k = (4025 - 2300) * 1000 /
++				     ((vcalib1 - vcalib0) ? (vcalib1 - vcalib0) : 1);
++		charger->voltage_b = 4025 - (charger->voltage_k * vcalib1) / 1000;
++	}
+ }
+ 
+ static void rk817_bat_calib_cur(struct rk817_charger *charger)
+@@ -237,6 +247,14 @@
+ 	return 0;
+ }
+ 
++static int rk817_scale_voltage(struct rk817_charger *charger, int uv)
++{
++	if (charger->is_rk809 && charger->bat_res_down)
++		return uv * (charger->bat_res_up + charger->bat_res_down) /
++		       charger->bat_res_down;
++	return uv;
++}
++
+ static int rk817_bat_calib_cap(struct rk817_charger *charger)
+ {
+ 	struct rk808 *rk808 = charger->rk808;
+@@ -259,7 +277,18 @@
+ 	 * too high just in case; again the PMIC can in no way support
+ 	 * voltages above 4.45v, so this seems like a good value.
+ 	 */
+-	if ((charger->volt_avg_uv < 2700000) || (charger->volt_avg_uv > 4450000)) {
++	if (charger->is_rk809) {
++		if ((charger->volt_avg_uv <
++		     (charger->bat_voltage_min_design_uv - 600000)) ||
++		    (charger->volt_avg_uv >
++		     (charger->bat_voltage_max_design_uv + 200000))) {
++			dev_dbg(charger->dev,
++				"Battery voltage of %d is invalid, ignoring.\n",
++				charger->volt_avg_uv);
++			return -EINVAL;
++		}
++	} else if ((charger->volt_avg_uv < 2700000) ||
++		   (charger->volt_avg_uv > 4450000)) {
+ 		dev_dbg(charger->dev,
+ 			"Battery voltage of %d is invalid, ignoring.\n",
+ 			charger->volt_avg_uv);
+@@ -370,8 +399,8 @@
+ 	regmap_bulk_read(charger->rk808->regmap, RK817_GAS_GAUGE_BAT_VOL_H,
+ 			 bulk_reg, 2);
+ 	tmp = get_unaligned_be16(bulk_reg);
+-	charger->volt_avg_uv = (charger->voltage_k * tmp) + 1000 *
+-				charger->voltage_b;
++	charger->volt_avg_uv = rk817_scale_voltage(charger,
++		(charger->voltage_k * tmp) + 1000 * charger->voltage_b);
+ 
+ 	/*
+ 	 * Update reported current. Note value from registers is a signed 16
+@@ -406,6 +435,19 @@
+ 	/* Get which type of charge we are using (if any). */
+ 	regmap_read(charger->rk808->regmap, RK817_PMIC_CHRG_STS, &reg);
+ 	charger->charge_status = (reg >> 4) & 0x07;
++	if (charger->is_rk809) {
++		if (charger->cur_avg_ua < -50000)
++			charger->charge_status = CHRG_OFF;
++		else if (charger->cur_avg_ua > 50000) {
++			if ((charger->volt_avg_uv >=
++			     charger->bat_voltage_max_design_uv - 150000) &&
++			    (charger->cur_avg_ua < 500000))
++				charger->charge_status = CHARGE_FINISH;
++			else
++				charger->charge_status = CC_OR_CV_CHRG;
++		} else
++			charger->charge_status = CHRG_OFF;
++	}
+ 
+ 	/*
+ 	 * Get charger input voltage. Note that on my example hardware (an
+@@ -773,8 +815,9 @@
+ 		regmap_bulk_read(rk808->regmap, RK817_GAS_GAUGE_PWRON_VOL_H,
+ 				 bulk_reg, 2);
+ 		tmp = get_unaligned_be16(bulk_reg);
+-		boot_voltage = (charger->voltage_k * tmp) +
+-				1000 * charger->voltage_b;
++		boot_voltage = rk817_scale_voltage(charger,
++				(charger->voltage_k * tmp) +
++				1000 * charger->voltage_b);
+ 		/*
+ 		 * Since only implementation has no working thermistor, assume
+ 		 * 20C for OCV lookup. If lookup fails, report error with OCV
+@@ -827,8 +870,9 @@
+ 					 RK817_GAS_GAUGE_PWRON_VOL_H,
+ 					 bulk_reg, 2);
+ 			tmp = get_unaligned_be16(bulk_reg);
+-			boot_voltage = (charger->voltage_k * tmp) +
+-					1000 * charger->voltage_b;
++			boot_voltage = rk817_scale_voltage(charger,
++					(charger->voltage_k * tmp) +
++					1000 * charger->voltage_b);
+ 			charger->soc =
+ 				power_supply_batinfo_ocv2cap(bat_info,
+ 							     boot_voltage,
+@@ -1081,6 +1125,7 @@
+ 		return -ENOMEM;
+ 
+ 	charger->rk808 = rk808;
++	charger->is_rk809 = (rk808->variant == RK809_ID);
+ 
+ 	charger->dev = &pdev->dev;
+ 	platform_set_drvdata(pdev, charger);
+@@ -1131,6 +1176,19 @@
+ 
+ 	charger->sleep_filter_current_ua = of_value;
+ 
++	if (charger->is_rk809) {
++		ret = of_property_read_u32(node, "rockchip,bat-res-up", &of_value);
++		if (ret < 0)
++			return dev_err_probe(dev, ret,
++					     "Error reading bat-res-up\n");
++		charger->bat_res_up = of_value;
++		ret = of_property_read_u32(node, "rockchip,bat-res-down", &of_value);
++		if (ret < 0)
++			return dev_err_probe(dev, ret,
++					     "Error reading bat-res-down\n");
++		charger->bat_res_down = of_value;
++	}
++
+ 	charger->bat_ps = devm_power_supply_register(&pdev->dev,
+ 						     &rk817_bat_desc, &pscfg);
+ 	if (IS_ERR(charger->bat_ps))
