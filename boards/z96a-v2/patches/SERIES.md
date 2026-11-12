@@ -35,6 +35,7 @@
 | `0017-z96a-hdmi-mclk-fs.patch` | HDMI 音频 mclk-fs 对齐厂内 128 |
 | `0018-z96a-vop-handback-and-boot-fixes.patch` | 交接保留 LOGO（VP1 POST standby 清除 + 正确 regdone）、GPIO0 门控预开、VO genpd 常开 |
 | `0019-z96a-vop-mmu-and-led-dts.patch` | 关闭 VOP IOMMU、去掉 LED 默认 trigger（避免 5.6s 探测阻塞） |
+| `0020-z96a-rk817-coulomb-gauge.patch` | RK817 PMIC 库仑计（`rk817-battery`），对齐原厂 `rk817,battery` |
 
 `.old` 后缀和 `remote-head/` 是 rebase 过程的中间产物，稳定后清理（见 `docs/TODO.md`）。
 

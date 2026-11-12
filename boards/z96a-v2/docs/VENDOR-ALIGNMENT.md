@@ -220,6 +220,54 @@ simple-battery（1A、8.4V、OCV 表）
 
 这一项涉及安全，建议单独评审，不要只改 DTS 就宣称对齐。
 
+### 电池计量：RK817 PMIC 库仑计（2026-11-13）
+
+原厂电量不是用 SC8886 的电压 OCV，而是 RK809 PMIC 下的：
+
+```dts
+battery {
+	compatible = "rk817,battery";
+	ocv_table = <...>;
+	design_capacity = <5125mAh>;
+	design_qmax = <...>;
+	bat_res = <150mΩ>;
+	sleep_enter_current = <300>;
+	sleep_filter_current = <100>;
+	io-channels = <&saradc 5>;
+};
+```
+
+也就是 **RK817 Gas Gauge / 库仑计**，再配合 OCV 表校准。
+
+mainline 现状：
+
+- 有 `drivers/power/supply/rk817_charger.c`（RK817 库仑计驱动），会注册 `rk817-battery` 和 `rk817-charger`；
+- 但驱动 probe 要求 PMIC 下有名为 **`charger`** 的子节点；当前 DTS 没有，所以驱动未绑定；
+- 实际显示的电量来自 `bq257xx-fgu`，它走 `adc_battery_helper` + `power_supply_batinfo_ocv2cap()`，是**电压查 OCV 表模拟容量**，因此不准确。
+
+已加补丁 `0020-z96a-rk817-coulomb-gauge.patch`：
+
+```dts
+charger {
+	monitored-battery = <&battery>;
+	rockchip,resistor-sense-micro-ohms = <10000>;
+	rockchip,sleep-enter-current-microamp = <300000>;
+	rockchip,sleep-filter-current-microamp = <100000>;
+};
+```
+
+验证状态：
+
+- DTB 已在 `.84` 上替换，备份为
+  `rk3568-sunniwell-z96a-typec.dtb.pre-rk817-gauge`；需要一次重启让新节点生效。
+- 先保留 `bq257xx-fgu` 作为 OCV 回退；确认 `rk817-battery` 正常后再启用
+  `files/rootfs-overlay/z96a-v2/etc/modprobe.d/blacklist-bq257xx-fgu.conf`
+  里注释掉的 `blacklist bq257xx_fuel_gauge`。
+- sense resistor 先按参考板 10mΩ；重启后对比
+  `rk817-battery/current_now` 与 `bq257xx-charger/current_now`，若差 2 倍则改为 20mΩ。
+- `rk817-battery` 的 STATUS 在正电流时仍看 PMIC 内部充电器状态；本板充电走外部 SC8886，可能显示 `Not charging`。容量不受影响，必要时应加一个小补丁用库仑计电流方向判断 Charging。
+- 首次启动会用 NVRAM/设计容量做初始 SOC，之后库仑计累积；需要几个充放电周期观察精度。
+
 ## 5. Type-C / USB-PD（中优先级）
 
 原厂 HUSB311：
