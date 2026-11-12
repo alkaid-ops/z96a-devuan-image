@@ -258,14 +258,19 @@ charger {
 
 验证状态：
 
-- DTB 已在 `.84` 上替换，备份为
-  `rk3568-sunniwell-z96a-typec.dtb.pre-rk817-gauge`；需要一次重启让新节点生效。
-- 先保留 `bq257xx-fgu` 作为 OCV 回退；确认 `rk817-battery` 正常后再启用
-  `files/rootfs-overlay/z96a-v2/etc/modprobe.d/blacklist-bq257xx-fgu.conf`
-  里注释掉的 `blacklist bq257xx_fuel_gauge`。
-- sense resistor 先按参考板 10mΩ；重启后对比
-  `rk817-battery/current_now` 与 `bq257xx-charger/current_now`，若差 2 倍则改为 20mΩ。
-- `rk817-battery` 的 STATUS 在正电流时仍看 PMIC 内部充电器状态；本板充电走外部 SC8886，可能显示 `Not charging`。容量不受影响，必要时应加一个小补丁用库仑计电流方向判断 Charging。
+- 实测（2026-11-13）：`rk817_charger` 已成功绑定，`rk817-battery` 出现，
+  `current_avg ≈ 549mA`（与 `bq257xx-charger` 的 640mA 同量级），说明库仑计电流路径正常。
+- 但 `rk817-battery/capacity = 1%`、`voltage_avg = 3.997V`，而实际电池约 8.32V。
+  原因：mainline `rk817_charger.c` 是 **RK817 单节**实现，使用 RK817 校准常数
+  (`2300..4025mV`) 和 4.45V 上限；本板是 **RK809 + 2S + 140/20 分压**，需要：
+  1. RK809 校准常数（vendor 用 `600..1050mV`）；
+  2. 按 `bat_res_up/bat_res_down` 做分压还原；
+  3. 2S 电压范围（最大 8.404V）的 sanity check 和 OCV 初始化；
+  4. 充电状态用库仑计电流方向判断（外部充电走 SC8886，PMIC charger 状态不可靠）。
+- 当前已把 `.84` DTB 恢复为 `...dtb.pre-rk817-gauge`（无 `charger` 节点），
+  并启用 `blacklist-rk817-gauge.conf` 禁止 `rk817_charger` 自动绑定；
+  `bq257xx-fgu`（OCV，当前 97%）保持为回退。
+- 需要先给 `rk817_charger.c` 补上 RK809/2S 支持，再重新启用 0020 和 DTB 节点。
 - 首次启动会用 NVRAM/设计容量做初始 SOC，之后库仑计累积；需要几个充放电周期观察精度。
 
 ## 5. Type-C / USB-PD（中优先级）
