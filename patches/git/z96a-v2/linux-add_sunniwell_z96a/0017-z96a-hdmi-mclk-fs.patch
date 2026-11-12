@@ -1,0 +1,10 @@
+--- a/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
++++ b/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
+@@ -440,6 +440,7 @@
+ };
+ 
+ &hdmi_sound {
++	simple-audio-card,mclk-fs = <128>;
+ 	status = "okay";
+ };
+ 

@@ -308,9 +308,10 @@ low-temp 调整
 - **PDM / ES7202**：原厂只声明 2 个 codec（0x30/0x32）、3 个 PDM 引脚、`path-map = <1 3 0 2>`；mainline 使用 3 个 codec（0x30/0x31/0x32）、`pdmm0_sdi1/2/3`、`path-map = <1 2 3 0>`，并配合补丁 0011 提供原生 6ch。实测 6ch 全部有数据（ch0/1 MIC、ch2/3 AEC、ch4/5 headset/loopback），这是有意的功能增强，不回退到原厂 2ch 配置。
 - **RK809 功放/音量属性**：原厂 `use-ext-amplifier`、`spk-use-aw8737s`、`spk-ctl-gpios`、`hp-volume`、`spk-volume` 是 Rockchip 厂商 codec 驱动私有属性；mainline `rk817-codec` 不解析这些，改由 `simple-audio-amplifier` + `simple-audio-card` routing 实现同等功能，不能原样照搬。
 - **SPDIF / bt-sound**：原厂使能 `spdif-sound` 和 `bt-sound`（i2s2 + bt-sco）；mainline 未启用 SPDIF，蓝牙音频走 BlueZ/HCI SCO。当前板子的扬声器/耳机/HDMI 不依赖 SPDIF，未贸然启用。
-- **HDMI mclk-fs**：原厂 vendor HDMI card 用 128，mainline `simple-audio-card` 基线用 256；未改，需接 HDMI sink 实测后再定。
+- **HDMI mclk-fs**：已对齐。`&hdmi_sound` 覆盖 `simple-audio-card,mclk-fs = <128>`，与厂内 vendor HDMI card 的 128 一致（补丁 0017）；仍需接 HDMI sink 实测音频。
 - 声卡名称：mainline 为 `rk817_ext` / `es7202-mic`，与原厂不同，仅命名差异。
 
 ### 对应补丁
 
 - `0016-z96a-rk809-mic-diff.patch`：给 RK809 PMIC 增加 `codec { rockchip,mic-in-differential; }`。
+- `0017-z96a-hdmi-mclk-fs.patch`：`&hdmi_sound` 设置 `simple-audio-card,mclk-fs = <128>`。

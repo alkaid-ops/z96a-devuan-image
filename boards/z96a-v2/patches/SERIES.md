@@ -32,6 +32,7 @@
 | `0014-z96a-sdio-uhs-cmd11.patch` | SDIO 1.8V 时跳过 CMD11，UHS 失败回退 high-speed |
 | `0015-z96a-wifi-sdr104-1v8.patch` | WiFi SDIO 固定 1.8V、200MHz SDR104 |
 | `0016-z96a-rk809-mic-diff.patch` | RK809 codec 差分 MIC（与厂内 DTS 对齐） |
+| `0017-z96a-hdmi-mclk-fs.patch` | HDMI 音频 mclk-fs 对齐厂内 128 |
 
 `.old` 后缀和 `remote-head/` 是 rebase 过程的中间产物，稳定后清理（见 `docs/TODO.md`）。
 
