@@ -21,3 +21,7 @@ z96a-credentials.env
 # bundled application debs live in an artifact cache, not in git
 files/rootfs-overlay/*/opt/z96a/packages/*.deb
 files/rootfs-overlay/*/opt/z96a/packages/*.deb.sha256
+
+# local image build work dir / board runtime overrides
+/img/
+board.runtime

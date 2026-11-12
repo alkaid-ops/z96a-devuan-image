@@ -59,6 +59,11 @@ DT（0019）：
 - **硬件 RNG 内建**：`defconfig` 中 `CONFIG_HW_RANDOM=y`、`CONFIG_HW_RANDOM_ROCKCHIP=y`。
   原先 RNG 是模块，`udevd` 启动时 `getrandom()` 被熵阻塞约 6s；内建后
   `crng init` 从 9.79s 降到 0.23s。
+- **U-Boot logo 来自 boot 分区**：U-Boot 用 `load mmc 0:1 … z96a-logo.bin.gz` 读取
+  `z96a-logo.bin.gz`（1920×1080 BGRA，gzip）。镜像构建时由 `lib/function/staging`
+  的 `extlinux()` 把 `usr/share/plymouth/themes/alkaid/logo-bgra.bin.gz` 复制为
+  `p1/z96a-logo.bin.gz`（单一来源，两者字节相同）。**缺少该文件时 eMMC/USB 启动都会白屏**
+  （2026-11-13 复现：CI 镜像漏带此文件，eMMC 启动白屏；手工补进 boot 分区后恢复）。
 - **不使用 initramfs**：`lib/function/staging` 对 `z96a-v2` 注释掉 `initrd` 行；
   `usb-storage/scsi/block/ext4` 均内建，内核可自行解析 `root=PARTUUID`。
   实测（2026-11-12）：无 initrd + `root=PARTUUID=…` 正常启动，内核解析为 `/dev/sda2`，`/run/initramfs` 不存在。

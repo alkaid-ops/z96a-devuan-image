@@ -418,6 +418,19 @@ ${INITRD_LINE}
 	${EXTLINUX_FDTOVERLAYS}
 	${CMDLINE}
 EOF
+# z96a-v2: U-Boot draws its boot logo from the boot partition itself
+# (`load mmc 0:1 ... z96a-logo.bin.gz`), so the file must be shipped there.
+# Keep the Plymouth logo asset as the single source; it is the same BGRA
+# framebuffer image, gzipped.
+if [[ "$BOARD" == "z96a-v2" ]]; then
+	LOGO_SRC="files/rootfs-overlay/${BOARD}/usr/share/plymouth/themes/alkaid/logo-bgra.bin.gz"
+	if [[ -f "$LOGO_SRC" ]]; then
+		cp -f "$LOGO_SRC" "${BOOT_PATH}/z96a-logo.bin.gz"
+	else
+		echo "Missing z96a boot logo: $LOGO_SRC" >&2
+		exit 1
+	fi
+fi
 }
 
 update_grub_sh (){

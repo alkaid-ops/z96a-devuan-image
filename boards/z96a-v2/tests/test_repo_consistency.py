@@ -804,6 +804,24 @@ class ArtCraftWrapperTests(unittest.TestCase):
         self.assertIn("WGPU_BACKEND=gl", text)
 
 
+class BootLogoAssetTests(unittest.TestCase):
+    """U-Boot reads its logo from the boot partition, so the build must ship it."""
+
+    def test_staging_copies_logo_into_boot_partition(self):
+        text = (ROOT / "lib/function/staging").read_text(errors="replace")
+        self.assertIn("z96a-logo.bin.gz", text)
+        self.assertIn("logo-bgra.bin.gz", text)
+        self.assertIn('"$BOARD" == "z96a-v2"', text)
+
+    def test_logo_source_exists(self):
+        src = ROOT / "files/rootfs-overlay" / BOARD / "usr/share/plymouth/themes/alkaid/logo-bgra.bin.gz"
+        self.assertTrue(src.is_file(), f"missing logo source {src}")
+
+    def test_logo_requirement_is_documented(self):
+        doc = (ROOT / "boards" / BOARD / "docs" / "BOOT-LOGO.md").read_text(errors="replace")
+        self.assertIn("z96a-logo.bin.gz", doc)
+
+
 class KnownIssueTests(unittest.TestCase):
     """Recorded baseline issues. Reported, but not fatal during phase 0."""
 
