@@ -1,0 +1,294 @@
+# Z96A 镜像仓库与原厂对齐方案
+
+日期：2026-11-12
+适用仓库：`/home/hsy/project/z96a-devuan-image`
+
+## 0. 结论
+
+当前镜像仓库与“已验证的 live 状态”和原厂配置的差异及处理状态：
+
+1. **U-Boot 预编译文件是 B 版、DDR 1184MHz**，不是 live 的 A SPL + P1 FIT、DDR 1560MHz。**用户要求暂不处理 U-Boot。**
+2. **eMMC HS400 补丁已删除**；内核 DTS 保持 HS200 / `max-frequency=200MHz`，与厂商一致。
+3. **WiFi SDIO 已实现 200MHz / SDR104**：`vccio_sd` 固定 1.8V，配合内核补丁 0014（跳过 CMD11 + UHS 失败回退）和 DTS 补丁 0015。
+
+其余（充电器参数、Type-C PDO、NPU、OPP/PVTM、SPI flash、背光曲线、eDP/音频）属于后续对齐项。
+
+## 1. U-Boot 预编译文件（最高优先级）
+
+镜像构建使用：
+
+- `lib/boards/z96a-v2`：`PRECOMPILED_UBOOT="true"`、`PRECOMPILED_UBOOT_DIR="files/boot/uboot/z96a-v2"`
+- `packaging/pkgvars`：`uboot_precompiled_packaging` 直接把 `${PRECOMPILED_UBOOT_DIR}/*.bin` 复制到输出并打包
+- `lib/function/rockchip` / `files/scripts/write2mmc`：`idbloader.bin` 写扇区 64，`u-boot.bin` 写扇区 16384
+
+当前文件：
+
+```text
+files/boot/uboot/z96a-v2/idbloader.bin  202752  SHA-256 7d799106...
+files/boot/uboot/z96a-v2/u-boot.bin     1220096 SHA-256 efd764f4...
+```
+
+核对结果：
+
+- `idbloader.bin` 头 `0x90` 和 `0x800..0xF000` 都是自定义 **1184MHz** blob 的哈希 `a26184e4...`。
+- `u-boot.bin` 是 B 版 FIT，U-Boot 数据 948,960 字节。
+- 镜像 deb `output/z96a-v2/u-boot-rk3568-z96a-v2_2026.01-1_arm64.deb` 里就是这两个文件。
+
+live 已验证状态：
+
+```text
+A idbloader + vendor v1.13 DDR 1560MHz
+  build/recovery-20261111/idbloader-1560-vendor-rksd.img
+  204800 字节  SHA-256 35c368f3ad8d84acd756e4bb45bcbff56912b9b4a8892ac605ff35809bf683ac
+
+P1 FIT
+  build/out/armbian-p1/u-boot.itb
+  1221120 字节 SHA-256 3dd682033885ed88c3c95fa02d152747bf577fadfd678372f59304dcc7f215ea
+```
+
+### 操作
+
+```sh
+cd /home/hsy/project/z96a-devuan-image
+mkdir -p /tmp/z96a-uboot-backup-20261111
+cp -a files/boot/uboot/z96a-v2/idbloader.bin \
+     files/boot/uboot/z96a-v2/u-boot.bin \
+     /tmp/z96a-uboot-backup-20261111/
+
+cp /home/hsy/project/rea-z97a/build/recovery-20261111/idbloader-1560-vendor-rksd.img \
+   files/boot/uboot/z96a-v2/idbloader.bin
+cp /home/hsy/project/rea-z97a/build/out/armbian-p1/u-boot.itb \
+   files/boot/uboot/z96a-v2/u-boot.bin
+
+sha256sum files/boot/uboot/z96a-v2/idbloader.bin files/boot/uboot/z96a-v2/u-boot.bin
+```
+
+预期：
+
+```text
+35c368f3...  idbloader.bin
+3dd68203...  u-boot.bin
+```
+
+然后重新打包镜像/deb，确认 `output/z96a-v2` 的 u-boot deb 内文件哈希也为 35c368f3/3dd68203。
+
+注意：
+
+- 该 idbloader 是 A SPL + 原厂 v1.13 DDR blob，RKNS 头哈希有效；不要手工替换 DDR 段。
+- 如果以后改为源码构建 U-Boot，必须把 `RKBIN_RAM` 指向原厂 v1.13 blob；当前 board config 没有定义 `RKBIN_*`，只靠 precompiled 路径。
+- 原厂 v1.13 blob 副本：`/tmp/opencode/vendor-ddr-v1.13.bin`（59,392 字节，SHA-256 `763947ff...`），建议存入仓库 `files/boot/uboot/z96a-v2/ddr-v1.13-1560.bin` 以便重建。
+
+## 2. eMMC HS400 补丁（已处理）
+
+原应用：
+
+```text
+patches/git/z96a-v2/linux-add_sunniwell_z96a/0010-z96a-emmc-hs400.patch
+```
+
+补丁在 `&sdhci` 中增加：
+
+```dts
++ mmc-hs400-1_8v;
+```
+
+原厂：
+
+- U-Boot 2017 DTS：`mmc-hs200-1_8v`，无 HS400。
+- Android 内核 DTS：`supports-emmc`、`max-frequency=200MHz`，无 HS400。
+- mainline eMMC Linux DTB（已安装）：`max-frequency=200MHz`，无 HS400。
+
+实测：HS400 下 `dd` 写 eMMC 报 I/O error；去掉 HS400、50MHz 后写入成功。
+
+### 状态（2026-11-12）
+
+- 已删除 `0010-z96a-emmc-hs400.patch`。
+- 已从 `boards/z96a-v2/patches/SERIES.md` 移除该行。
+- 已在 `HARDWARE-STATUS.md` 更正为 HS200 / 200MHz，无 HS400。
+- 不要重新加入 `mmc-hs400-1_8v`。
+
+## 3. WiFi SDIO（已对齐：1.8V / 200MHz SDR104）
+
+原厂：
+
+```dts
+max-frequency = <200000000>;
+sd-uhs-sdr104;
+```
+
+原厂 DTS 同时把 `vccio_sd`（RK809 LDO5，供 `vccio3` / SDMMC1 IO）固定为 3.3V，且 SDIO 节点没有 `vqmmc-supply`。mainline 不能直接照搬：RTL8822CS 在 1.8V 下仍错误地把 R4 响应的 S18A 置 1，内核于是发送 CMD11；CMD11 实际没有完成，最终回落 50MHz。
+
+### 根因
+
+```text
+dwmmc_rockchip fe2c0000.mmc: card claims to support voltages below defined range
+dwmmc_rockchip fe2c0000.mmc: Unexpected CMD11 timeout
+mmc_host mmc1: Timeout sending command (cmd 0x10202000 arg 0x0 status 0x90202000)
+mmc1: new high speed SDIO card at address 0001
+```
+
+`cmd 0x10202000` 就是 `VOLT_SWITCH | UPD_CLK | PRV_DAT_WAIT`。RTL8822CS 在不该置位时报告 S18A=1，导致内核执行一次无意义的 CMD11 1.8V 电压切换。
+
+### 最终方案
+
+1. 板级 DTS 把 SDMMC1 的实际 IO 电源固定为 1.8V，并让 `vqmmc` 指向同一路电源：
+
+```dts
+vccio_sd: LDO_REG5 {
+	regulator-min-microvolt = <1800000>;
+	regulator-max-microvolt = <1800000>;
+};
+
+&sdmmc1 {
+	max-frequency = <200000000>;
+	sd-uhs-sdr104;
+	vqmmc-supply = <&vccio_sd>;
+};
+```
+
+2. 内核补丁 `0014-z96a-sdio-uhs-cmd11.patch`：
+   - 当 host 已经处于 1.8V 时跳过 CMD11（对应上游 2026-10 的 RTL8822CS 修复）；
+   - 如果 UHS 初始化（tuning）失败，回退到 high-speed，而不是让整张卡初始化失败。
+
+3. 补丁 `0015-z96a-wifi-sdr104-1v8.patch` 负责上述 DTS 改动。
+
+> 上游 pinned commit（`0211cf630ee3`）已经声明 `sd-uhs-sdr104`，但用的是 `vqmmc = <&vcca1v8_pmu>` 且没有 `max-frequency`。那只是软件上“假装 1.8V”，实际 `vccio3` 仍由 `vccio_sd` 3.3V 供电；本补丁把电源和 `vqmmc` 改成一致的 1.8V，并显式设置 200MHz。
+
+### 实测结果（2026-11-12，`.84` USB Devuan 7.2.12）
+
+正常 U-Boot 引导（非 kexec）下：
+
+```text
+mmc_host mmc1: Bus speed = 200000000Hz (req 200000000Hz, actual 200000000HZ div = 0)
+dwmmc_rockchip fe2c0000.mmc: Successfully tuned phase to 122
+mmc1: new UHS-I speed SDR104 SDIO card at address 0001
+```
+
+`/sys/kernel/debug/mmc1/ios`：
+
+```text
+clock: 200000000 Hz
+timing spec: 6 (sd uhs SDR104)
+signal voltage: 1 (1.80 V)
+```
+
+| 项目 | XFL（2.4G, 2462MHz） | XFL_5G（5G, 5745MHz） | SDR104 后 XFL_5G |
+|---|---|---|---|
+| 关联速率 | 78/13 Mbit/s | 780/585 Mbit/s | 468–650 Mbit/s |
+| 局域网下行 | ~2.2 MB/s | ~8.2 MB/s | **~16.6–18.0 MB/s（133–144 Mbit/s）** |
+| ping | 无丢包，avg 11.5ms | 无丢包，avg 2.0ms | 50/50 无丢包，avg 4.2ms |
+| SDIO 总线 | 50MHz high speed | 50MHz high speed | **200MHz SDR104** |
+
+结论：
+
+- SDIO 吞吐从约 66 Mbit/s 提升到约 133–144 Mbit/s，约 2 倍；与上游 NanoPi R2S Plus 的实测（123/125 Mbit/s）同一量级。
+- 当前瓶颈已回到 5G 链路/空口，而不是 SDIO。
+- `vccio_sd` 固定 1.8V 后，`vccio3`（SDMMC1 IO）也固定 1.8V；本板的 SD 卡接口未启用，所以没有副作用。如果以后要启用 3.3V SD 卡，需要重新评估这路电源。
+- 50MHz 配置仍保留为回退路径；补丁 0014 的 UHS 失败回退保证 tuning 失败时 WiFi 不会消失。
+
+`0002-z96a-wifi-power-rail.patch.old` 目前未应用。
+
+## 4. 充电器 / 电池（高优先级，安全）
+
+原厂 `sc8886@6b`（`southchip,sc8886`）带：
+
+```text
+ti,charge-current = 1A
+ti,max-charge-voltage = 8.4V（2S）
+ti,max-input-voltage / max-input-current
+SDP/DCP/CDP 输入电流
+ti,minimum-sys-voltage
+OTG 电压/电流
+NTC 表 + io-channels
+```
+
+当前 mainline：
+
+```text
+charger@6b compatible southchip,sc8886s
+input-current-limit-microamp = 3A
+monitored-battery
+simple-battery（1A、8.4V、OCV 表）
+```
+
+差异：充电电压/电流、NTC 保护、输入限流策略。需要：
+
+1. 确认内核使用的 charger 驱动是 `sc8886s` 还是 `sc8886`；若驱动只支持前者，先补 DTS 属性（如果驱动消费这些属性）。
+2. 对照原厂把 charge current/voltage/NTC/输入限流写入 DTS 或驱动默认值。
+3. 结合现有 `0012-bq257xx-input-reset.patch` 检查是否与 SC8886 路径冲突。
+4. 在真实电池上验证充电电流/终止电压/温度保护。
+
+这一项涉及安全，建议单独评审，不要只改 DTS 就宣称对齐。
+
+## 5. Type-C / USB-PD（中优先级）
+
+原厂 HUSB311：
+
+```text
+switch-ctl-gpios
+source-pdos/sink-pdos = 0x40190c8
+```
+
+当前 mainline：
+
+```text
+无 switch-ctl-gpios
+source-pdos/sink-pdos = 0x220190c8
+```
+
+需要确认：
+
+- `switch-ctl-gpios` 对应的 USB 数据切换 GPIO 是否必须；当前 USB 启动可用，但 Type-C 角色/OTG 可能不同。
+- PDO 值是否影响 PD 充电协商；结合 SC8886 输入限流一起验证。
+
+## 6. NPU（中优先级，功能缺失）
+
+原厂 `npu@fde40000` status okay，带 `npu-opp-table`、`rknpu-supply`；当前 mainline DTB **没有 NPU 节点**。
+
+需要：
+
+- 确认内核是否包含 RKNPU 驱动（`CONFIG_ROCKCHIP_RKNPU` 等）；
+- 若有驱动，补 DTS 节点/供电/OPP；
+- 若没有，先移植驱动，属于较大工程，不建议与本次对齐混在一起。
+
+## 7. CPU/GPU OPP、PVTM、GPU power-model（中优先级）
+
+原厂 CPU OPP 带：
+
+```text
+rockchip,pvtm-voltage-sel
+nvmem-cells = leakage/pvtm/mbist-vmin
+rockchip,thermal-zone
+low-temp 调整
+```
+
+当前 mainline 使用相同频率档位（408M–1992M），但固定电压，无 PVTM/leakage 选择；GPU 无 `simple-power-model`。
+
+影响：高负载电压/频率策略更保守或更耗电，性能/温度表现可能与原厂不同。需要内核 OPP/PVTM 支持；若只补 DTS 而驱动不消费，等于无效。
+
+## 8. 其他低优先级差异
+
+- **SPI flash**：原厂 `sfc@fe300000` okay；mainline disabled。确认板上 SPI NOR 是否被 EC/恢复使用；当前启动不依赖。
+- **背光亮度曲线**：原厂 0–255；mainline 20–220 + 200 级插值。PWM 周期同为 25kHz，同亮度值占空比不同。
+- **eDP**：原厂有 `spdif` 时钟、`sunniwell,rh218`、双 backlight；mainline 用 aux-bus/EDID、单 backlight。显示已可用。
+- **音频**：原厂 2 个 `ES7202_PDM_ADC_*`；mainline 3 个 `everest,es7202`。需按实际麦克风数量核对。
+
+## 9. 验证清单
+
+镜像仓库改完后至少验证：
+
+1. `files/boot/uboot/z96a-v2/idbloader.bin` = `35c368f3...`；`u-boot.bin` = `3dd68203...`。
+2. 重新构建的 u-boot deb 内文件哈希一致。
+3. 新镜像启动后 eMMC `dmesg` 为 HS200/high speed，无 HS400。
+4. eMMC 写入测试（小文件 dd 读回）通过。
+5. WiFi `dmesg` 显示 200MHz/SDR104（若启用该补丁）。
+6. 充电器在真实电池上按预期电流/电压充电，NTC 保护有效。
+7. USB-C PD/OTG 行为与预期一致。
+
+## 10. 优先级建议
+
+1. 替换 precompiled U-Boot（1560 + P1）——直接对齐 live。
+2. 删除 HS400 补丁——修复 eMMC 写入可靠性。
+3. WiFi SDR104——性能对齐，测试后启用。
+4. 充电器/PD——安全相关，单独评审。
+5. NPU/OPP/SPI/背光/eDP/音频——按需求逐步处理。

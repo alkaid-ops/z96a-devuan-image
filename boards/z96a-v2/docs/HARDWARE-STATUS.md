@@ -11,8 +11,8 @@
 | SoC RK3568B2 | 4×Cortex-A55、`panfrost`、`rockchip_vdec`、`hantro_vpu`、`rga` | ✅ |
 | PMIC RK809-5 | `rk8xx-i2c`、`rk808` regulator、`rk808-rtc`、`snd_soc_rk817` | ✅ |
 | DRAM 4GB LPDDR4X | `MemTotal 4015956kB`；TPL/U-Boot 初始化 | N/A（可用） |
-| eMMC 32GB SiliconGo | `mmc0` 29.1GiB；冷启动确认 `mmc0: new HS400 MMC card` | ✅（HS400） |
-| WiFi RTL8822CS | `rtw88_8822cs`，`wlan0` up，`disable_lps_deep=y` | ✅ |
+| eMMC 32GB SiliconGo | `mmc0` 29.1GiB；冷启动确认 `mmc0: new HS200 MMC card` | ✅（HS200） |
+| WiFi RTL8822CS | `rtw88_8822cs`，SDIO 1.8V / 200MHz SDR104（tuned phase 122–126）；5G 局域网 ~16.6–18.0 MB/s | ✅ |
 | 蓝牙 RTL8822CS | `hci_uart` + `btrtl`，`hci0` UP | ✅ |
 | 显示屏 BOE NV140FHD-N43 | `panel-edp` + `analogix_dp` + `phy_rockchip_naneng_edp` + VOP；1920×1080 | ✅ |
 | 键盘 SH61F83Q / 触控板 CST128-A | `usbhid` | ✅ |
@@ -46,7 +46,7 @@
 
 - **Thorium 硬件解码**：`/usr/local/bin/z96a-thorium` 不得传 `--use-gl=angle`；ANGLE GLES 无法导入 NV12 DMA-BUF，会黑屏。改用 EGL + `--hardware-video-device-path` 后 `1.mp4` 正常，日志确认 S264→NV12。
 - **X11 视频呈现**：1080p 实测 1920×1080≈47fps、1600×900≈58fps、1280×720≈59–60fps；瓶颈是 Panfrost 每帧 NV12/dmabuf 渲染成本。mpv 调参已穷尽；Mesa 26.1.6 隔离测试曾更慢（313 vs 244 丢帧）。**注意：为 Vulkan/PanVK，镜像已把系统 Mesa 升到 26.1.6（excalibur-backports），视频需在新基线上复测。** 细节见 `references/MPV-X11-4K-HEVC.md`。
-- **eMMC HS400**：`0010-z96a-emmc-hs400.patch` 仅声明 `mmc-hs400-1_8v`，未启用 Enhanced Strobe。
+- **eMMC 速度**：已移除 `0010-z96a-emmc-hs400.patch`；内核 DTS 保持 HS200 / `max-frequency=200MHz`，不启用 `mmc-hs400-1_8v`，与原厂 U-Boot/内核一致。HS400 下 eMMC 写入曾出现 I/O error。
 - **电池温度**：`CONFIG_GENERIC_ADC_THERMAL=y`；`.84` 已用临时 `thermal-generic-adc.ko` 验证 `battery-thermal` 31.5°C。
 - **充电灯**：`z96a-charge-led` 启动时解除内核默认 `bq257xx-fgu-*` trigger。
 - **充电输入 A/B（2026-11-10）**：正常充电器稳定 `online=1 / Charging`；旧充电器造成 SC8886 `AC_STAT` 和 `online` 周期抖动。HUSB311/TCPM 在好坏充电器下状态一致，不是本次故障层。不要用 0014、运行时重绑定或恢复服务掩盖输入异常。

@@ -26,8 +26,11 @@
 | `0007-rkvdec-rk3568-dts.patch` | rkvdec DTS |
 | `0008-rk3568-edp-140240000.patch` | eDP 140.24MHz |
 | `0009-z96a-camera-power.patch` | 摄像头 `vcc_camera` 常开 |
-| `0010-z96a-emmc-hs400.patch` | eMMC HS400 |
 | `0011-z96a-es7202-6ch.patch` | ES7202 原生 6ch 采集 |
+| `0012-bq257xx-input-reset.patch` | BQ257xx 输入状态复位/恢复 |
+| `0013-z96a-led-system-indicator.patch` | 电源灯改为系统运行指示 |
+| `0014-z96a-sdio-uhs-cmd11.patch` | SDIO 1.8V 时跳过 CMD11，UHS 失败回退 high-speed |
+| `0015-z96a-wifi-sdr104-1v8.patch` | WiFi SDIO 固定 1.8V、200MHz SDR104 |
 
 `.old` 后缀和 `remote-head/` 是 rebase 过程的中间产物，稳定后清理（见 `docs/TODO.md`）。
 
