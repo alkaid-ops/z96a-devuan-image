@@ -399,6 +399,11 @@ FDT="../${FAMILY}/${DTB}.dtb"
 FDTDIR="../${FAMILY}"
 CMDLINE="append earlyprintk ${CONSOLE} rw root=PARTUUID=${ROOT_PARTUUID} rootwait ${ROOT_FSTYPE} fsck.repair=yes ${LOGLEVEL} ${EXTRA} init=/sbin/init"
 CHECK=`echo "$INSTALLED_KERNEL" | sed -e 's/^\(.\{4\}\).*/\1/' | sed 's/-//g'`
+# z96a-v2 boots without an initramfs: usb-storage/scsi/block/ext4 are built in
+# and the kernel resolves root=PARTUUID itself.  This keeps the boot logo on
+# screen and removes the initrd decompress + udev coldplug stage.
+INITRD_LINE="	initrd ../${BOOT_INITRD}"
+if [[ "$BOARD" == "z96a-v2" ]]; then INITRD_LINE="	#initrd ../${BOOT_INITRD}"; fi
 mkdir -p ${BOOT_PATH}/extlinux
 if [[ -f "${BOOT_PATH}/extlinux/extlinux.conf" ]]; then rm -f ${BOOT_PATH}/extlinux/extlinux.conf; fi
 tee ${BOOT_PATH}/extlinux/extlinux.conf <<EOF
@@ -407,7 +412,7 @@ timeout 5
 
 label ${CAP_DISTRO} ${CAP_RELEASE}
 	kernel ../${BOOT_KERNEL}
-	initrd ../${BOOT_INITRD}
+${INITRD_LINE}
 	fdtdir ${FDTDIR}
 	fdt ${FDT}
 	${EXTLINUX_FDTOVERLAYS}

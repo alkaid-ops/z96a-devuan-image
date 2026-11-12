@@ -1,6 +1,8 @@
+diff --git a/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts b/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
+index 700b919..49104f6 100644
 --- a/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
 +++ b/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
-@@ -605,8 +605,8 @@
+@@ -621,8 +621,8 @@ vccio_sd: LDO_REG5 {
  				regulator-name = "vccio_sd";
  				regulator-always-on;
  				regulator-boot-on;
@@ -11,19 +13,17 @@
  
  				regulator-state-mem {
  					regulator-off-in-suspend;
-@@ -907,13 +907,14 @@
+@@ -930,11 +930,12 @@ &sdmmc1 {
  	cap-sdio-irq;
  	disable-wp;
  	keep-power-in-suspend;
+-	max-frequency = <50000000>;
 +	max-frequency = <200000000>;
  	mmc-pwrseq = <&sdio_pwrseq>;
  	non-removable;
  	pinctrl-names = "default";
  	pinctrl-0 = <&sdmmc1_bus4 &sdmmc1_clk &sdmmc1_cmd>;
- 	sd-uhs-sdr104;
++	sd-uhs-sdr104;
  	vmmc-supply = <&wifi_power>;
--	vqmmc-supply = <&vcca1v8_pmu>;
-+	vqmmc-supply = <&vccio_sd>;
- 
- 	status = "okay";
+ 	vqmmc-supply = <&vccio_sd>;
  

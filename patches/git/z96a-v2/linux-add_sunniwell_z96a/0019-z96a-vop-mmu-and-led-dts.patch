@@ -1,0 +1,40 @@
+diff --git a/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts b/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
+index 76725d689..ac666b38b 100644
+--- a/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
++++ b/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
+@@ -162,21 +162,18 @@ led_power: led-power {
+ 			function = LED_FUNCTION_POWER;
+ 			color = <LED_COLOR_ID_WHITE>;
+ 			/* Z96A: system-running indicator, not charger presence. */
+-			linux,default-trigger = "default-on";
+ 		};
+ 
+ 		led_charging: led-charging {
+ 			gpios = <&gpio0 RK_PD5 GPIO_ACTIVE_HIGH>;
+ 			function = LED_FUNCTION_CHARGING;
+ 			color = <LED_COLOR_ID_RED>;
+-			linux,default-trigger = "bq257xx-fgu-charging";
+ 		};
+ 
+ 		led_full: led-full {
+ 			gpios = <&gpio0 RK_PD6 GPIO_ACTIVE_HIGH>;
+ 			function = LED_FUNCTION_CHARGING;
+ 			color = <LED_COLOR_ID_GREEN>;
+-			linux,default-trigger = "bq257xx-fgu-full";
+ 		};
+ 	};
+ 
+@@ -1070,7 +1067,12 @@ &vop {
+ };
+ 
+ &vop_mmu {
+-	status = "okay";
++	/*
++	 * Keep the bootloader scanout alive across the handover: Linux must
++	 * not attach the VOP2 IOMMU (rockchip_drm_init_iommu() then returns 0
++	 * and DRM falls back to physical DMA + CMA).
++	 */
++	status = "disabled";
+ };
+ 
+ &vp0 {

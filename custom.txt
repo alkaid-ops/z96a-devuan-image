@@ -16,7 +16,37 @@ ENABLE_SHRINK="true"
 IMG_COMPRESSION="xz"
 
 user_function (){
-	true
+	if [[ "$BOARD" != "z96a-v2" ]]; then return 0; fi
+
+	# --- Z96A boot/display fixes (kernel side: patches 0018/0019) ---
+	# 1) Load DRM only right before the display manager, so the bootloader
+	#    logo stays on screen until X is ready.
+	if ! grep -q "Z96A: load the display stack" /etc/init.d/slim 2>/dev/null; then
+		sed -i 's|^# Required-Start:.*|# Required-Start:    $local_fs|; s|^# Required-Stop:.*|# Required-Stop:     $local_fs|' /etc/init.d/slim
+		sed -i '/start-stop-daemon --start --quiet \$SSD_START_ARGS/i\      # Z96A: load the display stack only now, so the bootloader logo\n      # stays on screen instead of being blanked by DRM early in boot.\n      modprobe panel_edp 2>/dev/null || true\n      modprobe rockchipdrm 2>/dev/null || true' /etc/init.d/slim
+	fi
+	chmod +x /etc/init.d/z96a-drm-guard 2>/dev/null || true
+	update-rc.d z96a-drm-guard defaults >/dev/null 2>&1 || true
+
+	# 2) mtp-probe ships as an overlay file (libmtp-runtime is not installed)
+	chmod +x /usr/lib/udev/mtp-probe 2>/dev/null || true
+
+	# 3) hardware RNG is built into the kernel; the software entropy daemon is moot
+	update-rc.d -f haveged disable >/dev/null 2>&1 || true
+
+	# 4) ntpsec has no ntpd on this image (chrony provides time) and its init
+	#    script shipped without the executable bit
+	chmod +x /etc/init.d/ntpsec 2>/dev/null || true
+	update-rc.d -f ntpsec remove >/dev/null 2>&1 || true
+
+	# 5) locale moved out of the deprecated /etc/environment
+	if grep -q '^LANG=' /etc/environment 2>/dev/null; then
+		grep '^LANG=\|^LANGUAGE=' /etc/environment >> /etc/default/locale
+		sed -i '/^LANG=\|^LANGUAGE=/d' /etc/environment
+	fi
+
+	# 6) keep the initramfs module list tidy (initrd is not used on this board)
+	sed -i '/^rockchipdrm$/d;/^analogix_dp$/d;/^panel_edp$/d' /etc/initramfs-tools/modules 2>/dev/null || true
 }
 
 ### DO NOT EDIT BELOW THIS LINE

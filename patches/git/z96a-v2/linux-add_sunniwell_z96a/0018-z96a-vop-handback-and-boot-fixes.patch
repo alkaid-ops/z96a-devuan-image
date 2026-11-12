@@ -1,0 +1,257 @@
+From: Local Z96A display/boot work
+Subject: [PATCH] z96a: keep boot logo across the handover, ungated GPIO0, VO genpd
+
+Net changes against yjun123/linux add_sunniwell_z96a:
+ - z96a_handback: clear the VOP POST standby left by the U-Boot bootm path
+ - z96a_gpio0_ungate: open the PMU GPIO0 gates before gpio-leds probes
+ - rockchip pm-domains: keep the VO domain always on
+
+diff --git a/drivers/pmdomain/rockchip/pm-domains.c b/drivers/pmdomain/rockchip/pm-domains.c
+index b57581b36..03902df56 100644
+--- a/drivers/pmdomain/rockchip/pm-domains.c
++++ b/drivers/pmdomain/rockchip/pm-domains.c
+@@ -905,6 +905,16 @@ static int rockchip_pm_add_one_domain(struct rockchip_pmu *pmu,
+ 	pd->genpd.attach_dev = rockchip_pd_attach_dev;
+ 	pd->genpd.detach_dev = rockchip_pd_detach_dev;
+ 	pd->genpd.flags = GENPD_FLAG_PM_CLK | GENPD_FLAG_NO_STAY_ON;
++	/*
++	 * Z96A: the bootloader leaves the VO domain powered and the eDP
++	 * scanout live. genpd's sync_state would power the domain off as
++	 * soon as the PMU provider probes (no consumer bound yet), which
++	 * blanks the screen until rockchipdrm re-initialises the display
++	 * several seconds later. Keep VO powered so the boot logo keeps
++	 * scanning until the real display driver takes over.
++	 */
++	if (pd->info->name && !strcmp(pd->info->name, "vo"))
++		pd->genpd.flags |= GENPD_FLAG_ALWAYS_ON;
+ 	if (pd_info->active_wakeup)
+ 		pd->genpd.flags |= GENPD_FLAG_ACTIVE_WAKEUP;
+ 	pm_genpd_init(&pd->genpd, NULL,
+diff --git a/drivers/soc/rockchip/Makefile b/drivers/soc/rockchip/Makefile
+index 23d414433..67d97071f 100644
+--- a/drivers/soc/rockchip/Makefile
++++ b/drivers/soc/rockchip/Makefile
+@@ -5,3 +5,5 @@
+ obj-$(CONFIG_ROCKCHIP_GRF) += grf.o
+ obj-$(CONFIG_ROCKCHIP_IODOMAIN) += io-domain.o
+ obj-$(CONFIG_ROCKCHIP_DTPM) += dtpm.o
++obj-y += z96a_handback.o
++obj-y += z96a_gpio0_ungate.o
+diff --git a/drivers/soc/rockchip/z96a_gpio0_ungate.c b/drivers/soc/rockchip/z96a_gpio0_ungate.c
+new file mode 100644
+index 000000000..6f4037d34
+--- /dev/null
++++ b/drivers/soc/rockchip/z96a_gpio0_ungate.c
+@@ -0,0 +1,55 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Z96A GPIO0 clock ungating.
++ *
++ * The power/charge LEDs live on GPIO0 (PMU domain).  gpio-leds probes at
++ * device_initcall time, before anything has taken a clock reference on
++ * pclk_gpio0, and on RK3568 touching a clock-gated GPIO bank hangs the
++ * interconnect for several seconds (this was the 5.7 s boot stall seen
++ * with the leds node enabled).
++ *
++ * Open the PMU CRU gates for the GPIO0 bank from subsys_initcall, which
++ * runs before the LED driver probes.  The rockchip clock framework takes
++ * its own reference later when the GPIO bank driver binds, so this only
++ * bridges the gap; it does not pin the clock on forever.
++ *
++ * Rockchip gate bits use CLK_GATE_HIWORD_MASK | CLK_GATE_SET_TO_DISABLE:
++ * the upper half-word is the write mask and a data bit of 0 means "clock
++ * running".
++ */
++
++#include <linux/io.h>
++#include <linux/init.h>
++#include <linux/kernel.h>
++
++#define PMUCRU_BASE		0xfdd00000UL
++#define PMU_CLKGATE_CON(n)	((n) * 4 + 0x180)
++
++/* PMU_CLKGATE_CON(1): PCLK_GPIO0 = bit9, DBCLK_GPIO0 = bit10. */
++#define GPIO0_GATE_REG		PMU_CLKGATE_CON(1)
++#define GPIO0_GATE_MASK		(BIT(9) | BIT(10))
++
++static int __init z96a_gpio0_ungate(void)
++{
++	void __iomem *pmucru;
++	u32 before, after, mask = GPIO0_GATE_MASK;
++
++	pmucru = ioremap(PMUCRU_BASE, 0x1000);
++	if (!pmucru)
++		return 0;
++
++	before = readl_relaxed((u8 __iomem *)pmucru + GPIO0_GATE_REG);
++
++	/* Clear the gate bits through the write mask. */
++	writel_relaxed((before & ~mask) | (mask << 16),
++		       (u8 __iomem *)pmucru + GPIO0_GATE_REG);
++	after = readl_relaxed((u8 __iomem *)pmucru + GPIO0_GATE_REG);
++
++	pr_debug("Z96G0 gpio0 gates %08x -> %08x (pclk_run=%d dbclk_run=%d)\n",
++		 before, after,
++		 !(after & BIT(9)), !(after & BIT(10)));
++
++	iounmap(pmucru);
++	return 0;
++}
++subsys_initcall(z96a_gpio0_ungate);
+diff --git a/drivers/soc/rockchip/z96a_handback.c b/drivers/soc/rockchip/z96a_handback.c
+new file mode 100644
+index 000000000..406bd0b46
+--- /dev/null
++++ b/drivers/soc/rockchip/z96a_handback.c
+@@ -0,0 +1,151 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Z96A display hand-back.
++ *
++ * The RK3568 U-Boot blanks the VOP output on the bootm path
++ * (dm_remove_devices_active() -> rk3568_vop_remove() -> rk_vop2_disable())
++ * by setting the POST DSP_CTRL STANDBY bit (bit31).  The plane keeps
++ * scanning the boot framebuffer and the eDP stream keeps running, so the
++ * picture comes back as soon as that single bit is cleared.
++ *
++ * This driver runs at subsys_initcall, well before the DRM drivers bind:
++ * if the bootloader left a scanning plane behind with the output in
++ * standby, clear the bit and commit the register change.  The guard
++ * conditions make it a no-op on every boot that did not hand over a
++ * live logo (including USB boots that never probed the display).
++ *
++ * Safety: RK3568 hangs the interconnect when a clock-gated block is
++ * accessed.  Every VOP access is therefore guarded by the PMU power
++ * domain status and the CRU clock gates.  Rockchip gates use
++ * CLK_GATE_SET_TO_DISABLE, so a register bit of 0 means "clock running".
++ */
++
++#include <linux/io.h>
++#include <linux/init.h>
++#include <linux/kernel.h>
++
++#define PMU_BASE	0xfdd90000UL
++#define CRU_BASE	0xfdd20000UL
++#define VOP_BASE	0xfe040000UL
++
++#define PMU_STATUS	0x98
++#define GATE20		0x350
++#define GATE21		0x354
++
++#define VO_ST_BIT	BIT(4)
++#define G_ACLK_VOP	BIT(8)
++#define G_HCLK_VOP	BIT(9)
++#define G_DCLK_VOP0	BIT(10)
++#define G_PCLK_EDP	BIT(8)
++#define G_EDP_200M	BIT(9)
++
++#define RUNNING(g, m)	(!((g) & (m)))
++
++/* VOP2 register offsets (matches the U-Boot headers). */
++#define VOP_REG_CFG_DONE	0x00
++#define VOP_SYS_DSP_EN		0x28
++
++/*
++ * REG_CFG_DONE layout (see U-Boot rkvop2_cfg_regdone()):
++ *   bit15 = M_GLOBAL_REGDONE
++ *   bit[port] and bit[port+16] = M_LOAD_GLOBAL(port) and its mirror
++ * Writing anything else does not latch the change into the VOP.
++ */
++#define M_GLOBAL_REGDONE	BIT(15)
++#define M_LOAD_GLOBAL(port)	BIT((port) & 3)
++#define VOP_CFG_DONE(port)	((u32)(M_GLOBAL_REGDONE | M_LOAD_GLOBAL(port) | \
++				       (M_LOAD_GLOBAL(port) << 16)))
++#define VOP_POST_DSP_CTRL(vp)	(0x0c00 + ((vp) * 0x100) + 0x00)
++#define VOP_POST_COLOR_CTRL(vp)	(0x0c00 + ((vp) * 0x100) + 0x08)
++#define VOP_EDP_INFACE_MUX(dsp_en) (((dsp_en) >> 14) & 3)
++#define VOP_ESMART0_MST_CTL	(0x1800 + 0x10)
++
++#define M_POST_STANDBY		((u32)BIT(31))
++#define M_ESMART_REGION0_MST_EN	((u32)BIT(0))
++
++static int __init z96a_handback(void)
++{
++	void __iomem *pmu, *cru, *vop;
++	u32 st, g20, g21, mst, post, color, dsp_en, port;
++	int vp;
++	bool did = false;
++
++	pmu = ioremap(PMU_BASE, 0x1000);
++	cru = ioremap(CRU_BASE, 0x1000);
++	if (!pmu || !cru) {
++		pr_info("Z96HB ioremap(safe) failed\n");
++		goto out;
++	}
++
++	st = readl_relaxed((u8 __iomem *)pmu + PMU_STATUS);
++	g20 = readl_relaxed((u8 __iomem *)cru + GATE20);
++	g21 = readl_relaxed((u8 __iomem *)cru + GATE21);
++
++	if (!(st & VO_ST_BIT) ||
++	    !RUNNING(g20, G_ACLK_VOP | G_HCLK_VOP | G_DCLK_VOP0)) {
++		pr_info("Z96HB skip: VO domain/gates not open st=%08x g20=%08x\n",
++			st, g20);
++		goto out;
++	}
++
++	vop = ioremap(VOP_BASE, 0x2000);
++	if (!vop)
++		goto out;
++
++	mst = readl_relaxed((u8 __iomem *)vop + VOP_ESMART0_MST_CTL);
++	dsp_en = readl_relaxed((u8 __iomem *)vop + VOP_SYS_DSP_EN);
++	port = VOP_EDP_INFACE_MUX(dsp_en);
++
++	post = readl_relaxed((u8 __iomem *)vop + VOP_POST_DSP_CTRL(port));
++	color = readl_relaxed((u8 __iomem *)vop + VOP_POST_COLOR_CTRL(port));
++
++	pr_info("Z96HB pre: esmart0_mst=%08x dsp_en=%08x port=%u post%u_ctrl=%08x post%u_color=%08x g21=%08x\n",
++		mst, dsp_en, port, port, post, port, color, g21);
++
++	if (!(mst & M_ESMART_REGION0_MST_EN)) {
++		pr_info("Z96HB skip: no live plane (mst_en=0)\n");
++		goto out;
++	}
++
++	/*
++	 * The bootloader may have left more than one post in standby; clear
++	 * it on every VP.  Writing a VP that is not scanning is harmless.
++	 */
++	for (vp = 0; vp < 3; vp++) {
++		u32 ctrl = readl_relaxed((u8 __iomem *)vop + VOP_POST_DSP_CTRL(vp));
++
++		if (ctrl & M_POST_STANDBY) {
++			writel(ctrl & ~M_POST_STANDBY,
++			       (u8 __iomem *)vop + VOP_POST_DSP_CTRL(vp));
++			writel(VOP_CFG_DONE(vp),
++			       (u8 __iomem *)vop + VOP_REG_CFG_DONE);
++			pr_info("Z96HB vp%d standby cleared: %08x -> %08x (regdone %08x)\n",
++				vp, ctrl, ctrl & ~M_POST_STANDBY,
++				VOP_CFG_DONE(vp));
++			did = true;
++		}
++	}
++
++	if (!did) {
++		pr_info("Z96HB skip: no VP in standby\n");
++		goto out;
++	}
++
++
++	post = readl_relaxed((u8 __iomem *)vop + VOP_POST_DSP_CTRL(port));
++	pr_info("Z96HB hand-back: active port %u ctrl now %08x cfg_done=%08x\n",
++		port, post, readl_relaxed((u8 __iomem *)vop + VOP_REG_CFG_DONE));
++
++	iounmap(vop);
++out:
++	if (pmu)
++		iounmap(pmu);
++	if (cru)
++		iounmap(cru);
++
++	if (did)
++		pr_info("Z96HB: boot logo restored at initcall time\n");
++
++	return 0;
++}
++subsys_initcall(z96a_handback);
