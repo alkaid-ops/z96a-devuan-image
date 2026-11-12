@@ -1,5 +1,8 @@
 # USB Keyboard VID:0x6080 PID:0x8060
-evdev:input:b0003v6080p8060*
+# Match only the main keyboard evdev interface.  The same USB device also
+# exposes Mouse / System Control / Consumer Control interfaces; those do not
+# accept these keyboard-page scancodes and make udev log EVIOCSKEYCODE errors.
+evdev:name:AMR-TOUCH-MOUSE 202110 USB KEYBOARD:*
  KEYBOARD_KEY_700FA=micmute         # F2 Mic mute: KEY_REFRESH -> KEY_MICMUTE
  KEYBOARD_KEY_700FB=wlan            # F8 Wi-Fi switch: KEY_CALC -> KEY_WLAN
  KEYBOARD_KEY_700F8=pause             # Pause: KEY_UNKNOWN -> KEY_PAUSE
