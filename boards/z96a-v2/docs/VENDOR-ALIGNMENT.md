@@ -222,6 +222,17 @@ simple-battery（1A、8.4V、OCV 表）
 
 ### 电池计量：RK817 PMIC 库仑计（2026-11-13）
 
+**本机电池规格（用户确认）**：SHT 3585130-2S / **5000mAh / 37Wh / 8.4V（2S）**。
+原厂 DTS 的 `design_capacity=5125mAh`、`design_qmax=5500mAh` 是 BSP 标定值，
+不是本机规格；mainline `simple-battery` 应按 5000mAh、8.4V 设置，OCV 表沿用原厂 21 点。
+
+完整证据、原厂驱动源码快照和补丁方案见：
+
+```text
+rea-z97a/docs/BATTERY-GAUGE-MEMORY.md
+rea-z97a/analysis/vendor/rk817_battery.c
+```
+
 原厂电量不是用 SC8886 的电压 OCV，而是 RK809 PMIC 下的：
 
 ```dts
