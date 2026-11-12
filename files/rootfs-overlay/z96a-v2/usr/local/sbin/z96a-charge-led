@@ -4,8 +4,14 @@
 #   AC online, capacity <  90%  -> red on, green off
 #   AC offline                  -> both off
 #
+# Event driven: udev (99-z96a-charge-led.rules) runs this with --once when
+# rk817-battery reports a capacity/status change or bq257xx-charger reports
+# an AC online change.  init.d also runs it once at boot.  --watch is only a
+# debugging fallback and reproduces the old 2 second polling loop.
+#
 # The kernel's default bq257xx LED triggers are detached first, because this
-# policy is capacity-based and cannot be expressed with the power-supply triggers.
+# policy is capacity-based and cannot be expressed with the power-supply
+# triggers.
 
 set -u
 
@@ -16,16 +22,40 @@ WHITE=$LED_DIR/white:power
 RED=$LED_DIR/red:charging
 GREEN=$LED_DIR/green:charging
 THRESHOLD=${Z96A_CHARGE_LED_THRESHOLD:-90}
+MAX_WAIT=${Z96A_CHARGE_LED_MAX_WAIT:-10}
+WATCH_INTERVAL=${Z96A_CHARGE_LED_INTERVAL:-2}
+MODE=once
+
+case "${1:-}" in
+	""|--once)
+		MODE=once
+		;;
+	--watch)
+		MODE=watch
+		;;
+	*)
+		echo "Usage: $0 [--once|--watch]" >&2
+		exit 3
+		;;
+esac
+
+hw_ready() {
+	[ -d "$RED" ] && [ -d "$GREEN" ] && [ -d "$WHITE" ] &&
+		[ -r "$BAT/capacity" ] && [ -r "$CHG/online" ]
+}
 
 wait_for_hw() {
-	# Keep retrying at boot until the LEDs and power supplies exist. The
-	# system-running LED must be part of the wait: gpio-leds can register it
-	# after the charging pair, and a one-shot write before it exists would
-	# leave the power LED dark for the whole boot.
-	while [ ! -d "$RED" ] || [ ! -d "$GREEN" ] || [ ! -d "$WHITE" ] ||
-	      [ ! -r "$BAT/capacity" ] || [ ! -r "$CHG/online" ]; do
+	# The system-running LED must be part of the wait: gpio-leds can
+	# register it after the charging pair.  A udev event or the init.d
+	# one-shot will run us again once the supplies appear, so do not block
+	# forever here; a boot-time invocation should not hang init.
+	i=0
+	while ! hw_ready; do
+		i=$((i + 1))
+		[ "$i" -ge "$MAX_WAIT" ] && return 1
 		sleep 1
 	done
+	return 0
 }
 
 set_led() {
@@ -38,31 +68,23 @@ set_led() {
 detach_triggers() {
 	for led in "$RED" "$GREEN"; do
 		[ -d "$led" ] || continue
+		grep -q "\[none\]" "$led/trigger" 2>/dev/null && continue
 		echo none > "$led/trigger" 2>/dev/null || true
 	done
 }
 
-wait_for_hw
-detach_triggers
-
-# The power LED next to Caps Lock is the system-running indicator, not a
-# charger-presence LED. Keep it solid while the system is up; the DTS
-# default-trigger must not be bq257xx-charger-online.
-#
-# Re-asserted every cycle: a DTB without linux,default-trigger leaves the
-# LED off at registration, and anything that clears the trigger (driver
-# rebind, suspend/resume, a stray write) would otherwise keep it dark until
-# the next boot.
 ensure_power_led() {
+	# The power LED next to Caps Lock is the system-running indicator, not
+	# a charger-presence LED.  Keep it solid while the system is up; a DTB
+	# without linux,default-trigger leaves it off at registration, and a
+	# stray write or driver rebind would otherwise keep it dark.
 	[ -d "$WHITE" ] || return 0
 	if ! grep -q "\[default-on\]" "$WHITE/trigger" 2>/dev/null; then
 		echo default-on > "$WHITE/trigger" 2>/dev/null || true
 	fi
 }
 
-ensure_power_led
-
-while :; do
+apply_once() {
 	online=$(cat "$CHG/online" 2>/dev/null || echo 0)
 	capacity=$(cat "$BAT/capacity" 2>/dev/null || echo 0)
 	case "$capacity" in
@@ -80,6 +102,22 @@ while :; do
 		set_led "$RED" 0
 		set_led "$GREEN" 0
 	fi
+}
 
-	sleep 2
-done
+wait_for_hw || exit 0
+detach_triggers
+
+case "$MODE" in
+	watch)
+		# Debug only: old 2 second polling behaviour.
+		while :; do
+			apply_once
+			sleep "$WATCH_INTERVAL"
+		done
+		;;
+	once)
+		apply_once
+		;;
+esac
+
+exit 0

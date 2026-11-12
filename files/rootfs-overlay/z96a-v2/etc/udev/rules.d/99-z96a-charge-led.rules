@@ -1,0 +1,8 @@
+# Z96A capacity-based charging LED.
+#
+# rk817-battery emits a change uevent only when its reported integer capacity
+# or charge status changes (plus the existing plug in/out interrupts).
+# bq257xx-charger emits a change uevent when AC online changes.  The helper is
+# a one-shot: it reads sysfs, writes the LED brightness values, and exits.
+# Never add a sleep loop here; udev waits for RUN programs to finish.
+ACTION=="add|change", SUBSYSTEM=="power_supply", KERNEL=="rk817-battery|bq257xx-charger", RUN+="/usr/local/sbin/z96a-charge-led --once"

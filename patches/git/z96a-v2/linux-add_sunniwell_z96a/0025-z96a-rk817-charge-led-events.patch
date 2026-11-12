@@ -1,0 +1,55 @@
+--- a/drivers/power/supply/rk817_charger.c
++++ b/drivers/power/supply/rk817_charger.c
+@@ -108,6 +108,10 @@
+ 	int charge_status;
+ 	int charger_input_volt_avg_uv;
+ 
++	/* Last values advertised to userspace through power_supply_changed(). */
++	int last_capacity;
++	int last_charge_status;
++
+ 	/* Work queue to periodically update values. */
+ 	struct delayed_work work;
+ };
+@@ -1087,11 +1091,32 @@
+ static void rk817_charging_monitor(struct work_struct *work)
+ {
+ 	struct rk817_charger *charger;
++	int capacity;
+ 
+ 	charger = container_of(work, struct rk817_charger, work.work);
+ 
+ 	rk817_read_props(charger);
+ 
++	capacity = (charger->soc + 500) / 1000;
++	if (capacity > 100)
++		capacity = 100;
++	if (capacity < 0)
++		capacity = 0;
++
++	/*
++	 * Only wake userspace when the value it can observe actually changes.
++	 * soc is tracked in thousandths of a percent and changes on every
++	 * sample, so compare the reported integer capacity instead.  Without
++	 * this gate every 8 second poll would emit a udev change event and
++	 * largely defeat the point of an event driven charger LED.
++	 */
++	if (capacity != charger->last_capacity ||
++	    charger->charge_status != charger->last_charge_status) {
++		charger->last_capacity = capacity;
++		charger->last_charge_status = charger->charge_status;
++		power_supply_changed(charger->bat_ps);
++	}
++
+ 	/* Run every 8 seconds like the BSP driver did. */
+ 	queue_delayed_work(system_percpu_wq, &charger->work, msecs_to_jiffies(8000));
+ }
+@@ -1129,6 +1154,8 @@
+ 
+ 	charger->rk808 = rk808;
+ 	charger->is_rk809 = (rk808->variant == RK809_ID);
++	charger->last_capacity = -1;
++	charger->last_charge_status = -1;
+ 
+ 	charger->dev = &pdev->dev;
+ 	platform_set_drvdata(pdev, charger);
