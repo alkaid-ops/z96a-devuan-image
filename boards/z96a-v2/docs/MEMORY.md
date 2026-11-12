@@ -112,7 +112,7 @@
 - 持久化：`~/.local/state/z96a/{volume-level,brightness-level}`，会话启动 `z96a-hotkey restore-hardware`。
 - OSD 复用 `z96a-system-tray --osd`；`z96a-volume-feedback` 监听 mixer 变化。
 - 电池图标：`z96a-system-tray` 默认 `BATTERY_DEVICE=/sys/class/power_supply/rk817-battery`；LXQt 自带 battery watcher 保持关闭，避免重复图标。
-- 充电灯：`z96a-charge-led` 读 `rk817-battery` 容量 + `bq257xx-charger` online；≥90% 绿、<90% 红、拔掉灭。不要改回已停用的 `bq257xx-fgu`。
+- 充电灯：`z96a-charge-led` 读 `rk817-battery` 容量 + `bq257xx-charger` online；≥90% 绿、<90% 红、拔掉灭。不要改回已停用的 `bq257xx-fgu`。当前按用户要求保留每 2 秒轮询；下个版本再改成驱动 `power_supply_changed` + udev + `--once` 的事件驱动。
 - 不要再用轮询 `amixer` 的旧实现（曾把 ALSA 控制接口堵死）。
 
 ## 终端 / 网络 / 输入法 / 媒体
