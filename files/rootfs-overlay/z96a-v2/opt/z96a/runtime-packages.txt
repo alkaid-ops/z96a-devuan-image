@@ -39,6 +39,8 @@ nm-connection-editor
 p7zip-full
 python3
 python3-gi
+plymouth
+plymouth-themes
 slim
 smbclient
 sshfs

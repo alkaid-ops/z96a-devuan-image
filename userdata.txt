@@ -38,7 +38,7 @@ KBHOST="leghorn"
 
 ### LOCALES TIMEZONE AND NAMESERVERS
 ROOTPASSWD="0"
-USER_PKGS="v4l-utils ffmpeg"
+USER_PKGS="v4l-utils ffmpeg plymouth plymouth-themes"
 LOCALE="en_US.UTF-8"
 LOCALE_LC_ALL="C.UTF-8"
 TIMEZONE="Asia/Shanghai"

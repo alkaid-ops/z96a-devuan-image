@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Alkaid
+Description=Alkaid OS boot animation
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/alkaid
+ScriptFile=/usr/share/plymouth/themes/alkaid/alkaid.script

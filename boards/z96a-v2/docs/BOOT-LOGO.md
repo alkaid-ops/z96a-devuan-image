@@ -92,3 +92,54 @@ vccio3（SD 卡槽 IO），固定 1.8V 对 3.3V SD 卡有影响，需按实际�
   USB3 host 的 usb3-phy，禁用会丢 U 盘根设备，保留。
 - `EVIOCSKEYCODE ... Invalid argument`：USB 键盘不支持运行期键码重映射。
 - `simple-amplifier: supply VCC not found, using dummy regulator`：功放供电用 dummy 兜底。
+
+## 3. 开机动画（Plymouth Alkaid）
+
+在 LOGO 交接方案之上，把「内核启动→登录页」这段用 Plymouth 动画覆盖。设计源是
+Alkaid OS 的 SMIL SVG（`alakid-boot.svg`），**设备端不安装任何 SVG/Chromium 运行时**。
+
+### 3.1 管线
+
+```
+SVG(SMIL) --Chromium(setCurrentTime)--> 61 张 1080p PNG（0–6s @10fps）
+          --索引色量化(256色)--> 13MB 帧序列
+          --Plymouth script 主题(懒加载)--> DRM 全屏动画
+```
+
+- 主题：`files/rootfs-overlay/z96a-v2/usr/share/plymouth/themes/alkaid/`
+  - `alkaid.plymouth` 必须包含 `[script]` 组（`ImageDir`/`ScriptFile`），否则
+    脚本路径为 NULL，`plymouthd` 启动时崩溃
+  - `alkaid.script`：只预加载第 0 帧，其余在 refresh 回调里逐帧解码；
+    变量必须写 `global.idx` / `global.finished`（函数内直接赋值是局部变量，
+    否则每帧重置、动画停在第一帧）
+  - `logo-bgra.bin.gz` / `last-bgra.bin.gz`：给 framebuffer 补画用（见 3.3）
+- `Plymouth.SetRefreshRate(10)`：按 10Hz 推进；索引色帧实测 **9.9 fps**、正片 **6.1s**
+
+### 3.2 slim 集成（`custom.txt` 构建时打补丁）
+
+`/etc/init.d/slim` 在启动 X 前：
+
+1. 等 DRM card（`/dev/dri/by-path/platform-display-subsystem-card`）
+2. `paint_fb logo-bgra.bin.gz` —— 把 U-Boot logo 画进 DRM fb（衔接 LOGO→动画）
+3. `plymouthd --mode=boot` + `show-splash`，播放 `Z96A_ANIM_SECONDS`（默认 7s）
+4. `plymouth quit` + `paint_fb last-bgra.bin.gz` —— 动画最后一帧撑到 X modeset
+5. 启动 X
+
+`/etc/slim.conf` 增加 `-novtswitch vt01`：X 留在当前 VT，不申请 VT 切换，避免
+`plymouth quit --retain-splash` 留下的内核 VT 死锁（现象：X 卡在 `vt_event_wait`、
+`chvt` 超时）。
+
+### 3.3 关闭 framebuffer console（defconfig）
+
+`# CONFIG_FRAMEBUFFER_CONSOLE is not set`。否则 fbcon 会在两处重绘 tty1 启动日志：
+DRM 初始化绑定时、Plymouth 退出后。关闭后启动日志只进 dmesg/串口，屏幕不再出现
+`Starting SMP IRQ Balancer` 之类的文字。
+
+### 3.4 实测时间线（内核时间）
+
+```
+mount ~2.3s → DRM 12.5s → Plymouth 首帧 ~12.5s → 动画 6.1s
+→ 最后一帧 → X 20s → 登录页
+```
+
+用户观感：`LOGO →（极短切换）→ Alkaid 动画 → 登录页`，无启动日志文字。
