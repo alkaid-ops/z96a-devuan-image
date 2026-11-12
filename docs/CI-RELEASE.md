@@ -48,8 +48,8 @@ Tag 必须指向默认分支上的提交；`release.yml` 会检查 `git merge-ba
 ## 持久缓存布局
 
 GitHub-hosted runner 每次为临时机器，因此输入通过 `actions/cache` 保留，
-缓存 miss 时从不可变的 `inputs-v2` Release 下载并逐文件校验。缓存 key 为
-`z96a-inputs-v2-Linux`；更新输入时发布新 `inputs-vN` 并同步更新 workflow key。
+缓存 miss 时从不可变的 `inputs-v3` Release 下载并逐文件校验。缓存 key 为
+`z96a-inputs-v3-Linux`；更新输入时发布新 `inputs-vN` 并同步更新 workflow key。
 临时 runner 不跨 job 保存 chroot 缓存，当前构建显式关闭该缓存；这只影响构建耗时。
 
 ```text
@@ -64,7 +64,7 @@ $Z96A_CACHE_ROOT/
 生成输入 Release（仅在维护输入版本时执行）：
 
 ```sh
-STAGE=/tmp/z96a-inputs-v2
+STAGE=/tmp/z96a-inputs-v3
 mkdir -p "$STAGE"/{packages,tarball,debs}
 cp files/rootfs-overlay/z96a-v2/opt/z96a/packages/*.deb "$STAGE/packages/"
 cp output/tarball/devuan-excalibur-minimal-rootfs-arm64.tar.xz "$STAGE/tarball/"
@@ -72,10 +72,14 @@ cp output/z96a-v2/linux-image-*.deb output/z96a-v2/linux-headers-*.deb \
    output/z96a-v2/u-boot-*.deb "$STAGE/debs/"
 (cd "$STAGE" && find packages tarball debs -type f -print0 | sort -z |
   xargs -0 sha256sum > SHA256SUMS.inputs)
-gh release create inputs-v2 "$STAGE"/{packages,tarball,debs}/* \
-  "$STAGE/SHA256SUMS.inputs" --title 'Build inputs v2' \
+gh release create inputs-v3 "$STAGE"/{packages,tarball,debs}/* \
+  "$STAGE/SHA256SUMS.inputs" --title 'Build inputs v3' \
   --notes 'Immutable, SHA256-verified inputs for the Z96A image build.'
 ```
+
+`make image` **不会编译内核**：内核/U-Boot 的 deb 只能来自输入 Release。
+因此内核补丁更新后，必须先在本地 `make kernel board=z96a-v2` 重建 deb、发布新的 `inputs-vN`，
+再重跑镜像构建（这是有意的人工门禁，不要让 CI 自行编内核）。
 
 输入 Release 是**构建输入**，不是可选加速：
 
@@ -90,7 +94,7 @@ missing 或 p1 缺 DTB 时自动回退完整 chroot。缓存损坏不会产出�
 
 输入缓存是“当前应发布的输入”：升级 kernel、U-Boot、rootfs tarball 或内置
 应用 deb 后必须同步更新，否则 Tag 构建会继续使用旧输入。chroot 缓存可以
-随时清空，只影响耗时。更新输入后必须新建 Release tag（例如 `inputs-v3`）、
+随时清空，只影响耗时。更新输入后必须新建 Release tag（例如 `inputs-v4`）、
 修改 workflow 中的 Release 与 cache key，再验证下载。
 
 ## Tag 发布流程
