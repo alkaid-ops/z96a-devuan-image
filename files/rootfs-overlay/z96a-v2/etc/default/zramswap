@@ -1,0 +1,8 @@
+# Z96A: zram-only swap tuning.
+#
+# The image has no disk swap; zram is sized by zram-tools at 50% of RAM
+# (1.9 GiB on the 3.8 GiB board, capped by the 2 GiB guidance for 4 GiB boards).
+# Keep compression cheap on the A55 cores.
+ALGO=lz4
+PERCENT=50
+PRIORITY=100

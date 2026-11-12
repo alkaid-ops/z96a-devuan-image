@@ -113,6 +113,12 @@
 - 媒体只留 `mpv`，配置 `hwdec=v4l2request` / `vo=gpu` / `gpu-context=x11egl` / `gpu-dumb-mode=yes` / `dither=no`。1080p60 达标；4K60 HEVC 约 40fps（X11/GPU 合成上限，不是解码问题，详见 `references/MPV-X11-4K-HEVC.md`）。
 - DeckCraft 上游无中文界面（0.16.0 仍如此），只能等上游，不要再去调 locale。
 
+## 内存 / swap
+
+- **只用 zram，不用磁盘 swap**：`/etc/fstab` 不生成 swap 项；`zram-tools` 以 `PERCENT=50`、`ALGO=lz4`、`PRIORITY=100` 建 zram（3.8 GiB 板约 1.9 GiB，符合“4 GiB 板最多 2 GiB”的上限）。
+- `vm.swappiness = 30`（`/etc/sysctl.d/99-zram.conf`），尽量减少 A55 上的压缩开销。
+- 内核 `CONFIG_CRYPTO_LZ4=y`、`CONFIG_ZRAM_BACKEND_LZ4=y`，defconfig 默认压缩器已改为 `lz4`；但本内核树的 `/proc/crypto` 只注册了通用 `lz4-scomp`，**没有 arch/arm64 专用 LZ4 加速实现**，如需真正的 NEON/ARM64 优化需另加内核补丁或换基线（未经确认不要动内核）。
+
 ## 已知坑
 
 - 运行中的 `pcmanfm-qt` / `lxqt-panel` 退出时会回写配置；改配置先停进程。

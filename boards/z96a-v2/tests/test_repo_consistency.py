@@ -408,6 +408,30 @@ class BuildPreflightTests(unittest.TestCase):
         self.assertNotIn("local key=", userscripts_text())
 
 
+class SwapPolicyTests(unittest.TestCase):
+    """zram-only swap with conservative sizing and swappiness."""
+
+    def test_zram_defaults_are_lz4_and_half_of_ram(self):
+        text = (ROOT / "files/rootfs-overlay" / BOARD / "etc/default/zramswap").read_text(errors="replace")
+        self.assertIn("ALGO=lz4", text)
+        self.assertIn("PERCENT=50", text)
+        self.assertIn("PRIORITY=100", text)
+
+    def test_swappiness_is_lowered(self):
+        text = (ROOT / "files/rootfs-overlay" / BOARD / "etc/sysctl.d/99-zram.conf").read_text(errors="replace")
+        self.assertIn("vm.swappiness = 30", text)
+
+    def test_no_disk_swap_in_fstab_generator(self):
+        staging = (ROOT / "lib/function/staging").read_text(errors="replace")
+        self.assertNotIn("swap", staging.lower())
+
+    def test_kernel_defaults_zram_to_lz4(self):
+        defconfig = (ROOT / "defconfig" / f"{BOARD}_defconfig").read_text(errors="replace")
+        self.assertIn("CONFIG_ZRAM_BACKEND_LZ4=y", defconfig)
+        self.assertIn("CONFIG_ZRAM_DEF_COMP_LZ4=y", defconfig)
+        self.assertIn('CONFIG_ZRAM_DEF_COMP="lz4"', defconfig)
+
+
 class CredentialPolicyTests(unittest.TestCase):
     def test_ssh_credentials_are_optional_and_fail_closed(self):
         board_userscript = (ROOT / "boards" / BOARD / "userscripts/uscripts").read_text()
