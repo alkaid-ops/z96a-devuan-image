@@ -10,7 +10,7 @@
 set -u
 
 LED_DIR=${Z96A_LED_DIR:-/sys/class/leds}
-BAT=${Z96A_BAT:-/sys/class/power_supply/bq257xx-fgu}
+BAT=${Z96A_BAT:-/sys/class/power_supply/rk817-battery}
 CHG=${Z96A_CHG:-/sys/class/power_supply/bq257xx-charger}
 WHITE=$LED_DIR/white:power
 RED=$LED_DIR/red:charging

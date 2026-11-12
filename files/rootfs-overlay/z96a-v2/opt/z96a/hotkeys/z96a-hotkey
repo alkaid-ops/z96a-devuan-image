@@ -480,12 +480,12 @@ wifi_toggle() {
 }
 
 battery_status() {
-    battery=$POWER_SUPPLY_DIR/bq257xx-fgu
+    battery=$POWER_SUPPLY_DIR/rk817-battery
     charger=$POWER_SUPPLY_DIR/bq257xx-charger
     [ -d "$battery" ] || fail "未找到电池设备"
     capacity=$(cat "$battery/capacity" 2>/dev/null || echo "未知")
     status=$(cat "$battery/status" 2>/dev/null || echo "未知")
-    voltage=$(cat "$battery/voltage_now" 2>/dev/null || echo "")
+    voltage=$(cat "$battery/voltage_avg" 2>/dev/null || echo "")
     charger_status=$(cat "$charger/status" 2>/dev/null || echo "未知")
     if [ -n "$voltage" ]; then
         voltage=$(awk -v v="$voltage" 'BEGIN { printf "%.2f V", v / 1000000 }')

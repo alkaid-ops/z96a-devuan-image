@@ -43,7 +43,7 @@ z96a-theme backup | restore [snapshot]
 - 系统监控插件 `z96a-sysmon`（`boards/z96a-v2/tools/z96a-sysmon/`）：第一行 `CPU 12%  MEM 45%`，第二行 `↑0.3M  ↓1.2M`；13px、2 秒刷新、读取 `/proc`，运行在 `lxqt-panel` 内，无额外进程；悬停显示完整 CPU/内存/上传/下载数值。
 - 网络托盘为 `nm-tray`（`nm-tray-l10n`）：以太网/Wi-Fi、连接/断开；`nm-connection-editor` 提供完整编辑。
 - 电池图标由 `z96a-system-tray` 自绘，默认读取 `/sys/class/power_supply/rk817-battery`（电量、充放电、电池/CPU 温度）；关闭 LXQt 自带 battery watcher；点击打开电源管理设置。
-- LED 行为：Caps Lock 旁的 `white:power` 是系统运行灯，`default-on` 常亮；C 口 `red:charging`/`green:charging` 由 `z96a-charge-led` 控制，充电红、≥90% 绿、拔掉灭。系统灯不再由 `bq257xx-charger-online` 驱动。
+- LED 行为：Caps Lock 旁的 `white:power` 是系统运行灯，`default-on` 常亮；C 口 `red:charging`/`green:charging` 由 `z96a-charge-led` 读 `rk817-battery` 容量 + `bq257xx-charger` online 控制，充电红、≥90% 绿、拔掉灭。系统灯不再由 `bq257xx-charger-online` 驱动。
 - 键盘通知关闭（`showKeyboardNotifications=false`），音量/亮度统一走 `z96a-system-tray --osd`。
 
 ## 4. 桌面图标与快捷方式

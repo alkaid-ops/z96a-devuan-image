@@ -51,7 +51,7 @@
 - **eMMC 速度**：已移除 `0010-z96a-emmc-hs400.patch`；内核 DTS 保持 HS200 / `max-frequency=200MHz`，不启用 `mmc-hs400-1_8v`，与原厂 U-Boot/内核一致。HS400 下 eMMC 写入曾出现 I/O error。
 - **电池温度**：`CONFIG_GENERIC_ADC_THERMAL=y`；`.84` 已用临时 `thermal-generic-adc.ko` 验证 `battery-thermal` 31.5°C。
 - **电池计量（2026-11-13）**：已启用 RK817 PMIC 库仑计 `rk817-battery`：100% / 8.387V / 5Ah，`present=1`；upower 只显示这一块电池（42.02Wh）。`bq257xx-fgu` 电压 OCV 已 unbind 并 blacklist，不再叠加；待完整充放电周期观察长期漂移。
-- **充电灯**：`z96a-charge-led` 启动时解除内核默认 `bq257xx-fgu-*` trigger。
+- **充电灯**：`z96a-charge-led` 读 `rk817-battery` 容量 + `bq257xx-charger` online；AC 在线 ≥90% 绿、<90% 红、拔掉灭；启动时解除内核默认 trigger。
 - **充电输入 A/B（2026-11-10）**：正常充电器稳定 `online=1 / Charging`；旧充电器造成 SC8886 `AC_STAT` 和 `online` 周期抖动。HUSB311/TCPM 在好坏充电器下状态一致，不是本次故障层。不要用 0014、运行时重绑定或恢复服务掩盖输入异常。
 - **F8/F9**：LXQt `globalkeyshortcuts.conf` 已绑定 `XF86WLAN`、`XF86Battery` 到 `z96a-hotkey`。
 
