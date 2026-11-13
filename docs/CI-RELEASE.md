@@ -69,18 +69,18 @@ uboot_sums        = "…"
 
 ## 缓存设计
 
-runner 是临时的，所有缓存都用 `actions/cache`：
+runner 是临时的，输入缓存使用 `actions/cache`：
 
 | 缓存 | Key | 内容 | 失效条件 |
 |---|---|---|---|
 | 输入组件 | `z96a-inputs-<sha256(inputs.lock)>-<arch>` | 三个组件的 deb/tarball/blobs + 校验清单 | lock 任意一行变化 |
-| chroot | `z96a-chroot-<sha256(inputs.lock)>-<arch>` | `output/cache/chroot`（stage1 保存的已装包 rootfs） | lock 变化；内核更新会使缓存失效（内核 deb 在 chroot 内安装） |
 
 - `ci-fetch-inputs.sh` 先从 lock 校验三个组件的 `SHA256SUMS.*`，再逐资产校验；
   缓存命中时用 `.lock-sha` 与本地清单做离线复验，不访问网络。
-- 输入缓存约 1.3 GiB；chroot 缓存由 `actions/cache` 内部压缩，仍受仓库 10 GiB
-  缓存上限约束，维护时留意淘汰旧 key。
-- Dockerfile 构建层可由 runner 的 docker layer cache 承担；不再使用 binfmt/QEMU。
+- 输入缓存约 1.34 GB；仓库缓存容量和淘汰情况需根据实际配额检查。
+- CI 显式设置 `CHROOT_CACHE=0`，不恢复、不保存完整 rootfs；本地缓存机制不受影响。
+  旧 Actions 缓存不会被本工作流删除。
+- GitHub-hosted runner 每次新建，不应假设 Docker 层跨运行持久保存。
 
 输入缓存布局：
 
@@ -93,8 +93,12 @@ $Z96A_CACHE_ROOT/
 │   ├── blobs/       u-boot.itb / idbloader
 │   ├── manifests/   SHA256SUMS.kernel / .base / .uboot
 │   └── .lock-sha    该缓存对应的 inputs.lock 摘要
-└── chroot/          stage1 的已装包 rootfs（可随时清空）
 ```
+
+CI 在文件系统收缩之后、压缩之前，直接对原始镜像执行 loop 检查；失败即终止。
+CI 使用 `xz -6`（原先是默认级别 6 加 `-e`），然后检查 XZ 完整性、SHA256
+和 GitHub Release 资产大小限制。压缩率及耗时以实际构建为准；`validate=false`
+只跳过原始镜像的结构校验，不跳过压缩文件检查。本地默认压缩设置保持不变。
 
 ## Tag 发布流程
 
@@ -103,8 +107,8 @@ push tag vX.Y.Z
   → release.yml / tag job：校验 Tag 格式与分支来源
   → build-image.yml：
       checkout → runner 检查 → 播种输入 → preflight → 单测 → secret scan
-      → build-in-container.sh image（RELEASE_CHANNEL=stable, RELEASE_TAG=<tag>）
-      → ci-validate-image.sh（DTB/extlinux/ext4/manifest/SBOM/Mesa/固件/包闭包）
+      → build-in-container.sh image（收缩 → 原始镜像校验 → xz 压缩）
+      → 校验压缩资产完整性、SHA256 和大小
       → ci-collect-image.sh（SHA256、耗时、build-evidence.json）
       → upload-artifact
   → release.yml / publish job：下载 artifact、复核 SHA256、创建 GitHub Release

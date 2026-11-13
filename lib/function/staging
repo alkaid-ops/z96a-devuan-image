@@ -555,10 +555,20 @@ else
 	IMAGE_FIN_NAME="${DEVICE_SOC}-${DISTRO}-${DISTRO_VERSION}-minimal-${INSTALLED_KERNEL}-${ARCH_EXT}-${FSTYPE}-${IMAGE_DATE}-${IMAGE_TIME}.img"
 fi
 if [[ -f "${IMAGE_FILE_NAME}" ]]; then mv -f ${IMAGE_FILE_NAME} ${OUTPUT}/image/${IMAGE_FIN_NAME}; else echo -e "Build error: ${IMAGE_FILE_NAME}"; exit 1; fi
+if [[ "${Z96A_VALIDATE_IMAGE:-0}" == "1" ]]; then
+	echo "Validating uncompressed image before compression ..."
+	"boards/${BOARD}/tools/validate-image.sh" "${OUTPUT}/image/${IMAGE_FIN_NAME}" || return 1
+fi
 if [ $COMPRESS_IMG -eq 1 ]; then
 	echo ""
 	echo -e "Compressing image ..."
-	if [[ "$IMG_COMPRESSION" == "xz" ]]; then xz -zev --threads=${CORES} ${OUTPUT}/image/${IMAGE_FIN_NAME}; fi
+	if [[ "$IMG_COMPRESSION" == "xz" ]]; then
+		if [[ "${Z96A_XZ_FAST:-0}" == "1" ]]; then
+			xz -z -6 -v --threads="${CORES}" "${OUTPUT}/image/${IMAGE_FIN_NAME}"
+		else
+			xz -zev --threads="${CORES}" "${OUTPUT}/image/${IMAGE_FIN_NAME}"
+		fi
+	fi
 	if [[ "$IMG_COMPRESSION" == "zst" ]]; then zstd -z --ultra --fast=10 -19 -T${CORES} --rm ${OUTPUT}/image/${IMAGE_FIN_NAME}; fi
 	if [[ -f "${OUTPUT}/image/${IMAGE_FIN_NAME}.${IMG_COMPRESSION}" ]]; then
 		cd ${OUTPUT}/image

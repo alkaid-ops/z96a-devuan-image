@@ -145,16 +145,8 @@ jobs:
           mkdir -p "$Z96A_CACHE_ROOT/input/packages" \
                    "$Z96A_CACHE_ROOT/input/tarball" \
                    "$Z96A_CACHE_ROOT/input/debs" \
-                   "$Z96A_CACHE_ROOT/chroot" \
                    output/ci
           echo "cache root: $Z96A_CACHE_ROOT"
-
-      - name: Restore chroot cache
-        id: chroot-cache
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ${{ env.Z96A_CACHE_ROOT }}/chroot
-          key: z96a-chroot-${{ github.sha }}-${{ runner.arch }}
 
       - name: Restore verified input cache
         id: input-cache
@@ -191,14 +183,6 @@ jobs:
       - name: Secret scan
         run: boards/z96a-v2/tools/scan-secrets.sh
 
-      - name: Compute chroot cache key
-        id: chroot-key
-        run: |
-          set -eu
-          lock_sha=$(sha256sum config/inputs.lock | cut -d' ' -f1)
-          key=$(printf '%s\n%s\n' "$GITHUB_SHA" "$lock_sha" | sha256sum | cut -d' ' -f1)
-          echo "CHROOT_CACHE_KEY=$key" >> "$GITHUB_ENV"
-
       - name: Build image
         env:
           BOARD: z96a-v2
@@ -209,41 +193,20 @@ jobs:
           Z96A_WIFI_SSID: ${{ secrets.Z96A_WIFI_SSID }}
           Z96A_WIFI_PASSKEY: ${{ secrets.Z96A_WIFI_PASSKEY }}
           Z96A_DEBUG_PARTITION: "1"
-          CHROOT_CACHE: "1"
-          CHROOT_CACHE_DIR: ${{ env.Z96A_CACHE_ROOT }}/chroot
-          CHROOT_CACHE_KEY: ${{ env.CHROOT_CACHE_KEY }}
+          CHROOT_CACHE: "0"
+          Z96A_VALIDATE_IMAGE: ${{ inputs.validate && '1' || '0' }}
+          Z96A_XZ_FAST: "1"
           TERM: xterm
         run: |
           set -o pipefail
           boards/z96a-v2/tools/build-in-container.sh image 2>&1 |
             tee output/ci/build.log
 
-      - name: Make chroot cache readable by the runner user
+      - name: Verify compressed release asset
         run: |
           set -eu
-          chroot_dir="$Z96A_CACHE_ROOT/chroot"
-          [ -d "$chroot_dir" ] || exit 0
-          # stage1 saves the tree from the root container; tar in
-          # actions/cache runs as the runner user and fails with exit 2 on
-          # root-only directories such as /root. Give it read access.
-          sudo chown -R "$(id -u):$(id -g)" "$chroot_dir"
-
-      - name: Save chroot cache
-        if: steps.chroot-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ${{ env.Z96A_CACHE_ROOT }}/chroot
-          key: z96a-chroot-${{ github.sha }}-${{ runner.arch }}
-
-      - name: Validate image
-        if: ${{ inputs.validate }}
-        env:
-          TERM: xterm
-        run: |
-          set -o pipefail
           img=$(ls -t output/z96a-v2/image/*.img.xz | head -n 1)
-          boards/z96a-v2/tools/ci-validate-image.sh "$img" 2>&1 |
-            tee -a output/ci/build.log
+          packaging/check-release-asset.sh "$img"
 
       - name: Collect image and write build evidence
         id: collect

@@ -763,10 +763,13 @@ class CiReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("runs-on: ubuntu-24.04", text)
         self.assertIn("group: z96a-image-build", text)
         self.assertIn("build-in-container.sh image", text)
-        self.assertIn("ci-validate-image.sh", text)
+        self.assertIn("Z96A_VALIDATE_IMAGE", text)
+        self.assertIn("packaging/check-release-asset.sh", text)
         self.assertIn("ci-prepare-inputs.sh", text)
         self.assertIn("ci-collect-image.sh", text)
-        self.assertIn("CHROOT_CACHE_DIR", text)
+        self.assertIn('CHROOT_CACHE: "0"', text)
+        self.assertNotIn("Restore chroot cache", text)
+        self.assertNotIn("Save chroot cache", text)
         self.assertIn("RELEASE_TAG", text)
 
     def test_no_pull_request_target(self):

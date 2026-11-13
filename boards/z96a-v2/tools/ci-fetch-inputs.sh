@@ -69,6 +69,12 @@ verify_cached() {
     for component in kernel base uboot; do
         manifest="$CACHE/manifests/SHA256SUMS.$component"
         [ -f "$manifest" ] || { ok=0; break; }
+        case "$component" in
+            kernel) pinned=$(lock_get kernel_sums) ;;
+            base) pinned=$(lock_get base_apps_sums) ;;
+            uboot) pinned=$(lock_get uboot_sums) ;;
+        esac
+        printf '%s  %s\n' "$pinned" "$manifest" | sha256sum -c --quiet - 2>/dev/null || { ok=0; break; }
         while read -r expected rel extra; do
             [ -n "${expected:-}" ] || continue
             case "$expected" in \#*) continue ;; esac
