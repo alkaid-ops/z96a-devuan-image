@@ -856,6 +856,20 @@ class PowerPolicyTests(unittest.TestCase):
         self.assertIn('subject.isInGroup("users")', text)
 
 
+class BootHandoverTests(unittest.TestCase):
+    """Slim must not hand the splash VT to the first X server."""
+
+    def test_no_novtswitch_and_waits_for_plymouth(self):
+        text = (ROOT / "custom.txt").read_text(errors="replace")
+        self.assertNotIn("16 -novtswitch", text)
+        self.assertIn("while /usr/bin/plymouth --ping", text)
+        self.assertIn("dpi 144 -nolisten tcp -deferglyphs 16", text)
+
+    def test_handover_is_documented(self):
+        doc = (ROOT / "boards" / BOARD / "docs" / "BOOT-LOGO.md").read_text(errors="replace")
+        self.assertIn("Not seen SigUSR1", doc)
+
+
 class KnownIssueTests(unittest.TestCase):
     """Recorded baseline issues. Reported, but not fatal during phase 0."""
 

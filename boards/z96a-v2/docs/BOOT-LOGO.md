@@ -152,10 +152,14 @@ Plymouth 与主题打进 initrd。Plymouth 的 `init-premount/plymouth` 在 root
 2. `paint_fb logo-bgra.bin.gz`（无 initrd 时的兜底衔接）
 3. `plymouth --ping`：若 initramfs 已启动则不再启动第二个 `plymouthd`；否则本地启动
 4. 保持 `Z96A_ANIM_SECONDS`（默认 2s）后 `plymouth quit`
-5. `paint_fb last-bgra.bin.gz`，然后启动 X
+5. 等 `plymouthd` 真正退出（`plymouth --ping` 为假，最多 5 s）+ 0.3 s 余量
+6. `paint_fb last-bgra.bin.gz`，然后启动 X
 
-`/etc/slim.conf` 使用 `-novtswitch vt01`：X 留在当前 VT，避免 `retain-splash` 造成的
-内核 VT 死锁（X 卡在 `vt_event_wait`、`chvt` 超时）。
+**X 使用自己的 VT（vt7）**：`/etc/slim.conf` 不再带 `-novtswitch vt01`。实测
+（2026-11-13，.84）让 X 留在 plymouth 的 VT 时，**第一个** X 会继承 splash 的 VT/KMS
+状态：22.8 s 时初始化已全部完成，却一直不向 SLiM 发 `SIGUSR1`，slim.log 出现
+`WaitForServer: Not seen SigUSR1 from Xserver`，约 130 s 后 SLiM 杀掉 X 重试，第二次
+才显示登录页（观感：动画后长时间黑屏）。改为切到 vt7 后首个 X 在 ≈20.6 s 启动并稳定。
 
 ### 3.4 无控制台文字
 

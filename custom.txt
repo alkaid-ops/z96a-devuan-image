@@ -71,7 +71,18 @@ Z96A_HELPER
         fi
         [ "$ANIM_SECS" -gt 0 ] && sleep "$ANIM_SECS"
         /usr/bin/plymouth quit 2>/dev/null || true
+        # Do not start X while plymouthd still holds the DRM master: the first
+        # X server then never sends SIGUSR1 to SLiM, which kills it after its
+        # ~2 minute startup timeout and only the second attempt reaches the
+        # login screen (seen on .84 as a long black gap after the animation).
+        i=0
+        while /usr/bin/plymouth --ping 2>/dev/null; do
+          i=$((i + 1))
+          [ "$i" -ge 50 ] && break
+          sleep 0.1
+        done
         paint_fb /usr/share/plymouth/themes/alkaid/last-bgra.bin.gz
+        sleep 0.3
       fi
 Z96A_BLOCK
 		awk -v helper=/tmp/z96a-slim-helper -v block=/tmp/z96a-slim-block '
@@ -87,10 +98,14 @@ Z96A_BLOCK
 		cat /tmp/z96a-slim.new > /etc/init.d/slim
 		chmod +x /etc/init.d/slim
 	fi
-	# X stays on the current VT: no VT switch means the retained splash frame
-	# is handed straight to X (and avoids the retain-splash VT deadlock).
-	if [ -f /etc/slim.conf ] && ! grep -q novtswitch /etc/slim.conf; then
-		sed -i 's|^xserver_arguments .*|xserver_arguments   -dpi 144 -nolisten tcp -deferglyphs 16 -novtswitch vt01|' /etc/slim.conf
+	# Let X take its own VT (vt7).  Keeping X on plymouth's VT with
+	# -novtswitch vt01 made the first X server inherit the splash VT/KMS
+	# state: it finished initialisation but never signalled SLiM, so SLiM
+	# killed it after ~130 s and only the retry showed the login screen.
+	# Without -novtswitch the X switch flushes that state and the first
+	# server comes up ~20 s after boot.
+	if [ -f /etc/slim.conf ]; then
+		sed -i 's|^xserver_arguments .*|xserver_arguments   -dpi 144 -nolisten tcp -deferglyphs 16|' /etc/slim.conf
 	fi
 	if [ -x /usr/sbin/plymouth-set-default-theme ]; then
 		plymouth-set-default-theme alkaid >/dev/null 2>&1 || true
