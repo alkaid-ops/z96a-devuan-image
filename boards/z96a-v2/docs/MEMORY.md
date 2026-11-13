@@ -53,7 +53,7 @@
 
 - Z96A 两颗 LED 分工：`white:power`（Caps Lock 旁）是**系统运行灯**，应 `default-on` 常亮；`red:charging`/`green:charging`（C 口）是充电灯，由 `z96a-charge-led` 按 `online` + 电量控制（充电红、≥90% 绿、离线灭）。不要把 `white:power` 绑到 `bq257xx-charger-online`，否则充电器状态抖动会让系统灯闪。
 - bq257xx/SC8886S 的 VINDPM 由芯片按 `VBUS-1.28V` 自动设置，**不要强行写 15V**（VBUS 低于 15V 时会让充电器停止取电）。拔插后要重新检测时使用 `BQ25703_CHARGE_OPTION_4`(0x35) 的 `RESET_VINDPM`(bit5)，不要把一次边沿重检测扩展成离线轮询。
-- `0012-bq257xx-input-reset.patch` 只在 **AC 插入边沿**调用一次 `RESET_VINDPM`，并重写充电参数；不在离线时轮询/反复 reset，避免 IRQ 风暴时反复重启 converter。`0013-z96a-led-system-indicator.patch` 把 `white:power` 改成 `default-on`。
+- `0012-bq257xx-input-reset.patch` 只在 **AC 插入边沿**调用一次 `RESET_VINDPM`，并重写充电参数；不在离线时轮询/反复 reset，避免 IRQ 风暴时反复重启 converter。`0002-z96a-board-dts.patch` 把 `white:power` 默认 trigger 移除，改为系统运行指示（由 userspace 控制）。
 - **2026-11-10 充电器 A/B 复核**：正常充电器插回后稳定为 `online=1 / Charging`，实测约 704 mA；SC8886 `0x21=0x84`、VBUS ADC `0xB5`。同一线材和方向的旧充电器会产生 `online=1→0` 周期抖动，SC8886 `AC_STAT` 反复出现/消失，失败时 VBUS ADC `0x00`，IRQ 在短时间内由 78 增长到 116。
 - 同一 A/B 中 HUSB311 的 `POWER_STATUS=0x08`、`CC_STATUS=0x20/0x30`、`ROLE_CONTROL=0x55` 在好坏充电器下基本一致，TCPM `online=0`、IRQ 始终为 0。因此 **HUSB311/CC 协商不是本次输入故障的直接故障层**；异常发生在 SC8886 的输入检测/VBUS 路径或充电器侧。
 - 不要再部署 `bq257xx` 离线有限重试、运行时重绑定、恢复服务或插座自动断电脚本。它们不能稳定修复周期性掉电的输入，只会掩盖外部供电故障。`0014-bq257xx-bounded-recovery.patch` 已移除。

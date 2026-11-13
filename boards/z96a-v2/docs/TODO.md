@@ -60,8 +60,7 @@
 
 - [ ] 全镜像 `...7.2.12...img.xz` 只做静态校验，刷第二张 USB 做完整启动验证。
 - [ ] Tsinghua `excalibur-security` 的 zlib 同步后，删除 `files/rootfs-overlay/z96a-v2/etc/apt/preferences.d/zlib1g` 并重跑 `apt upgrade`。
-- [ ] yjun123 remote HEAD 再前进时，重新 fetch 并 rebase `0002-z96a-sdmmc1-remote-head.patch` / `0008`（当前 `.cache` 为 `0211cf630`）。
-- [ ] 稳定后清理 `0002-z96a-wifi-power-rail.patch.old` 与 `remote-head/` 说明文件。
+- [ ] yjun123 remote HEAD 再前进时，重新 fetch 并 rebase `0002-z96a-board-dts.patch` / `0008`（当前 `.cache` 为 `0211cf630`）。
 - [ ] 7.2.12 稳定运行一段时间后，再决定是否移除 `/boot/recovery` 的 7.2.11 回退入口。
 - [ ] vendor-only 功能（IR 遥控、MXC6655、ADC keys、BT SCO/I2S2、SPDIF、SATA1/SFC、NPU/VENC/JPEG/IEP）按需再补。
 

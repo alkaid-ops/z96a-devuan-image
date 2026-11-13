@@ -112,11 +112,11 @@ patches/git/z96a-v2/linux-add_sunniwell_z96a/0010-z96a-emmc-hs400.patch
 
 ```text
 patches/git/z96a-v2/linux-add_sunniwell_z96a/0031-rk3568-hs400-txclk-tap-08.patch
-patches/git/z96a-v2/linux-add_sunniwell_z96a/0032-z96a-emmc-hs400es-200mhz.patch
+patches/git/z96a-v2/linux-add_sunniwell_z96a/0002-z96a-board-dts.patch
 ```
 
 - `0031`：RK3568 rev0 HS400/HS400ES TXCLK tap 固定 `0x8`（`0x29000008`），HS200 路径不变；
-- `0032`：生产 DTS 的 `&sdhci` 增加 `mmc-hs400-1_8v`、`mmc-hs400-enhanced-strobe`，`max-frequency` 保持 200MHz；
+- `0002`：板级 DTS 汇总中，`&sdhci` 增加 `mmc-hs400-1_8v`、`mmc-hs400-enhanced-strobe`，`max-frequency` 保持 200MHz；
 - STRBIN 保持默认 `0x09000004`，RXCLK 保持 `0x28000000`，CMDOUT 保持 0；
 - 验证：100MHz A/B/A、200MHz HS200/HS400ES 单次、200MHz TXCLK 0x04–0x10 扫描、200MHz STRBIN 4/6/8 扫描均完成；tap 0x04–0x0C 稳定，0x0E/0x10 出现 DATA_CRC；
 - 生产选择 `0x8`，因为写入吞吐最高且位于稳定窗口中心。
@@ -166,7 +166,7 @@ vccio_sd: LDO_REG5 {
    - 当 host 已经处于 1.8V 时跳过 CMD11（对应上游 2026-10 的 RTL8822CS 修复）；
    - 如果 UHS 初始化（tuning）失败，回退到 high-speed，而不是让整张卡初始化失败。
 
-3. 补丁 `0015-z96a-wifi-sdr104-1v8.patch` 负责上述 DTS 改动。
+3. 上述 DTS 改动已并入 `0002-z96a-board-dts.patch`。
 
 > 上游 pinned commit（`0211cf630ee3`）已经声明 `sd-uhs-sdr104`，但用的是 `vqmmc = <&vcca1v8_pmu>` 且没有 `max-frequency`。那只是软件上“假装 1.8V”，实际 `vccio3` 仍由 `vccio_sd` 3.3V 供电；本补丁把电源和 `vqmmc` 改成一致的 1.8V，并显式设置 200MHz。
 
@@ -220,7 +220,7 @@ WiFi link: RX 526.6Mbps VHT-MCS6 80MHz NSS2
 
 旧文档里的 `16.6–18.0 MB/s（133–144Mbit/s）` 是早期测试路径的结果；本次绑定 wlan0 的下行 139Mbps 与其同一量级。
 
-`0002-z96a-wifi-power-rail.patch.old` 目前未应用。
+旧的 `0002-z96a-wifi-power-rail.patch.old` 中间产物已清理。
 
 ## 4. 充电器 / 电池（高优先级，安全）
 
@@ -300,7 +300,7 @@ mainline 现状：
 - 但驱动 probe 要求 PMIC 下有名为 **`charger`** 的子节点；当前 DTS 没有，所以驱动未绑定；
 - 实际显示的电量来自 `bq257xx-fgu`，它走 `adc_battery_helper` + `power_supply_batinfo_ocv2cap()`，是**电压查 OCV 表模拟容量**，因此不准确。
 
-已加补丁 `0020-z96a-rk817-coulomb-gauge.patch`：
+已在 `0002-z96a-board-dts.patch` 中加入：
 
 ```dts
 charger {
@@ -379,7 +379,7 @@ source-pdos/sink-pdos = 0x220190c8
 `POWER-ALIGNMENT.md`。本仓库已加：
 
 - `/etc/default/governor`：`schedutil`（原 base image 默认 `performance`）；
-- `0026-z96a-cpu-idle-states.patch`：补原厂 `cpu-sleep` idle state。
+- `0002-z96a-board-dts.patch`：补原厂 `cpu-sleep` idle state 与 CPU/GPU OPP 电压对齐。
 
 PVTM/leakage 选压仍需内核驱动支持；只补 DTS 无效。
 
@@ -443,5 +443,4 @@ low-temp 调整
 
 ### 对应补丁
 
-- `0016-z96a-rk809-mic-diff.patch`：给 RK809 PMIC 增加 `codec { rockchip,mic-in-differential; }`。
-- `0017-z96a-hdmi-mclk-fs.patch`：`&hdmi_sound` 设置 `simple-audio-card,mclk-fs = <128>`。
+- `0002-z96a-board-dts.patch`：给 RK809 PMIC 增加 `codec { rockchip,mic-in-differential; }`，并给 `&hdmi_sound` 设置 `simple-audio-card,mclk-fs = <128>`。

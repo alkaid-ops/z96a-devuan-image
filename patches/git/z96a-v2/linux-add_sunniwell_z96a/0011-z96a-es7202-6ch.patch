@@ -18,6 +18,9 @@ Measured channel map on the board:
 Only ch0/ch1 are acoustic; ch2-ch5 carry electrical reference signals.
 
 ---
+  sound/soc/codecs/es7202.c | 34 ++++++++++++++++++++++++++++++----
+ 1 file changed, 30 insertions(+), 4 deletions(-)
+
 --- a/sound/soc/codecs/es7202.c
 +++ b/sound/soc/codecs/es7202.c
 @@ -32,8 +32,17 @@
@@ -95,14 +98,3 @@ Only ch0/ch1 are acoustic; ch2-ch5 carry electrical reference signals.
  	es7202_mute_pdm(es7202, true);
  }
  
---- a/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
-+++ b/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
-@@ -781,7 +781,7 @@
- 		     &pdmm0_sdi1
- 		     &pdmm0_sdi2
- 		     &pdmm0_sdi3>;
--	/* ES7202 mic is on sdi1 (channel 0), aec is on sdi2 (channel 1), headset on sdi3 (channel 2) */
-+	/* ES7202: mic (0x30) on SDI1 -> ch0/1, AEC ref (0x31) on SDI2 -> ch2/3, headset (0x32) on SDI3 -> ch4/5 */
- 	rockchip,path-map = <1 2 3 0>;
- 	status = "okay";
- };

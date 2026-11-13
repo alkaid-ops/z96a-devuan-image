@@ -20,11 +20,11 @@ DLL：LOCKED=1, TIMEOUT=0
 
 ```text
 patches/git/z96a-v2/linux-add_sunniwell_z96a/0031-rk3568-hs400-txclk-tap-08.patch
-patches/git/z96a-v2/linux-add_sunniwell_z96a/0032-z96a-emmc-hs400es-200mhz.patch
+patches/git/z96a-v2/linux-add_sunniwell_z96a/0002-z96a-board-dts.patch
 ```
 
 - `0031`：RK3568 `revision == 0` 且 HS400/HS400ES 时，TXCLK tap 固定为 `0x8`；HS200 路径不变。
-- `0032`：生产 DTS 的 `&sdhci` 增加 `mmc-hs400-1_8v`、`mmc-hs400-enhanced-strobe`；`max-frequency` 保持 200MHz。
+- `0002`：板级 DTS 汇总中，`&sdhci` 增加 `mmc-hs400-1_8v`、`mmc-hs400-enhanced-strobe`；`max-frequency` 保持 200MHz。
 
 ## 验证摘要
 
@@ -47,7 +47,7 @@ TXCLK `0x08` 在稳定窗口内写入吞吐最高（约 129 MB/s）；`0x0A` 原
 ## 回滚
 
 ```text
-恢复 HS200：移除 0032 的两行 DTS 属性；0031 在 HS200 下不改变行为。
+恢复 HS200：移除 0002 中 `&sdhci` 的两行 HS400 属性；0031 在 HS200 下不改变行为。
 ```
 
 若需完全回退 TXCLK 行为，同时移除 `0031`。

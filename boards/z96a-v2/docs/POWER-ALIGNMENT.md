@@ -28,15 +28,13 @@
 - `files/rootfs-overlay/z96a-v2/etc/default/governor`
   - `GOVERNOR="schedutil"`；重启后 `S02governor` 自动应用。
   - 真机已安装并执行 `governor -r`：空闲 1.6–1.8 GHz，4 核满载 1992 MHz。
-- `patches/git/z96a-v2/linux-add_sunniwell_z96a/0026-z96a-cpu-idle-states.patch`
+- `patches/git/z96a-v2/linux-add_sunniwell_z96a/0002-z96a-board-dts.patch`
   - 给 4 个 CPU 加 `cpu-idle-states = <&cpu_sleep>`；
   - 增加原厂 `cpu-sleep`（PSCI `0x10000`，100/120us，1ms residency）；
-  - 已用 `cpp + dtc` 编译验证，DTB 中可见 `idle-states/cpu-sleep`；
-  - **需重启后验证 `/sys/devices/system/cpu/cpu0/cpuidle` 出现**。
-- `patches/git/z96a-v2/linux-add_sunniwell_z96a/0027-z96a-cpu-gpu-opp-voltage.patch`
   - CPU 1416MHz nominal 1.025V → 1.0V、1608MHz 1.1V → 1.075V；
   - GPU 600MHz nominal 0.9V → 0.875V；
-  - 仅 nominal 电压对齐，逐片 PVTM 选压仍未实现；已编译验证。
+  - 仅 nominal 电压对齐，逐片 PVTM 选压仍未实现；已编译验证；
+  - **需重启后验证 `/sys/devices/system/cpu/cpu0/cpuidle` 出现**。
 
 ## 真机验证（2026-11-13 重启后）
 

@@ -48,7 +48,7 @@
 
 - **Thorium 硬件解码**：`/usr/local/bin/z96a-thorium` 不得传 `--use-gl=angle`；ANGLE GLES 无法导入 NV12 DMA-BUF，会黑屏。改用 EGL + `--hardware-video-device-path` 后 `1.mp4` 正常，日志确认 S264→NV12。
 - **X11 视频呈现**：1080p 实测 1920×1080≈47fps、1600×900≈58fps、1280×720≈59–60fps；瓶颈是 Panfrost 每帧 NV12/dmabuf 渲染成本。mpv 调参已穷尽；Mesa 26.1.6 隔离测试曾更慢（313 vs 244 丢帧）。**注意：为 Vulkan/PanVK，镜像已把系统 Mesa 升到 26.1.6（excalibur-backports），视频需在新基线上复测。** 细节见 `references/MPV-X11-4K-HEVC.md`。
-- **eMMC 速度（2026-11-14）**：启用 HS400/HS400ES 200MHz（`0032-z96a-emmc-hs400es-200mhz.patch`），并固定 RK3568 rev0 TXCLK tap `0x8`（`0031-rk3568-hs400-txclk-tap-08.patch`）。早期 HS400 写入 I/O error 已定位为 TXCLK tap 错误；实测 TXCLK `0x04–0x0C` 稳定、`0x0E/0x10` 出现 DATA_CRC，STRBIN tap 4/6/8 均通过。生产默认 HS400ES 200MHz / 8-bit / 1.8V，实际 TXCLK `0x29000008`、STRBIN `0x09000004`、RXCLK `0x28000000`。
+- **eMMC 速度（2026-11-14）**：启用 HS400/HS400ES 200MHz（DTS 改动在 `0002-z96a-board-dts.patch`），并固定 RK3568 rev0 TXCLK tap `0x8`（`0031-rk3568-hs400-txclk-tap-08.patch`）。早期 HS400 写入 I/O error 已定位为 TXCLK tap 错误；实测 TXCLK `0x04–0x0C` 稳定、`0x0E/0x10` 出现 DATA_CRC，STRBIN tap 4/6/8 均通过。生产默认 HS400ES 200MHz / 8-bit / 1.8V，实际 TXCLK `0x29000008`、STRBIN `0x09000004`、RXCLK `0x28000000`。
 - **电池温度**：`CONFIG_GENERIC_ADC_THERMAL=y`；`.84` 已用临时 `thermal-generic-adc.ko` 验证 `battery-thermal` 31.5°C。
 - **电池计量（2026-11-13）**：已启用 RK817 PMIC 库仑计 `rk817-battery`：100% / 8.387V / 5Ah，`present=1`；upower 只显示这一块电池（42.02Wh）。`bq257xx-fgu` 电压 OCV 已 unbind 并 blacklist，不再叠加；待完整充放电周期观察长期漂移。
 - **充电灯**：事件驱动。`rk817_charger` 每 8 秒采样，但只在整数 `capacity` 或 `charge_status` 变化时 `power_supply_changed`；eudev 规则 `/etc/udev/rules.d/99-z96a-charge-led.rules` 执行一次 `z96a-charge-led --once`。AC 在线 ≥90% 绿、<90% 红、拔掉灭；插拔由驱动 IRQ 立即通知；init.d 启动时 one-shot，无常驻轮询。**2026-11-13 实测**：eudev 3.2.14 + SysV 下无 2 秒进程；满电静置 45 秒无周期性 uevent；模块重载产生驱动 `change` 事件并保持绿灯；放电实测 03:54:04 100→99、03:57:29 99→98（间隔约 3m25s）；红灯/离线路径用阈值与假 `online=0` 验证通过。细节见 `CHARGE-LED-EVENTS.md`。
@@ -81,7 +81,7 @@
 - [x] PDM `path-map`：vendor `1 3 0 2` vs mainline `1 2 3 0` 实测 4ch 一致，无需改。
 
 ### 摄像头
-- [x] 确认为 USB 2.0 UVC `0c45:6368`，`uvcvideo` 驱动；供电 `GPIO2_D0` 已固定常开（`0009-z96a-camera-power.patch`）。
+- [x] 确认为 USB 2.0 UVC `0c45:6368`，`uvcvideo` 驱动；供电 `GPIO2_D0` 已固定常开（`0002-z96a-board-dts.patch`）。
 - [x] 手动拉高后 `/dev/video4/5` 枚举，1920×1080 MJPG 抓帧成功；冷启动确认 `vcc_camera` 使能。
 - [ ] 当前 USB 总线未出现摄像头；接回后确认 `/dev/video*` 重现，并用应用做最终出图确认。
 

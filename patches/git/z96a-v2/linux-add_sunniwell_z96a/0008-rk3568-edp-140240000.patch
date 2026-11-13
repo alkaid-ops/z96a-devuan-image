@@ -10,9 +10,8 @@ reach 140.24MHz and the panel runs at 56.5Hz.
 Add the exact 140.24MHz PLL rate and use it for VPLL/DCLK_VP1.
 
 ---
- drivers/clk/rockchip/clk-rk3568.c                                | 1 +
- arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts     | 2 +-
- 2 files changed, 2 insertions(+), 1 deletion(-)
+  drivers/clk/rockchip/clk-rk3568.c | 1 +
+ 1 file changed, 1 insertion(+), 0 deletions(-)
 
 --- a/drivers/clk/rockchip/clk-rk3568.c
 +++ b/drivers/clk/rockchip/clk-rk3568.c
@@ -24,14 +23,3 @@ Add the exact 140.24MHz PLL rate and use it for VPLL/DCLK_VP1.
  	RK3036_PLL_RATE(135000000, 2, 45, 4, 1, 1, 0),
  	RK3036_PLL_RATE(132000000, 1, 66, 6, 2, 1, 0),
  	RK3036_PLL_RATE(128000000, 1, 16, 3, 1, 1, 0),
---- a/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
-+++ b/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
-@@ -1018,7 +1018,7 @@
- &vop {
- 	assigned-clocks = <&cru DCLK_VOP0>, <&cru PLL_VPLL>, <&cru DCLK_VOP1>;
- 	assigned-clock-parents = <&pmucru PLL_HPLL>, <&xin24m>, <&cru PLL_VPLL>;
--	assigned-clock-rates = <0>, <132000000>, <132000000>;
-+	assigned-clock-rates = <0>, <140240000>, <140240000>;
- 
- 	status = "okay";
- };
