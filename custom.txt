@@ -106,6 +106,7 @@ Z96A_BLOCK
 	# server comes up ~20 s after boot.
 	if [ -f /etc/slim.conf ]; then
 		sed -i 's|^xserver_arguments .*|xserver_arguments   -dpi 144 -nolisten tcp -deferglyphs 16|' /etc/slim.conf
+		sed -i 's|^current_theme.*|current_theme       z96a-alkaid|' /etc/slim.conf
 	fi
 	if [ -x /usr/sbin/plymouth-set-default-theme ]; then
 		plymouth-set-default-theme alkaid >/dev/null 2>&1 || true
@@ -134,8 +135,6 @@ Z96A_BLOCK
 		sed -i '/^LANG=\|^LANGUAGE=/d' /etc/environment
 	fi
 
-	# 6) keep the initramfs module list tidy (initrd is not used on this board)
-	sed -i '/^rockchipdrm$/d;/^analogix_dp$/d;/^panel_edp$/d' /etc/initramfs-tools/modules 2>/dev/null || true
 }
 
 ### DO NOT EDIT BELOW THIS LINE
