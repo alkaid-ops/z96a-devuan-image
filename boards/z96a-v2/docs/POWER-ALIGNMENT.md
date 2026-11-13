@@ -10,7 +10,8 @@
 | CPU governor | 有完整 OPP/PVTM，运行时动态 | `performance`，4 核固定 1992 MHz | ✅ 已改仓库，真机已切 `schedutil` | 空闲可降频，满载仍到 1992 MHz |
 | CPU idle states | `cpu-sleep` PSCI `0x10000`，100/120us，1ms | DTS 无 `idle-states`，无 `/sys/.../cpuidle` | ✅ 补丁 `0026`，待重启生效 | 补丁已编译验证；不重启不生效 |
 | GPU 变频 | `power-model`、`upthreshold` | `simple_ondemand` 200–800 MHz | ✅ 已动态，无需改 | 原厂 power-model 仅热估算差异 |
-| CPU OPP PVTM/leakage | `pvtm-voltage-sel`、nvmem leakage/pvtm/mbist | 固定 nominal 电压 | ❌ 缺内核驱动 | 需要移植 `rockchip-pvtm`/OPP 支持，不能只补 DTS |
+| CPU OPP PVTM/leakage | `pvtm-voltage-sel`、nvmem leakage/pvtm/mbist | 固定 nominal 电压；已把 1416/1608MHz nominal 对齐原厂 1.0/1.075V | 🟡 部分 | 补丁 `0027` 已落 nominal 电压；PVTM 逐片选压仍需内核驱动 |
+| GPU OPP | 600MHz 875mV nominal | 600MHz 900mV | ✅ 补丁 `0027` 已对齐 875mV | 仅 nominal；无 GPU PVTM |
 | 热策略 | `sustainable-power=905`、75/85/115°C、cooling-map contribution | `step_wise`、70/75/95°C | 🟡 部分差异 | 当前无 `power_allocator`；当前温度 ~33°C，不紧急 |
 | deep suspend | 原厂完整 | `mem_sleep=deep`，自动挂起关闭，手动挂起有 P0 唤醒缺陷 | ❌ 待修 | 最大省电项；需先解决唤醒，不能盲开 |
 | NPU | `npu@fde40000` + OPP + supply | DTB 无节点、无驱动 | ❌ 缺驱动 | 需 RKNPU 驱动移植，工作量大 |
@@ -32,6 +33,10 @@
   - 增加原厂 `cpu-sleep`（PSCI `0x10000`，100/120us，1ms residency）；
   - 已用 `cpp + dtc` 编译验证，DTB 中可见 `idle-states/cpu-sleep`；
   - **需重启后验证 `/sys/devices/system/cpu/cpu0/cpuidle` 出现**。
+- `patches/git/z96a-v2/linux-add_sunniwell_z96a/0027-z96a-cpu-gpu-opp-voltage.patch`
+  - CPU 1416MHz nominal 1.025V → 1.0V、1608MHz 1.1V → 1.075V；
+  - GPU 600MHz nominal 0.9V → 0.875V；
+  - 仅 nominal 电压对齐，逐片 PVTM 选压仍未实现；已编译验证。
 
 ## 需要独立驱动的项
 
