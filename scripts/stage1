@@ -125,7 +125,8 @@ chroot_cache_enabled (){
 	return 0
 }
 chroot_cache_restore (){
-	local root=$1 log=/tmp/z96a-chroot-restore-$root.log
+	local root=$1
+	local log=${TMPDIR:-/tmp}/z96a-chroot-restore-$root.log
 	if chroot_cache_enabled && "$chroot_cache_tool" restore "$BOARD" "$root" "$root" >"$log" 2>&1; then
 		echo -e "chroot cache: restored $root"
 		return 0
