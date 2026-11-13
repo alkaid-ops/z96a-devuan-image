@@ -58,6 +58,6 @@ dmesg: 无 I2C/MMC/SDIO/USB/audio error/timeout
 - **实际启用接口的 pull/drive 已经与 vendor 等价**，不需要逐项改。
 - 唯一的真实差异是 **SPI0–SPI3 的 pull-up/drive**，但这些控制器
   当前 `status=disabled`，改了没有收益。
+- 用户已确认 **板上没有 SPI 控制器/SPI flash 设备**；SPI0–SPI3 和
+  SFC 保持 `disabled`，不做对齐，也不启用。
 - 因此不生成 pinctrl 覆盖补丁，也不重启；当前 pinmux/电气配置保持。
-- 以后如果启用 SPI/SFC，再把对应组按 vendor 的
-  `bias-pull-up, drive-strength=1` 对齐即可。
