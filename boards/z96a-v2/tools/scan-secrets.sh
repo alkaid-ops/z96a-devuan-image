@@ -32,7 +32,8 @@ scan_pattern() {
         esac
     done < <(grep -rInE "$pattern" \
         --exclude-dir=.git --exclude-dir=sources --exclude-dir=output \
-        --exclude-dir=.cache --exclude='*.patch' --exclude='*.orig' \
+        --exclude-dir=.cache --exclude-dir=.ci-cache \
+        --exclude='*.patch' --exclude='*.orig' \
         --exclude='SHA256SUMS' --exclude='packages-sources.tsv' . 2>/dev/null)
 }
 

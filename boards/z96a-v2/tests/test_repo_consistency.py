@@ -930,6 +930,12 @@ class InputLockTests(unittest.TestCase):
         self.assertIn(".lock-sha", text)
 
 
+class SecretScanScopeTests(unittest.TestCase):
+    def test_ci_cache_is_not_scanned(self):
+        text = (ROOT / "boards" / BOARD / "tools" / "scan-secrets.sh").read_text(errors="replace")
+        self.assertIn("--exclude-dir=.ci-cache", text)
+
+
 class KnownIssueTests(unittest.TestCase):
     """Recorded baseline issues. Reported, but not fatal during phase 0."""
 
