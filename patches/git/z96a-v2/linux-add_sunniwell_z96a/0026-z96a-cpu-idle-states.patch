@@ -1,0 +1,42 @@
+--- a/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
++++ b/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
+@@ -412,18 +412,22 @@
+ 
+ &cpu0 {
+ 	cpu-supply = <&vdd_cpu>;
++	cpu-idle-states = <&cpu_sleep>;
+ };
+ 
+ &cpu1 {
+ 	cpu-supply = <&vdd_cpu>;
++	cpu-idle-states = <&cpu_sleep>;
+ };
+ 
+ &cpu2 {
+ 	cpu-supply = <&vdd_cpu>;
++	cpu-idle-states = <&cpu_sleep>;
+ };
+ 
+ &cpu3 {
+ 	cpu-supply = <&vdd_cpu>;
++	cpu-idle-states = <&cpu_sleep>;
+ };
+ 
+ &gpu {
+@@ -1147,3 +1151,16 @@
+ 		line-name = "rt1711h-int";
+ 	};
+ };
++
++&{/cpus} {
++	idle-states {
++		cpu_sleep: cpu-sleep {
++			compatible = "arm,idle-state";
++			local-timer-stop;
++			arm,psci-suspend-param = <0x10000>;
++			entry-latency-us = <100>;
++			exit-latency-us = <120>;
++			min-residency-us = <1000>;
++		};
++	};
++};

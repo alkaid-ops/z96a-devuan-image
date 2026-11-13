@@ -1,0 +1,6 @@
+# Z96A CPU frequency policy.
+#
+# The base image defaults to "performance" (fixed 1992 MHz).  schedutil keeps
+# full performance under load while allowing the CPU to drop to lower OPPs
+# when idle, which is the main software power-saving knob on this board.
+GOVERNOR="schedutil"

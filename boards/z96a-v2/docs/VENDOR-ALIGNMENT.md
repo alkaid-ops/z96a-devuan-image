@@ -325,6 +325,14 @@ source-pdos/sink-pdos = 0x220190c8
 
 ## 7. CPU/GPU OPP、PVTM、GPU power-model（中优先级）
 
+电源/频率对齐的当前状态、已完成项和需驱动移植项见
+`POWER-ALIGNMENT.md`。本仓库已加：
+
+- `/etc/default/governor`：`schedutil`（原 base image 默认 `performance`）；
+- `0026-z96a-cpu-idle-states.patch`：补原厂 `cpu-sleep` idle state。
+
+PVTM/leakage 选压仍需内核驱动支持；只补 DTS 无效。
+
 原厂 CPU OPP 带：
 
 ```text
