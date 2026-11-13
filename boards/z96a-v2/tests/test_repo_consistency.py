@@ -870,6 +870,21 @@ class BootHandoverTests(unittest.TestCase):
         self.assertIn("Not seen SigUSR1", doc)
 
 
+class BootSpeedAndAudioStateTests(unittest.TestCase):
+    """Late build fixes: no rpcbind/nfs in rcS, and a shipped ALSA state."""
+
+    def test_stage2_drops_rpcbind_after_dpkg(self):
+        text = (ROOT / "scripts/stage2").read_text(errors="replace")
+        self.assertIn("/etc/rcS.d/S??rpcbind", text)
+        self.assertIn("/etc/rcS.d/S??nfs-common", text)
+        self.assertIn(".depend.boot", text)
+
+    def test_alsa_state_is_shipped(self):
+        state = ROOT / "files" / "asound" / f"{BOARD}.state"
+        self.assertTrue(state.is_file(), f"missing {state}")
+        self.assertIn("state.", state.read_text(errors="replace"))
+
+
 class KnownIssueTests(unittest.TestCase):
     """Recorded baseline issues. Reported, but not fatal during phase 0."""
 
