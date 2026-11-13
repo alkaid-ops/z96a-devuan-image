@@ -403,8 +403,17 @@ if [[ "$P_VALUE" == "p1" ]]; then BOOT_PATH="p1/boot"; else BOOT_PATH="p1"; fi
 FDT="../${FAMILY}/${DTB}.dtb"
 FDTDIR="../${FAMILY}"
 SPLASH_ARG=""
-if [[ "$BOARD" == "z96a-v2" ]]; then SPLASH_ARG="splash"; fi
-CMDLINE="append earlyprintk ${CONSOLE} rw root=PARTUUID=${ROOT_PARTUUID} rootwait ${ROOT_FSTYPE} fsck.repair=yes ${LOGLEVEL} ${EXTRA} ${SPLASH_ARG} init=/sbin/init"
+LOGO_ARGS=""
+if [[ "$BOARD" == "z96a-v2" ]]; then
+	SPLASH_ARG="splash"
+	# U-Boot hands over a live VOP scanout with the Alkaid logo.  The kernel
+	# has no consumer for the VO clocks until rockchipdrm probes (seconds
+	# later), so clk_disable_unused() and genpd's unused-domain cleanup stop
+	# the scanout and the logo goes black.  Keep both alive so the logo stays
+	# on screen until the real display driver takes over.
+	LOGO_ARGS="clk_ignore_unused pd_ignore_unused"
+fi
+CMDLINE="append earlyprintk ${CONSOLE} rw root=PARTUUID=${ROOT_PARTUUID} rootwait ${ROOT_FSTYPE} fsck.repair=yes ${LOGO_ARGS} ${LOGLEVEL} ${EXTRA} ${SPLASH_ARG} init=/sbin/init"
 CHECK=`echo "$INSTALLED_KERNEL" | sed -e 's/^\(.\{4\}\).*/\1/' | sed 's/-//g'`
 # z96a-v2 boots without an initramfs: usb-storage/scsi/block/ext4 are built in
 # and the kernel resolves root=PARTUUID itself.  This keeps the boot logo on

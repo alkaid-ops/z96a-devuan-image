@@ -140,6 +140,13 @@ SVG(SMIL) --Chromium(setCurrentTime)--> 120 张 1080p PNG
 | `/etc/plymouth/plymouthd.conf` | `[Daemon] Theme=alkaid`（坏配置会静默回退 text 插件） |
 | `/usr/share/plymouth/themes/alkaid` | 运行期主题（slim 也用它补画） |
 
+**cmdline 必须带 `clk_ignore_unused pd_ignore_unused`（关键）**：U-Boot 交棒的 VOP
+扫描没有对应的 Linux 消费者，`clk_disable_unused()` 与 genpd 的未使用域回收会在
+late_initcall 之后关掉 VO 时钟/电源域，扫描停止、LOGO 变黑（随后黑到 rockchipdrm
+probe）。`lib/function/staging` 为 z96a-v2 在 append 里加上这两个参数；内核补丁
+`0018` 另外把 VO 域设成 `GENPD_FLAG_ALWAYS_ON`。实测缺这两个参数时 LOGO 只能保持
+几秒，加上后一直保持到 DRM probe（本次 17.1 s）。
+
 **为什么 initrd 里不放 DRM（关键）**：U-Boot 交棒时 VOP 仍在扫描带 LOGO 的
 framebuffer（`z96a_handback.c` 会把 POST STANDBY 位清掉）。只要内核不在 initramfs
 里 probe `rockchipdrm`，这块画面就会一直保持。一旦在 initrd 里加载 DRM，probe 的
