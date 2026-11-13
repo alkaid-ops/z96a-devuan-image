@@ -10,8 +10,8 @@
 #   base_apps_release base-apps-<date> (rootfs tarball + bundled apps)
 #   uboot_release     uboot-<source-tag>-pN (deb + raw blobs + meta)
 
-kernel_release   = "kernel-7.2.12-bootstrap"
-kernel_sums      = "1c4bb593c672d4bf6112cd1d28daec4909a16e3cf27050f2cd187c76b3742380"
+kernel_release   = "kernel-7.2.12-r4"
+kernel_sums      = "1bb69424f3667a30f2f605153afd6e014704d16b35335622da880590beeca498"
 
 base_apps_release = "base-apps-20261113"
 base_apps_sums    = "afff71ae4fd00ee002bbeeaeae57c4ed782227e1df90ca640e13c74be5e5b149"
