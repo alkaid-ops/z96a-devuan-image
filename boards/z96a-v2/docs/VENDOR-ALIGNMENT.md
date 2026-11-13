@@ -186,19 +186,22 @@ signal voltage: 1 (1.80 V)
 - `vccio_sd` 固定 1.8V 后，`vccio3`（SDMMC1 IO）也固定 1.8V；本板的 SD 卡接口未启用，所以没有副作用。如果以后要启用 3.3V SD 卡，需要重新评估这路电源。
 - 50MHz 配置仍保留为回退路径；补丁 0014 的 UHS 失败回退保证 tuning 失败时 WiFi 不会消失。
 
-**2026-11-13 重新实测（iperf3，XFL_5G 5745MHz / 80MHz，RSSI -48dBm）：**
+**2026-11-13 WiFi 实测（iperf3，XFL_5G 5745MHz / 80MHz，RSSI -48dBm）：**
 
 ```text
 SDIO: 200MHz / 4bit / SDR104 / signal 1.80V
 WiFi link: RX 526.6Mbps VHT-MCS6 80MHz NSS2
            TX 292.5Mbps VHT-MCS7 80MHz NSS1
-iperf3:
-  board -> host: 310 Mbps (37.0 MB/s)
-  host -> board: 325 Mbps (38.8 MB/s)
-  4 streams:     310 / 324 Mbps (与单流相同)
+
+第一次未绑定接口，ip route 走 eth0，得到 310/325Mbps —— 那是有线 USB 以太网，不是 WiFi，作废。
+绑定 wlan0 后（--bind-dev wlan0，wlan0 计数器同步增长）：
+  board -> host: 47.4 Mbps
+  host -> board: 139 Mbps
 ```
 
-旧文档里的 `16.6–18.0 MB/s（133–144Mbit/s）` 是早期测试路径的结果，不是当前 SDIO/WiFi 上限；当前单流已到 310–325Mbps，SDIO 不是瓶颈。
+因此当前实际 WiFi 吞吐约 **上行 47Mbps / 下行 139Mbps**。SDIO 仍是 SDR104/1.8V，不是 SDR50；瓶颈在 rtw88/空口/AP 侧，不在 SDIO 电压或模式。
+
+旧文档里的 `16.6–18.0 MB/s（133–144Mbit/s）` 是早期测试路径的结果；本次绑定 wlan0 的下行 139Mbps 与其同一量级。
 
 `0002-z96a-wifi-power-rail.patch.old` 目前未应用。
 
