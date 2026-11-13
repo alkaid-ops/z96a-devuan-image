@@ -15,7 +15,7 @@
 
 当前 `mmc1` debugfs `ios` 实测：`clock=200MHz`、`bus width=4bit`、`timing=sd uhs SDR104`、`signal voltage=1.80V`，卡 VDD 3.3V。vendor `dwmmc@fe2c0000` 是 `max-frequency=100MHz` + `sd-uhs-sdr50`，且没有 `vqmmc-supply`，属于 3.3V 下跑 SDR50 的板级非标配置。
 
-2026-11-13 iperf3 实测（XFL_5G 5745MHz/80MHz，RSSI -48dBm）：第一次未绑定接口、路由走 eth0，310/325Mbps 为有线以太网结果，**不是 WiFi**；`--bind-dev wlan0` 后 wlan0 计数增长，实际上行 47Mbps / 下行 139Mbps。SDIO 仍是 200MHz/SDR104/1.8V，SDIO 不是 139Mbps 的瓶颈。
+2026-11-13 iperf3 实测（XFL_5G 5745MHz/80MHz，RSSI -48dBm）：第一次未绑定接口、路由走 eth0，310/325Mbps 为有线以太网结果，**不是 WiFi**；`--bind-dev wlan0` 后 wlan0 计数增长，实际上行 45–49Mbps / 下行 95–139Mbps。SDIO 仍是 200MHz/SDR104/1.8V，SDIO 不是 139Mbps 的瓶颈。
 | 前置输入轨 | `dc-12v` 固定 12V，无 `vin-supply`，供 `vcc3v3_sys`/`vcc5v0_sys` | `vcc15v_dcin` 固定 15V，供 `vcc3v3_sys`/`vcc5v0_sys` | vendor 软件把它当**固定根轨**，二进制无法判定它是 12V 输入还是 15V 后的非软件 buck；需要原理图/实测。不能据此断言支持 12V 充电 |
 | `vcc_camera` | kemp233 vendor DTS 有 `z96a-camera-vcc`，GPIO2_C0；archive DTS 没有 | 当前 `regulator-vcc-camera`，GPIO2_D0，always-on | 摄像头是 **USB 2.0 UVC**，不是 CSI/MIPI；供电是 GPIO 电源轨。vendor 引脚 PC0 vs 当前 PD0，存在板级版本差异，需实际摄像头确认 |
 | `vcc_wifi` | vendor DTS 没有该 regulator；有 `sdio-pwrseq` reset GPIO0_C0、`wifi-enable-h` pinctrl、`vcc3v3_sd` always-on | 当前 `regulator-wifi-power`，GPIO0_A0，3.3V，作为 mmc1 `vmmc-supply` | **mainline 额外补充**；vendor 可能用 `vcc3v3_sd` 常开 + reset 上电。当前 WiFi SDR104 正常，保留；若改回 vendor 拓扑需重新验证 WiFi 上电时序 |

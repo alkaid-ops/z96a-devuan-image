@@ -12,7 +12,7 @@
 | PMIC RK809-5 | `rk8xx-i2c`、`rk808` regulator、`rk808-rtc`、`snd_soc_rk817` | ✅ |
 | DRAM 4GB LPDDR4X | `MemTotal 4015956kB`；TPL/U-Boot 初始化 | N/A（可用） |
 | eMMC 32GB SiliconGo | `mmc0` 29.1GiB；冷启动确认 `mmc0: new HS200 MMC card` | ✅（HS200） |
-| WiFi RTL8822CS | `rtw88_8822cs`，SDIO 1.8V / 200MHz SDR104（tuned phase 122–126）；2026-11-13 实际 WiFi（绑定 wlan0）iperf3：上行 47Mbps / 下行 139Mbps；`iw link` RX 526.6/TX 292.5Mbps | ✅ |
+| WiFi RTL8822CS | `rtw88_8822cs`，SDIO 1.8V / 200MHz SDR104（tuned phase 122–126）；2026-11-13 实际 WiFi（绑定 wlan0）iperf3：上行 45–49Mbps / 下行 95–139Mbps；`iw link` RX 526.6/TX 292.5Mbps | ✅ |
 | 蓝牙 RTL8822CS | `hci_uart` + `btrtl`，`hci0` UP | ✅ |
 | 显示屏 BOE NV140FHD-N43 | `panel-edp` + `analogix_dp` + `phy_rockchip_naneng_edp` + VOP；1920×1080 | ✅ |
 | 键盘 SH61F83Q / 触控板 CST128-A | `usbhid` | ✅ |

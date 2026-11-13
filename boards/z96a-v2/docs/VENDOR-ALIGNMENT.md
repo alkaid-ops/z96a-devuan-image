@@ -194,12 +194,13 @@ WiFi link: RX 526.6Mbps VHT-MCS6 80MHz NSS2
            TX 292.5Mbps VHT-MCS7 80MHz NSS1
 
 第一次未绑定接口，ip route 走 eth0，得到 310/325Mbps —— 那是有线 USB 以太网，不是 WiFi，作废。
-绑定 wlan0 后（--bind-dev wlan0，wlan0 计数器同步增长）：
-  board -> host: 47.4 Mbps
-  host -> board: 139 Mbps
+绑定源地址+设备后（`-B 192.168.31.134%wlan0`，wlan0 计数器同步增长）：
+  board -> host: 45–49 Mbps
+  host -> board: 95–139 Mbps（单流最好约 135–139）
+  4 streams:     上行 ~49 Mbps / 下行 ~95–104 Mbps
 ```
 
-因此当前实际 WiFi 吞吐约 **上行 47Mbps / 下行 139Mbps**。SDIO 仍是 SDR104/1.8V，不是 SDR50；瓶颈在 rtw88/空口/AP 侧，不在 SDIO 电压或模式。
+因此当前实际 WiFi 吞吐约 **上行 45–49Mbps / 下行 95–139Mbps**。SDIO 仍是 SDR104/1.8V，不是 SDR50；瓶颈在 rtw88/空口/AP 侧，不在 SDIO 电压或模式。
 
 旧文档里的 `16.6–18.0 MB/s（133–144Mbit/s）` 是早期测试路径的结果；本次绑定 wlan0 的下行 139Mbps 与其同一量级。
 
