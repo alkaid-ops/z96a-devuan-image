@@ -24,6 +24,8 @@ rm -f "$DESTDIR/usr/share/plymouth/themes/alkaid"/*.bin.gz
 mkdir -p "$DESTDIR/etc/plymouth"
 cp /etc/plymouth/plymouthd.conf "$DESTDIR/etc/plymouth/"
 
-# The DRM stack must be available in the initramfs; the rootfs deferral
-# blacklist only makes sense for the no-initrd boot path.
+# The DRM stack is deliberately not in the initrd module list: the bootloader
+# logo stays on screen until the rootfs brings rockchipdrm up. Drop the
+# rootfs-deferral blacklist from the initrd copy anyway, so it can never leak
+# into the early boot path.
 rm -f "$DESTDIR/usr/lib/modprobe.d/z96a-defer-drm.conf"

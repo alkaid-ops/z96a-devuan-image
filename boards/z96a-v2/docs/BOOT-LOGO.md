@@ -134,7 +134,7 @@ SVG(SMIL) --Chromium(setCurrentTime)--> 120 张 1080p PNG
 
 | 文件 | 作用 |
 |---|---|
-| `/etc/initramfs-tools/hooks/z96a-plymouth` | 拷贝 `plymouthd`、插件、主题、`plymouthd.conf`（不拷贝 DRM renderer 也不需要） |
+| `/etc/initramfs-tools/hooks/z96a-plymouth` | 拷贝 `plymouthd`、splash 插件（含 `renderers/drm.so`，rootfs 拉起 DRM 后 plymouth 要用它接管）、主题、`plymouthd.conf` |
 | `/etc/initramfs-tools/modules` | **不含 DRM 模块**（见下） |
 | `/etc/initramfs-tools/initramfs.conf` | `MODULES=list`（USB/ext4/xhci 都是内建，不需要额外模块） |
 | `/etc/plymouth/plymouthd.conf` | `[Daemon] Theme=alkaid`（坏配置会静默回退 text 插件） |
