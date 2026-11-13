@@ -134,15 +134,25 @@ SVG(SMIL) --Chromium(setCurrentTime)--> 120 张 1080p PNG
 
 | 文件 | 作用 |
 |---|---|
-| `/etc/initramfs-tools/hooks/z96a-plymouth` | 拷贝 `plymouthd`、插件、DRM renderer、主题、`plymouthd.conf`；并删除 initrd 里的 `blacklist rockchipdrm` |
+| `/etc/initramfs-tools/hooks/z96a-plymouth` | 拷贝 `plymouthd`、插件、DRM renderer、主题、`plymouthd.conf`；保留 `logo-bgra.bin.gz`（initramfs 补画用）；并删除 initrd 里的 `blacklist rockchipdrm` |
+| `/usr/share/initramfs-tools/scripts/init-premount/plymouth` | 覆盖 stock 脚本：等 `/dev/fb0` → 补画 LOGO → 启动 plymouthd → `--show-splash` |
 | `/etc/initramfs-tools/modules` | `panel-edp`、`analogix_dp`、`rockchipdrm`（DRM 在 initramfs 就 probe） |
 | `/etc/initramfs-tools/initramfs.conf` | `MODULES=list`（USB/ext4/xhci 都是内建，不需要额外模块） |
+| `/etc/plymouth/plymouthd.conf` | `[Daemon] Theme=alkaid`（坏配置会静默回退 text 插件） |
 | `/usr/share/plymouth/themes/alkaid` | 运行期主题（slim 也用它补画） |
 
 安装时机在 **kernel 包安装之前**，因此 kernel postinst 触发的 `update-initramfs` 会把
-Plymouth 与主题打进 initrd。Plymouth 的 `init-premount/plymouth` 在 root 挂载前启动
-动画；`lib/function/staging` 为 z96a-v2 启用 extlinux `initrd ../uInitrd` 并在 cmdline
-加入 `splash`。
+Plymouth 与主题打进 initrd。`lib/function/staging` 为 z96a-v2 启用 extlinux
+`initrd ../uInitrd` 并在 cmdline 加入 `splash`。
+
+**premount 覆盖脚本的要点**（踩过的坑）：
+
+- 等 **`/dev/fb0`（devtmpfs 节点，DRM 注册即出现）**，而不是 udev 的
+  `/dev/dri/by-path/...` 软链——后者在 initramfs 里受 udev 冷插拔排队影响，可能晚
+  ~4.7 s 才出现，旧版等待循环因此把 root 挂载拖到 ~13 s
+- DRM modeset 会清掉 scanout 缓冲，先用 `logo-bgra.bin.gz` 补画回 LOGO，动画开始前
+  不露黑
+- plymouthd 本身启动很快（~0.02 s 返回），无需额外环境变量
 
 ### 3.3 slim 交接
 
@@ -166,12 +176,23 @@ Plymouth 与主题打进 initrd。Plymouth 的 `init-premount/plymouth` 在 root
 `defconfig` 关闭 `CONFIG_FRAMEBUFFER_CONSOLE`：fbcon 不再在 DRM 初始化 / Plymouth
 退出时重绘 tty1 的启动日志；日志只进 dmesg/串口。
 
-### 3.5 实测
+### 3.5 实测（2026-11-13，.84，重新打包镜像 + 本节全部修复）
 
 ```
-Run /init ~5.5s → DRM 初始化 ~6.1s → Plymouth 动画（initramfs 内开始）
-→ root mount ~7.4s → switch_root → rc → slim → X → 登录页
+DRM 初始化 7.5s → LOGO 补画 7.9s → 动画上屏 8.2s → root mount 8.6s
+→ rc → slim → X(vt7) ~32s → 登录页（背景 = 动画最后一帧）
 ```
 
-用户观感：LOGO 保持到 DRM 接管，随后 Alkaid 动画连续播放（正片 + 持续段 + 无缝循环），
-最后直接进入带同一帧背景的登录页；无控制台文字、无明显黑屏。
+`/run/initramfs/z96a-anim.log`（premount 覆盖脚本写入）：
+
+```
+Z96A 7.75 entry
+Z96A 7.90 card-ready logo-painted
+Z96A 7.90 daemon-start
+Z96A 7.91 daemon-returned
+Z96A 8.18 splash-shown
+```
+
+用户观感：LOGO 保持到 DRM 接管（~0.3 s 内补画回来），随后 Alkaid 动画连续播放
+（正片 + 持续段 + 无缝循环），最后直接进入带同一帧背景的登录页；无控制台文字、
+无长黑屏。

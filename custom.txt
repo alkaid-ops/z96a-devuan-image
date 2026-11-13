@@ -22,17 +22,29 @@ user_function (){
 	SRC=/root/z96a-chroot-files
 	if [ -d "$SRC" ]; then
 		install -m 0755 "$SRC/initramfs/hook" /etc/initramfs-tools/hooks/z96a-plymouth
+		# replace the stock init-premount/plymouth with the Z96A override:
+		# it waits for /dev/fb0 (devtmpfs, immediate - udev's by-path
+		# symlink can lag seconds in the initramfs), repaints the boot
+		# logo into the DRM framebuffer and starts the animation before
+		# the root fs is mounted
+		install -m 0755 "$SRC/initramfs/premount-plymouth" \
+			/usr/share/initramfs-tools/scripts/init-premount/plymouth
 		cp "$SRC/initramfs/modules" /etc/initramfs-tools/modules
 		cp "$SRC/initramfs/initramfs.conf" /etc/initramfs-tools/initramfs.conf
+		# valid daemon config (a malformed one silently falls back to the
+		# text splash plugin); the theme is also pinned via
+		# plymouth-set-default-theme below
+		install -m 0644 "$SRC/initramfs/plymouthd.conf" /etc/plymouth/plymouthd.conf
 		mkdir -p /usr/share/plymouth/themes
 		cp -a "$SRC/theme/alkaid" /usr/share/plymouth/themes/
 		rm -rf "$SRC"
 	fi
 
 	# --- Z96A boot/display: LOGO -> Plymouth animation -> desktop ---
-	# The DRM stack is loaded by slim (the bootloader logo stays on screen).
-	# Plymouth plays the Alkaid animation; we also repaint the last known
-	# frame into the DRM framebuffer before/after it, so no black gap shows.
+	# The DRM stack and the animation start inside the initramfs; the
+	# boot logo is repainted into /dev/fb0 so no black gap shows while
+	# plymouthd initialises, and slim repaints the last animation frame
+	# before handing over to X.
 	if [ -f /etc/init.d/slim ] && ! grep -q z96a_paint_fb /etc/init.d/slim; then
 		cat > /tmp/z96a-slim-helper <<'Z96A_HELPER'
 paint_fb() {
