@@ -155,8 +155,10 @@ if [ $USERACCT -eq 0 ]; then
 	# prevent build fail because of white spaces
 	NAME_FIXUP=`echo ${NAME} | sed "s/ //g"`
 	echo "";
-	adduser --verbose ${USERNAME} --gecos ${NAME_FIXUP} --disabled-password
-	echo "${USERNAME}:${PASSWORD}" | chpasswd
+	if ! id -u "${USERNAME}" >/dev/null 2>&1; then
+		adduser --verbose ${USERNAME} --gecos ${NAME_FIXUP} --disabled-password
+		echo "${USERNAME}:${PASSWORD}" | chpasswd
+	fi
 	adduser --verbose ${USERNAME} sudo
 	adduser --verbose ${USERNAME} audio
 	adduser --verbose ${USERNAME} dialout

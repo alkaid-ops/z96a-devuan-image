@@ -210,7 +210,7 @@ if [[ "$P_VALUE" == "p2" ]]; then
 	phase_begin "target chroot package setup and initramfs"
 	# A cached tree is only usable when the boot partition also came back with
 	# a device tree; otherwise the kernel package postinst has to run again.
-	if chroot_cache_restore p2 && chroot_cache_restore p1 &&
+	if chroot_cache_restore p1 && chroot_cache_restore p2 &&
 	   find p1 -name '*.dtb' -print -quit 2>/dev/null | grep -q .; then
 		:
 	else

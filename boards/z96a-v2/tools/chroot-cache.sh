@@ -94,10 +94,20 @@ case "$MODE" in
 		src="$CACHE_DIR/chroot-$BOARD-$key"
 		[ -n "$SLOT" ] && src="$src/$SLOT"
 		[ -d "$src" ] || exit 1
-		rsync -a \
-			--exclude '/dev/***' --exclude '/proc/***' --exclude '/sys/***' \
-			--exclude '/tmp/***' \
-			"$src/" "$ROOTFS/"
+		if [ "$SLOT" = "p1" ]; then
+			# p1 is the vfat boot partition: preserving owner/mode on vfat
+			# makes rsync exit with "failed to set permissions", which used
+			# to leave p2 restored but reported a cache miss.
+			rsync -rlt --no-owner --no-group --no-perms \
+				--exclude '/dev/***' --exclude '/proc/***' --exclude '/sys/***' \
+				--exclude '/tmp/***' \
+				"$src/" "$ROOTFS/"
+		else
+			rsync -a \
+				--exclude '/dev/***' --exclude '/proc/***' --exclude '/sys/***' \
+				--exclude '/tmp/***' \
+				"$src/" "$ROOTFS/"
+		fi
 		echo "$src"
 		;;
 	*)
