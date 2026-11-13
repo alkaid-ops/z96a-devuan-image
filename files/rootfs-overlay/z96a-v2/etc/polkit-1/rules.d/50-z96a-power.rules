@@ -1,0 +1,30 @@
+/* Z96A: allow the desktop user to power off / reboot / suspend.
+ *
+ * SLiM is not logind-integrated, so this session is registered without a
+ * seat. elogind therefore reports "challenge" for CanPowerOff/CanReboot and
+ * LXQt's leave action falls through to a plain logout, which looks like the
+ * desktop restarting instead of the machine shutting down.
+ *
+ * Grant the interactive console users group the power actions directly; the
+ * commands still go through logind, so inhibitors and the normal shutdown
+ * path keep working.
+ */
+polkit.addRule(function(action, subject) {
+    var powerActions = [
+        "org.freedesktop.login1.power-off",
+        "org.freedesktop.login1.power-off-multiple-sessions",
+        "org.freedesktop.login1.power-off-ignore-inhibit",
+        "org.freedesktop.login1.reboot",
+        "org.freedesktop.login1.reboot-multiple-sessions",
+        "org.freedesktop.login1.reboot-ignore-inhibit",
+        "org.freedesktop.login1.suspend",
+        "org.freedesktop.login1.suspend-multiple-sessions",
+        "org.freedesktop.login1.hibernate",
+        "org.freedesktop.login1.hibernate-multiple-sessions"
+    ];
+
+    if (subject.isInGroup("users") &&
+        powerActions.indexOf(action.id) !== -1) {
+        return polkit.Result.YES;
+    }
+});

@@ -124,6 +124,7 @@ if [[ "$P_VALUE" == "p1" ]]; then
 	ROOT_PARTUUID=$(blkid -o export -- "${IMAGE_LOOP_DEV_ROOTFS}" | sed -ne 's/^PARTUUID=//p')
 else
 	BOOT_UUID=$(blkid -o export -- "${IMAGE_LOOP_DEV_BOOT}" | sed -ne 's/^UUID=//p')
+	BOOT_PARTUUID=$(blkid -o export -- "${IMAGE_LOOP_DEV_BOOT}" | sed -ne 's/^PARTUUID=//p')
 	ROOT_UUID=$(blkid -o export -- "${IMAGE_LOOP_DEV_ROOTFS}" | sed -ne 's/^UUID=//p')
 	ROOT_PARTUUID=$(blkid -o export -- "${IMAGE_LOOP_DEV_ROOTFS}" | sed -ne 's/^PARTUUID=//p')
 fi
@@ -152,9 +153,13 @@ fi
 if [[ "$BOOT_VFAT" == "false" ]] && [[ "$EFI" == "false" ]]; then
 	BOOTFS_TABLE="/boot	${EXTFS}	rw,relatime,errors=continue 0 2"
 fi
+# PARTUUID comes straight from the GPT and does not depend on udev creating
+# /dev/disk/by-uuid before mountall runs. On the eMMC image the by-uuid link
+# could still be missing at S10, which silently skipped the /boot mount and
+# made later kernel updates write into the rootfs /boot directory instead.
 tee p2/etc/fstab <<EOF
-UUID=${BOOT_UUID}	${BOOTFS_TABLE}
-UUID=${ROOT_UUID}	/	${ROOTFS_TABLE}
+PARTUUID=${BOOT_PARTUUID}	${BOOTFS_TABLE}
+PARTUUID=${ROOT_PARTUUID}	/	${ROOTFS_TABLE}
 tmpfs	/tmp		tmpfs	defaults,nosuid 0 0
 EOF
 }

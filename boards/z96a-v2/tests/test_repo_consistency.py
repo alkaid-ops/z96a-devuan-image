@@ -825,12 +825,35 @@ class BootLogoAssetTests(unittest.TestCase):
 class PowerLedPolicyTests(unittest.TestCase):
     """The system-running LED must survive late driver registration."""
 
-    def test_led_waits_for_power_led_and_reasserts(self):
+    def test_led_policy_includes_power_led(self):
         text = (ROOT / "files/rootfs-overlay" / BOARD
                 / "usr/local/sbin/z96a-charge-led").read_text(errors="replace")
-        self.assertIn('[ ! -d "$WHITE" ]', text)
+        self.assertIn('[ -d "$WHITE" ]', text)
         self.assertIn("ensure_power_led", text)
         self.assertIn(r'grep -q "\[default-on\]"', text)
+        self.assertIn("hw_ready", text)
+
+
+class BootMountPolicyTests(unittest.TestCase):
+    """fstab must not depend on udev by-uuid for /boot."""
+
+    def test_staging_fstab_uses_partuuid(self):
+        text = (ROOT / "lib/function/staging").read_text(errors="replace")
+        self.assertIn("BOOT_PARTUUID=$(blkid", text)
+        self.assertIn("PARTUUID=${BOOT_PARTUUID}", text)
+        self.assertIn("PARTUUID=${ROOT_PARTUUID}", text)
+
+
+class PowerPolicyTests(unittest.TestCase):
+    """Menu shutdown/reboot must reach logind without an auth agent."""
+
+    RULE = "files/rootfs-overlay/z96a-v2/etc/polkit-1/rules.d/50-z96a-power.rules"
+
+    def test_polkit_rule_allows_power_actions(self):
+        text = (ROOT / self.RULE).read_text(errors="replace")
+        for action in ("power-off", "reboot", "suspend"):
+            self.assertIn("org.freedesktop.login1." + action, text)
+        self.assertIn('subject.isInGroup("users")', text)
 
 
 class KnownIssueTests(unittest.TestCase):
