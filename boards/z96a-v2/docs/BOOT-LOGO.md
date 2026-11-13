@@ -127,43 +127,50 @@ SVG(SMIL) --Chromium(setCurrentTime)--> 120 张 1080p PNG
   `global.idx` / `global.finished`（函数内直接赋值是局部变量，否则每帧重置、动画停在第一帧）
 - `logo-bgra.bin.gz` / `last-bgra.bin.gz` 供 slim 往 framebuffer 补画
 
-### 3.2 LOGO 保持与动画交接（DRM 不进 initramfs）
+### 3.2 LOGO 保持 + 动画早启动（最终方案）
 
 `boards/z96a-v2/chroot-files/` 由 `scripts/stage1` 复制到 `${P_VALUE}/root/z96a-chroot-files`，
 `custom.txt` 在 chroot 内把它安装到：
 
 | 文件 | 作用 |
 |---|---|
-| `/etc/initramfs-tools/hooks/z96a-plymouth` | 拷贝 `plymouthd`、splash 插件（含 `renderers/drm.so`，rootfs 拉起 DRM 后 plymouth 要用它接管）、主题、`plymouthd.conf` |
-| `/etc/initramfs-tools/modules` | **不含 DRM 模块**（见下） |
-| `/etc/initramfs-tools/initramfs.conf` | `MODULES=list`（USB/ext4/xhci 都是内建，不需要额外模块） |
+| `/etc/initramfs-tools/hooks/z96a-plymouth` | 拷贝 `plymouthd`、splash 插件（含 `renderers/drm.so`）、主题、`plymouthd.conf` |
+| `/etc/initramfs-tools/modules` | `panel-edp`、`analogix_dp`、`rockchipdrm`（DRM 在 initramfs 就 probe） |
+| `/etc/initramfs-tools/initramfs.conf` | `MODULES=list` |
 | `/etc/plymouth/plymouthd.conf` | `[Daemon] Theme=alkaid`（坏配置会静默回退 text 插件） |
 | `/usr/share/plymouth/themes/alkaid` | 运行期主题（slim 也用它补画） |
+| `/usr/lib/modprobe.d/z96a-defer-drm.conf` | `blacklist rockchipdrm`：rootfs 阶段不再二次自动加载 |
 
-**cmdline 必须带 `clk_ignore_unused pd_ignore_unused`（关键）**：U-Boot 交棒的 VOP
-扫描没有对应的 Linux 消费者，`clk_disable_unused()` 与 genpd 的未使用域回收会在
-late_initcall 之后关掉 VO 时钟/电源域，扫描停止、LOGO 变黑（随后黑到 rockchipdrm
-probe）。`lib/function/staging` 为 z96a-v2 在 append 里加上这两个参数；内核补丁
-`0018` 另外把 VO 域设成 `GENPD_FLAG_ALWAYS_ON`。实测缺这两个参数时 LOGO 只能保持
-几秒，加上后一直保持到 DRM probe（本次 17.1 s）。
+三个条件缺一不可：
 
-**为什么 initrd 里不放 DRM（关键）**：U-Boot 交棒时 VOP 仍在扫描带 LOGO 的
-framebuffer（`z96a_handback.c` 会把 POST STANDBY 位清掉）。只要内核不在 initramfs
-里 probe `rockchipdrm`，这块画面就会一直保持。一旦在 initrd 里加载 DRM，probe 的
-modeset 会立刻换掉 scanout 缓冲——LOGO 在约 7.4 s 消失，而 Plymouth 的动画首帧
-`f0000.png` 是纯黑（正片从黑场淡入），于是 7.4 s→球体出现之间就出现长黑屏。
+1. **initrd 里必须有 DRM**（`panel-edp → analogix_dp → rockchipdrm`）。这样
+   `load_modules` 在 premount 之前就 probe 完，plymouth 在 **~8.0 s** 就能上屏。
+   若把 DRM 留到 rootfs 才加载（实测 16.9 s），splash 只能等到那时才显示，
+   而 slim 在 ~20 s 就 `plymouth quit` 进 X——动画窗口只有 ~4.5 s，正片
+   （6.1 s）会被截断，观感就是「没播完」。
+2. **cmdline 必须带 `clk_ignore_unused pd_ignore_unused`**。U-Boot 交棒的 VOP 扫描
+   在 DRM probe 之前没有 Linux 消费者，`clk_disable_unused()` / genpd 的未使用域
+   回收会在 late_initcall 后关掉 VO 时钟与电源域，扫描停止、LOGO 变黑。加上这两个
+   参数后 LOGO 一直保持到 **DRM 的 modeset（~7.46 s）**；内核补丁 `0018` 另外把 VO
+   域设成 `GENPD_FLAG_ALWAYS_ON`。
+3. **主题必须从 `f0000` 开始**。`f0080` 之后是「LOGO 构图」的循环段，从那里起步会
+   把正片的大球体整段跳过。
 
-实测（2026-11-13，.84，USB rootfs）：DRM 不进 initrd 时 LOGO 保持到 rootfs udev
-拉起显示（不同 boot 在 10–17 s），动画随即从 `f0000` 开始淡入到球体（正片），
-黑场只有淡入本身的 <1 s。
+实测（2026-11-13，.84，USB rootfs，最终配置）：
+
+```
+[7.46] DRM 初始化 + fb0        ← LOGO 保持到这一刻（clk/pd 参数生效）
+[8.00] premount: splash shown  ← 只隔 0.5 s，无长黑屏
+[8.44] root mount
+[slim 启动 ~30] + ANIM(2s) → plymouth quit → X
+→ 动画窗口 ≈ 24 s：正片 6.1 s 完整播放，之后进入 8.0–11.9 s 无缝循环段
+```
 
 历史教训（同一台设备）：
-- 在 premount 里加「等 `/dev/dri/by-path/...card`」或「等 `/dev/fb0`」的 `sleep 0.1`
+- premount 里加「等 `/dev/dri/by-path/...card`」或「等 `/dev/fb0`」的 `sleep 0.1`
   轮询，会撞进 initramfs 的 udev 冷插拔窗口，把 splash 和 root 挂载拖后约 4.5 s
   （root 从 8.4 s 变 13.1 s）；原版 premount 不需要任何等待。
 - 用 `LD_DEBUG` / `LD_BIND_NOW` 之类的“加速”是误判，根因不在 plymouthd。
-- 把主题起点改成 `f0080` 会让 Plymouth 接管首帧变成「LOGO 构图」的循环段，
-  正片的大球体整段被跳过——启动动画必须从 `f0000` 开始。
 
 ### 3.3 slim 交接
 

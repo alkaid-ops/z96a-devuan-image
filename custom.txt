@@ -34,11 +34,12 @@ user_function (){
 	fi
 
 	# --- Z96A boot/display: LOGO -> Plymouth animation -> desktop ---
-	# Plymouth runs from the stock init-premount/bottom scripts and starts
-	# early, but the initrd deliberately does NOT load the DRM stack: the
-	# bootloader logo then stays on screen (clk_ignore_unused and the VO
-	# genpd keep the VOP scanning) until the rootfs brings rockchipdrm up,
-	# and the splash picks the display up through udev at that point.
+	# Plymouth runs from the stock init-premount scripts with the DRM stack
+	# already loaded by the initrd module list, so the splash is on screen at
+	# ~8 s - early enough for the 6.1 s intro to play in full before slim
+	# quits plymouth for X.  The bootloader logo survives until that early
+	# modeset because the append line carries clk_ignore_unused and
+	# pd_ignore_unused (see lib/function/staging).
 	# Do not add waits to init-premount: polling for /dev/dri or /dev/fb0
 	# lands in the udev coldplug window and delayed both the splash and the
 	# root mount by ~4.5 s. slim repaints the last animation frame before
