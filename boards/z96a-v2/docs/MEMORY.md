@@ -120,6 +120,9 @@
 - PCManFM-Qt 的 `Terminal` 必须显式设为 `qterminal`；默认值是 `xterm`，而镜像已卸载 xterm，桌面右键“在终端中打开”会报错。
 - 终端只留 `qterminal`（PSS 13.5MB，低于 lxterminal 19.7MB）；`x-terminal-emulator` 指向 qterminal；`z96a-hotkey mixer` 用 `qterminal -e alsamixer`。
 - 托盘网络用 `nm-tray`（`nm-tray-l10n`），不装 `nm-applet`/`network-manager-gnome`；完整编辑用 `nm-connection-editor`。
+- **WiFi 驱动不要换厂商 out-of-tree**：主线 `rtw88_8822cs` 是默认。Realtek `rtl88x2cs`（`jethome-iot/rtl88x2cs`，commit e12226b）能在 7.2.12 编译、加载、连接，但实测远差于 rtw88：上行 3–63Mbps、下行 22–47Mbps，且 4 流也不稳定；rtw88 基线是上行 45–49Mbps、下行 95–139Mbps。不要替换、不要 blacklist rtw88。源码只留在 host `/home/hsy/project/rtl88x2cs`，不要放进镜像仓库。
+- **WiFi 测速必须绑 wlan0**：`iperf3` 不绑接口时，同网段流量默认走 `eth0`（USB 有线），会得到 310/325Mbps 的假 WiFi 结果。正确做法是 `iperf3 -c <host> -B <wlan0-ip>%wlan0`，并用 `/sys/class/net/wlan0/statistics/{tx,rx}_bytes` 确认计数增长。SDIO 实测是 200MHz/4bit/SDR104/1.8V，WiFi 瓶颈在 rtw88/空口/AP，不在 SDIO。
+- **BT SCO/I2S2 未实现**：HCI/A2DP 走 UART，但 HFP/SCO 语音走 I2S/PCM；当前 `CONFIG_SND_SOC_BT_SCO` 未编译，蓝牙耳机麦克风不可用，已记入 TODO。
 - 输入法：Fcitx5 + WindInput（`windinput`）；`~/.config/WindInput/config.toml` 里 `ui.toolbar.visible=false`、`ui.status.enabled=false`，只在托盘显示。
 - 媒体只留 `mpv`，配置 `hwdec=v4l2request` / `vo=gpu` / `gpu-context=x11egl` / `gpu-dumb-mode=yes` / `dither=no`。1080p60 达标；4K60 HEVC 约 40fps（X11/GPU 合成上限，不是解码问题，详见 `references/MPV-X11-4K-HEVC.md`）。
 - DeckCraft 上游无中文界面（0.16.0 仍如此），只能等上游，不要再去调 locale。

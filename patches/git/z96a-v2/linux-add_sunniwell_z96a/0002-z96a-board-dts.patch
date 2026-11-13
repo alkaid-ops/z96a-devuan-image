@@ -1,0 +1,246 @@
+--- a/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
++++ b/arch/arm64/boot/dts/rockchip/rk3568-sunniwell-z96a-typec.dts
+@@ -35,7 +35,7 @@
+ 
+ 	battery: battery {
+ 		compatible = "simple-battery";
+-		charge-full-design-microamp-hours = <5125000>;
++		charge-full-design-microamp-hours = <5000000>;
+ 		charge-term-current-microamp = <300000>;
+ 		constant-charge-current-max-microamp = <1000000>;
+ 		constant-charge-voltage-max-microvolt = <8404000>;
+@@ -161,21 +161,19 @@
+ 			gpios = <&gpio0 RK_PD3 GPIO_ACTIVE_HIGH>;
+ 			function = LED_FUNCTION_POWER;
+ 			color = <LED_COLOR_ID_WHITE>;
+-			linux,default-trigger = "bq257xx-charger-online";
++			/* Z96A: system-running indicator, not charger presence. */
+ 		};
+ 
+ 		led_charging: led-charging {
+ 			gpios = <&gpio0 RK_PD5 GPIO_ACTIVE_HIGH>;
+ 			function = LED_FUNCTION_CHARGING;
+ 			color = <LED_COLOR_ID_RED>;
+-			linux,default-trigger = "bq257xx-fgu-charging";
+ 		};
+ 
+ 		led_full: led-full {
+ 			gpios = <&gpio0 RK_PD6 GPIO_ACTIVE_HIGH>;
+ 			function = LED_FUNCTION_CHARGING;
+ 			color = <LED_COLOR_ID_GREEN>;
+-			linux,default-trigger = "bq257xx-fgu-full";
+ 		};
+ 	};
+ 
+@@ -354,6 +352,21 @@
+ 		vin-supply = <&vcc5v0_sys>;
+ 	};
+ 
++	/*
++	 * The internal USB camera is powered from a GPIO-controlled rail.
++	 * Keep it enabled so uvcvideo sees the device (0c45:6368) at boot.
++	 */
++	vcc_camera: regulator-vcc-camera {
++		compatible = "regulator-fixed";
++		enable-active-high;
++		gpio = <&gpio2 RK_PD0 GPIO_ACTIVE_HIGH>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&camera_pwr_en>;
++		regulator-name = "vcc_camera";
++		regulator-always-on;
++		regulator-boot-on;
++	};
++
+ 	wifi_power: regulator-wifi-power {
+ 		compatible = "regulator-fixed";
+ 		enable-active-high;
+@@ -396,18 +409,38 @@
+ 
+ &cpu0 {
+ 	cpu-supply = <&vdd_cpu>;
++	cpu-idle-states = <&cpu_sleep>;
+ };
+ 
+ &cpu1 {
+ 	cpu-supply = <&vdd_cpu>;
++	cpu-idle-states = <&cpu_sleep>;
+ };
+ 
+ &cpu2 {
+ 	cpu-supply = <&vdd_cpu>;
++	cpu-idle-states = <&cpu_sleep>;
+ };
+ 
+ &cpu3 {
+ 	cpu-supply = <&vdd_cpu>;
++	cpu-idle-states = <&cpu_sleep>;
++};
++
++&cpu0_opp_table {
++	opp-1416000000 {
++		opp-microvolt = <1000000 1000000 1150000>;
++	};
++
++	opp-1608000000 {
++		opp-microvolt = <1075000 1075000 1150000>;
++	};
++};
++
++&gpu_opp_table {
++	opp-600000000 {
++		opp-microvolt = <875000 875000 1000000>;
++	};
+ };
+ 
+ &gpu {
+@@ -440,6 +473,7 @@
+ };
+ 
+ &hdmi_sound {
++	simple-audio-card,mclk-fs = <128>;
+ 	status = "okay";
+ };
+ 
+@@ -605,8 +639,8 @@
+ 				regulator-name = "vccio_sd";
+ 				regulator-always-on;
+ 				regulator-boot-on;
+-				regulator-min-microvolt = <3300000>;
+-				regulator-max-microvolt = <3300000>;
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <1800000>;
+ 
+ 				regulator-state-mem {
+ 					regulator-off-in-suspend;
+@@ -673,12 +707,27 @@
+ 
+ 			vcc3v3_sd: SWITCH_REG2 {
+ 				regulator-name = "vcc3v3_sd";
++				regulator-always-on;
++				regulator-boot-on;
+ 
+ 				regulator-state-mem {
+ 					regulator-off-in-suspend;
+ 				};
+ 			};
+ 		};
++
++		codec {
++			rockchip,mic-in-differential;
++		};
++
++		charger {
++			monitored-battery = <&battery>;
++			rockchip,bat-res-up = <140>;
++			rockchip,bat-res-down = <20>;
++			rockchip,resistor-sense-micro-ohms = <10000>;
++			rockchip,sleep-enter-current-microamp = <300000>;
++			rockchip,sleep-filter-current-microamp = <100000>;
++		};
+ 	};
+ 
+ 	husb311: typec@4e {
+@@ -735,6 +784,15 @@
+ 		pinctrl-0 = <&sc8886s_int>;
+ 		input-current-limit-microamp = <3000000>;
+ 		monitored-battery = <&battery>;
++		/*
++		 * Charging is inhibited outside the vendor NTC window:
++		 * low-temp-off 0 C, high-temp-off 43 C.  The temperature comes from
++		 * the battery-thermal generic-adc-thermal zone (SARADC ch4), whose
++		 * lookup table is derived from the vendor SC8886 ntc_table.
++		 */
++		southchip,low-temp-off-celsius = <0>;
++		southchip,high-temp-off-celsius = <43>;
++		southchip,thermal-poll-ms = <5000>;
+ 	};
+ };
+ 
+@@ -779,7 +837,7 @@
+ 		     &pdmm0_sdi1
+ 		     &pdmm0_sdi2
+ 		     &pdmm0_sdi3>;
+-	/* ES7202 mic is on sdi1 (channel 0), aec is on sdi2 (channel 1), headset on sdi3 (channel 2) */
++	/* ES7202: mic (0x30) on SDI1 -> ch0/1, AEC ref (0x31) on SDI2 -> ch2/3, headset (0x32) on SDI3 -> ch4/5 */
+ 	rockchip,path-map = <1 2 3 0>;
+ 	status = "okay";
+ };
+@@ -852,6 +910,9 @@
+ 		vcc5v0_usb_keyboard_en: vcc5v0-usb-keyboard-en {
+ 			rockchip,pins = <2 RK_PD7 RK_FUNC_GPIO &pcfg_pull_none>;
+ 		};
++		camera_pwr_en: camera-pwr-en {
++			rockchip,pins = <2 RK_PD0 RK_FUNC_GPIO &pcfg_pull_none>;
++		};
+ 	};
+ 
+ 	wireless-bluetooth {
+@@ -893,6 +954,8 @@
+ 	bus-width = <8>;
+ 	max-frequency = <200000000>;
+ 	non-removable;
++	mmc-hs400-1_8v;
++	mmc-hs400-enhanced-strobe;
+ 	pinctrl-names = "default";
+ 	pinctrl-0 = <&emmc_bus8 &emmc_clk &emmc_cmd &emmc_datastrobe>;
+ 
+@@ -903,17 +966,20 @@
+ 	#address-cells = <1>;
+ 	#size-cells = <0>;
+ 	bus-width = <4>;
++	supports-sdio;
+ 	cap-sd-highspeed;
++	cap-mmc-highspeed;
+ 	cap-sdio-irq;
+ 	disable-wp;
+ 	keep-power-in-suspend;
++	max-frequency = <200000000>;
+ 	mmc-pwrseq = <&sdio_pwrseq>;
+ 	non-removable;
+ 	pinctrl-names = "default";
+ 	pinctrl-0 = <&sdmmc1_bus4 &sdmmc1_clk &sdmmc1_cmd>;
+ 	sd-uhs-sdr104;
+ 	vmmc-supply = <&wifi_power>;
+-	vqmmc-supply = <&vcca1v8_pmu>;
++	vqmmc-supply = <&vccio_sd>;
+ 
+ 	status = "okay";
+ 
+@@ -1036,13 +1102,18 @@
+ &vop {
+ 	assigned-clocks = <&cru DCLK_VOP0>, <&cru PLL_VPLL>, <&cru DCLK_VOP1>;
+ 	assigned-clock-parents = <&pmucru PLL_HPLL>, <&xin24m>, <&cru PLL_VPLL>;
+-	assigned-clock-rates = <0>, <132000000>, <132000000>;
++	assigned-clock-rates = <0>, <140240000>, <140240000>;
+ 
+ 	status = "okay";
+ };
+ 
+ &vop_mmu {
+-	status = "okay";
++	/*
++	 * Keep the bootloader scanout alive across the handover: Linux must
++	 * not attach the VOP2 IOMMU (rockchip_drm_init_iommu() then returns 0
++	 * and DRM falls back to physical DMA + CMA).
++	 */
++	status = "disabled";
+ };
+ 
+ &vp0 {
+@@ -1109,3 +1180,16 @@
+ 		line-name = "rt1711h-int";
+ 	};
+ };
++
++&{/cpus} {
++	idle-states {
++		cpu_sleep: cpu-sleep {
++			compatible = "arm,idle-state";
++			local-timer-stop;
++			arm,psci-suspend-param = <0x10000>;
++			entry-latency-us = <100>;
++			exit-latency-us = <120>;
++			min-residency-us = <1000>;
++		};
++	};
++};
