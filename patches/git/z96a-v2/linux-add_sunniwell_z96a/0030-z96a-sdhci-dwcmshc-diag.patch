@@ -1,0 +1,141 @@
+--- a/drivers/mmc/host/sdhci-of-dwcmshc.c
++++ b/drivers/mmc/host/sdhci-of-dwcmshc.c
+@@ -9,6 +9,7 @@
+ 
+ #include <linux/acpi.h>
+ #include <linux/arm-smccc.h>
++#include <linux/atomic.h>
+ #include <linux/bitfield.h>
+ #include <linux/clk.h>
+ #include <linux/clk-provider.h>
+@@ -309,6 +310,116 @@
+ 	u16 delay_line;
+ 	u16 flags;
+ };
++/* Diagnostic only: first WRITE error capture. Default off. */
++#define DWCMSHC_DIAG_ERR_MASK \
++	(SDHCI_INT_DATA_TIMEOUT | SDHCI_INT_DATA_CRC | \
++	 SDHCI_INT_DATA_END_BIT | SDHCI_INT_ADMA_ERROR | \
++	 SDHCI_INT_AUTO_CMD_ERR | SDHCI_INT_TIMEOUT | \
++	 SDHCI_INT_CRC | SDHCI_INT_END_BIT | SDHCI_INT_INDEX)
++
++static bool dwcmshc_diag;
++module_param_named(diag, dwcmshc_diag, bool, 0644);
++MODULE_PARM_DESC(diag, "Capture first MMC write error (default 0)");
++
++static int dwcmshc_diag_reset;
++module_param_named(diag_reset, dwcmshc_diag_reset, int, 0644);
++MODULE_PARM_DESC(diag_reset, "Set to 1 to re-arm the one-shot capture");
++
++static atomic_t dwcmshc_diag_once = ATOMIC_INIT(0);
++
++static void dwcmshc_diag_dump(struct sdhci_host *host,
++			      struct dwcmshc_priv *dwc_priv,
++			      u32 intmask)
++{
++	struct mmc_data *data = host->data;
++	struct mmc_command *cmd = host->data_cmd ? host->data_cmd : host->cmd;
++	u32 vendor = dwc_priv->vendor_specific_area1;
++	u32 int_status, int_enable, sig_enable, present, hctl, hctl2;
++	u32 clk, reset, adma_err, adma_addr, adma_hi, auto_cmd;
++	u32 xfer_mode, command, emmc_ctrl, host3, atctrl;
++	u32 dll_ctrl, dll_rx, dll_tx, dll_strbin, dll_cmdout, dll_status;
++	u32 opcode = 0, cmd_flags = 0;
++
++	if (data && data->mrq && data->mrq->cmd) {
++		opcode = data->mrq->cmd->opcode;
++		cmd_flags = data->mrq->cmd->flags;
++	} else if (cmd) {
++		opcode = cmd->opcode;
++		cmd_flags = cmd->flags;
++	}
++
++	int_status = sdhci_readl(host, SDHCI_INT_STATUS);
++	int_enable = sdhci_readl(host, SDHCI_INT_ENABLE);
++	sig_enable = sdhci_readl(host, SDHCI_SIGNAL_ENABLE);
++	present = sdhci_readl(host, SDHCI_PRESENT_STATE);
++	hctl = sdhci_readb(host, SDHCI_HOST_CONTROL);
++	hctl2 = sdhci_readw(host, SDHCI_HOST_CONTROL2);
++	clk = sdhci_readw(host, SDHCI_CLOCK_CONTROL);
++	reset = sdhci_readb(host, SDHCI_SOFTWARE_RESET);
++	adma_err = sdhci_readl(host, SDHCI_ADMA_ERROR);
++	adma_addr = sdhci_readl(host, SDHCI_ADMA_ADDRESS);
++	adma_hi = sdhci_readl(host, SDHCI_ADMA_ADDRESS_HI);
++	auto_cmd = sdhci_readw(host, SDHCI_AUTO_CMD_STATUS);
++	xfer_mode = sdhci_readw(host, SDHCI_TRANSFER_MODE);
++	command = sdhci_readw(host, SDHCI_COMMAND);
++
++	emmc_ctrl = sdhci_readl(host, vendor + DWCMSHC_EMMC_CONTROL);
++	host3 = sdhci_readl(host, vendor + DWCMSHC_HOST_CTRL3);
++	atctrl = sdhci_readl(host, vendor + DWCMSHC_EMMC_ATCTRL);
++
++	dll_ctrl = sdhci_readl(host, DWCMSHC_EMMC_DLL_CTRL);
++	dll_rx = sdhci_readl(host, DWCMSHC_EMMC_DLL_RXCLK);
++	dll_tx = sdhci_readl(host, DWCMSHC_EMMC_DLL_TXCLK);
++	dll_strbin = sdhci_readl(host, DWCMSHC_EMMC_DLL_STRBIN);
++	dll_cmdout = sdhci_readl(host, DECMSHC_EMMC_DLL_CMDOUT);
++	dll_status = sdhci_readl(host, DWCMSHC_EMMC_DLL_STATUS0);
++
++	dev_err(mmc_dev(host->mmc),
++		"DWCMSHC diag: first WRITE error int=%08x status=%08x ier=%08x int_en=%08x sig=%08x\n",
++		intmask, int_status, host->ier, int_enable, sig_enable);
++	dev_err(mmc_dev(host->mmc),
++		"DWCMSHC diag: opcode=%u cmd_flags=%08x data_flags=%x blocks=%u blksz=%u xfer=%u\n",
++		opcode, cmd_flags, data ? data->flags : 0,
++		data ? data->blocks : 0, data ? data->blksz : 0,
++		data ? data->bytes_xfered : 0);
++	dev_err(mmc_dev(host->mmc),
++		"DWCMSHC diag: present=%08x hctl=%02x hctl2=%04x clk=%04x reset=%02x\n",
++		present, hctl, hctl2, clk, reset);
++	dev_err(mmc_dev(host->mmc),
++		"DWCMSHC diag: adma_err=%08x adma_addr=%08x/%08x auto_cmd=%04x xfer=%04x cmd=%04x\n",
++		adma_err, adma_addr, adma_hi, auto_cmd, xfer_mode, command);
++	dev_err(mmc_dev(host->mmc),
++		"DWCMSHC diag: emmc_ctrl=%08x host3=%08x atctrl=%08x\n",
++		emmc_ctrl, host3, atctrl);
++	dev_err(mmc_dev(host->mmc),
++		"DWCMSHC diag: dll ctrl=%08x rx=%08x tx=%08x strbin=%08x cmdout=%08x stat0=%08x\n",
++		dll_ctrl, dll_rx, dll_tx, dll_strbin, dll_cmdout, dll_status);
++}
++
++static void dwcmshc_diag_maybe(struct sdhci_host *host,
++			       struct dwcmshc_priv *dwc_priv,
++			       u32 intmask)
++{
++	struct mmc_data *data;
++
++	if (dwcmshc_diag_reset) {
++		atomic_set(&dwcmshc_diag_once, 0);
++		dwcmshc_diag_reset = 0;
++	}
++	if (!dwcmshc_diag)
++		return;
++	if (!(intmask & DWCMSHC_DIAG_ERR_MASK))
++		return;
++
++	data = host->data;
++	if (!data || !(data->flags & MMC_DATA_WRITE))
++		return;
++	if (atomic_xchg(&dwcmshc_diag_once, 1))
++		return;
++
++	dwcmshc_diag_dump(host, dwc_priv, intmask);
++}
++
+ 
+ struct dwcmshc_pltfm_data {
+ 	const struct sdhci_pltfm_data pdata;
+@@ -618,9 +729,13 @@
+ 
+ static u32 dwcmshc_cqe_irq_handler(struct sdhci_host *host, u32 intmask)
+ {
++	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
++	struct dwcmshc_priv *dwc_priv = sdhci_pltfm_priv(pltfm_host);
+ 	int cmd_error = 0;
+ 	int data_error = 0;
+ 
++	dwcmshc_diag_maybe(host, dwc_priv, intmask);
++
+ 	if (!sdhci_cqe_irq(host, intmask, &cmd_error, &data_error))
+ 		return intmask;
+ 
