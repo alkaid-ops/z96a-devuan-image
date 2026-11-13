@@ -1,0 +1,20 @@
+# Z96A build inputs — the image assembly reads only this file.
+#
+# Update one line at a time, manually, after a component release has been
+# inspected; never resolve "latest" from the GitHub API. Each *_sums value is
+# the SHA256 of the component's SHA256SUMS asset, so the manifest itself is
+# pinned as well.
+#
+# Components:
+#   kernel_release    kernel-<ver>-rN (linux-image/linux-headers + meta)
+#   base_apps_release base-apps-<date> (rootfs tarball + bundled apps)
+#   uboot_release     uboot-<source-tag>-pN (deb + raw blobs + meta)
+
+kernel_release   = "kernel-7.2.12-bootstrap"
+kernel_sums      = "1c4bb593c672d4bf6112cd1d28daec4909a16e3cf27050f2cd187c76b3742380"
+
+base_apps_release = "base-apps-20261113"
+base_apps_sums    = "afff71ae4fd00ee002bbeeaeae57c4ed782227e1df90ca640e13c74be5e5b149"
+
+uboot_release    = "uboot-fitfix-v3-p1"
+uboot_sums       = "f5209f81827173613be8148a63281f38e818867698c80f2bdcec2b10691f0c12"

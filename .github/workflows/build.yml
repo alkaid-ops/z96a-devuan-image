@@ -15,10 +15,6 @@ on:
         description: "Run loop-mount image validation"
         type: boolean
         default: true
-      inputs_release:
-        description: "inputs-vN release to build from (e.g. a kernel pre-release)"
-        type: string
-        default: "inputs-v3"
 
 permissions:
   contents: read
@@ -35,4 +31,3 @@ jobs:
       channel: ${{ inputs.channel }}
       release_tag: ""
       validate: ${{ inputs.validate }}
-      inputs_release: ${{ inputs.inputs_release }}

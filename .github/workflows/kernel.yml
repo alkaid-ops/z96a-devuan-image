@@ -1,36 +1,25 @@
 name: kernel
 
-# Kernel pre-release: build the z96a-v2 kernel on the runner (cross-compiled,
-# not QEMU), fold the resulting .debs into a copy of an existing inputs
-# release, publish it as a *pre-release* and then dispatch the image build
-# against it. Image builds never compile a kernel themselves.
+# Build the z96a-v2 kernel as an independent component release.
+#
+# The image assembly never compiles a kernel: it consumes a component pinned
+# by config/inputs.lock. Updating the lock is a manual commit (strategy A):
+# after this workflow publishes kernel-<ver>-rN, run
+#   config/inputs.lock: kernel_release / kernel_sums
+# and then dispatch the image build.
 on:
   workflow_dispatch:
     inputs:
-      baseline_release:
-        description: "Existing inputs release to take app/tarball/U-Boot inputs from"
-        type: string
-        default: "inputs-v3"
-      release_tag:
-        description: "Tag for the new pre-release (empty = inputs-kernel-<date>-<run>)"
+      tag:
+        description: "Release tag (empty = kernel-<ver>-r<run number>)"
         type: string
         default: ""
-      channel:
-        description: "RELEASE_CHANNEL for the image build"
-        type: choice
-        options: [nightly, stable, test]
-        default: nightly
-      run_image:
-        description: "Dispatch the image build against the new pre-release"
-        type: boolean
-        default: true
 
 permissions:
   contents: write
-  actions: write
 
 concurrency:
-  group: z96a-kernel-release
+  group: z96a-kernel
   cancel-in-progress: false
 
 env:
@@ -38,8 +27,9 @@ env:
 
 jobs:
   kernel:
+    # x86 runner + aarch64 cross compiler: the kernel is not QEMU-emulated.
     runs-on: ubuntu-24.04
-    timeout-minutes: 240
+    timeout-minutes: 180
     outputs:
       release_tag: ${{ steps.tag.outputs.tag }}
     steps:
@@ -85,49 +75,40 @@ jobs:
           sha256sum "$tmp/boot/Image"
           rm -rf "$tmp"
 
-      - name: Stage inputs pre-release
+      - name: Stage component release
         id: tag
-        env:
-          BASE: ${{ inputs.baseline_release }}
-          INPUT_TAG: ${{ inputs.release_tag }}
         run: |
           set -eu
-          tag=${INPUT_TAG}
-          if [ -z "$tag" ]; then
-            tag="inputs-kernel-$(date -u +%Y%m%d)-${GITHUB_RUN_NUMBER}"
-          fi
-          echo "release tag: $tag"
+          version=$(sed -n 's/^FORCE_LINUX_VERSION="\([^"]*\)".*/\1/p' lib/boards/z96a-v2 | head -1)
+          tag="${INPUT_TAG:-kernel-${version}-r${GITHUB_RUN_NUMBER}}"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
           stage=$(mktemp -d)
-          echo "stage=$stage" >> "$GITHUB_ENV"
-          gh release download "$BASE" --dir "$stage" --repo "$GITHUB_REPOSITORY"
+          mkdir -p "$stage/debs"
+          cp output/z96a-v2/linux-image-z96a_*.deb \
+             output/z96a-v2/linux-headers-z96a_*.deb "$stage/debs/"
+          (cd "$stage" && sha256sum debs/*.deb > SHA256SUMS.kernel)
 
-          mkdir -p "$stage/debs" "$stage/packages" "$stage/tarball"
-          cd "$stage"
-          mv linux-*.deb u-boot-*.deb debs/
-          rm -f debs/linux-image-*.deb debs/linux-headers-*.deb
-          mv *.deb packages/ 2>/dev/null || true
-          mv *.tar.xz tarball/
+          image_sha=$(tmpdir=$(mktemp -d); dpkg-deb -x "$stage"/debs/linux-image-*.deb "$tmpdir"; sha256sum "$tmpdir/boot/Image" | cut -d' ' -f1; rm -rf "$tmpdir")
+          series_sha=$(cat patches/git/z96a-v2/linux-add_sunniwell_z96a/*.patch | sha256sum | cut -d' ' -f1)
+          cat > "$stage/kernel-meta.json" <<EOF
+          {
+            "version": "${version}-1",
+            "image_sha256": "$image_sha",
+            "patch_series_sha256": "$series_sha",
+            "commit": "${GITHUB_SHA}",
+            "builder": "kernel.yml run ${GITHUB_RUN_ID}"
+          }
+          EOF
 
-          cp "$GITHUB_WORKSPACE"/output/z96a-v2/linux-image-z96a_*.deb \
-             "$GITHUB_WORKSPACE"/output/z96a-v2/linux-headers-z96a_*.deb debs/
-          sha256sum debs/*.deb packages/*.deb tarball/*.tar.xz > SHA256SUMS.inputs
-          grep -E 'linux-(image|headers)' SHA256SUMS.inputs
-
-          gh release create "$tag" debs/*.deb packages/*.deb tarball/*.tar.xz \
-            SHA256SUMS.inputs --repo "$GITHUB_REPOSITORY" --prerelease \
-            --title "$tag" \
-            --notes "Kernel pre-release built from ${GITHUB_SHA}; kernel debs rebuilt here, all other inputs copied from $BASE."
-
-      - name: Dispatch image build against the pre-release
-        if: ${{ inputs.run_image }}
+          gh release create "$tag" "$stage"/debs/*.deb \
+            "$stage/SHA256SUMS.kernel" "$stage/kernel-meta.json" \
+            --repo "$GITHUB_REPOSITORY" --prerelease --title "$tag" \
+            --notes "Kernel component from ${GITHUB_SHA}; pin it in config/inputs.lock, then dispatch the image build."
         env:
-          TAG: ${{ steps.tag.outputs.tag }}
-          CHANNEL: ${{ inputs.channel }}
+          INPUT_TAG: ${{ inputs.tag }}
+
+      - name: Summarize
         run: |
-          gh workflow run build.yml --repo "$GITHUB_REPOSITORY" \
-            -f channel="$CHANNEL" \
-            -f validate=true \
-            -f inputs_release="$TAG"
-          echo "dispatch: z96a-image-build / build.yml inputs_release=$TAG"
+          echo "### Kernel component: ${{ steps.tag.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Next: set kernel_release/kernel_sums in config/inputs.lock (sums = sha256 of the SHA256SUMS.kernel asset)." >> "$GITHUB_STEP_SUMMARY"

@@ -23,94 +23,78 @@ Tag 必须指向默认分支上的提交；`release.yml` 会检查 `git merge-ba
 
 ## Runner 要求
 
-镜像构建使用 GitHub-hosted `ubuntu-24.04` runner。实际构建前会检查剩余磁盘、
-宿主机 loop/ext4 挂载与 privileged Docker；验证记录见 hosted-runner-probe 工作流。
+镜像构建使用 GitHub-hosted **arm64** runner（`ubuntu-24.04-arm`），rootfs 是原生
+执行，不再经过 QEMU/binfmt；构建前仍会检查剩余磁盘、loop device 与 privileged
+Docker（探针见 hosted-runner-probe）。
 
-要求与限制：
-
-- 运行环境固定 `ubuntu-24.04`；工作流先回收预装 SDK 并要求根文件系统至少 60 GiB 可用。
-- 必须能使用 Docker、特权容器、loop device 与 ext4 loop mount；探针已成功验证。
+- 固定 `ubuntu-24.04-arm`；根文件系统至少 60 GiB 可用。
+- 必须能使用 Docker、特权容器、loop device 与 ext4 loop mount。
 - 工作流自动构建固定构建根镜像：
+  `docker build -f boards/z96a-v2/tools/Dockerfile -t z96a-build:local .`
+- 出站网络：apt（Devuan 主源/backports）、vendor URL、GitHub Release 下载。
+- 同一时间只运行一个镜像构建（`concurrency: z96a-image-build`）。
+- 构建容器以 root 写 `output/`，workflow 使用 `clean: false` 并在容器内清理。
+- 完整镜像只由手动 workflow 或版本 tag 触发；push/PR 只跑轻量 CI。
 
-  ```sh
-  docker build -f boards/z96a-v2/tools/Dockerfile -t z96a-build:local .
-  ```
+## 组件发布与 inputs.lock
 
-- 出站网络：容器内 apt（Devuan 主源与 `excalibur-backports`）、应用 vendor URL
-  与 GitHub 下载；输入 Release 避免重新构建内核/应用包，但不替代 apt 网络。
-- 安装 `rsync`、`xz`、`python3`、`git`。
-- Actions runner 需支持 `actions/checkout@v7` 系列（Node 24）。
-- 同一时间只运行一个镜像构建；工作流已用 `concurrency` 串行化。
-- 构建容器会以 root 写入 `output/`。工作流因此使用 `clean: false`，并在容器内
-  显式清空 `output/` 等构建目录；runner 用户不要依赖 `git clean` 删除这些文件。
-- 完整镜像构建仅由受控的手动 workflow 或版本 Tag 触发；PR/push 只跑轻量 CI。
+镜像总装不再使用单体 `inputs-vN`，而是三个独立组件 Release，全部标为
+**prerelease**（它们是构建输入，不是成品）：
 
-## 持久缓存布局
+| 组件 | Workflow | Tag | 资产 |
+|---|---|---|---|
+| kernel | `kernel.yml` | `kernel-<ver>-r<run>` | linux-image/headers deb、`SHA256SUMS.kernel`、`kernel-meta.json` |
+| base+apps | `base-apps.yml` | `base-apps-<date>` | rootfs tarball、应用 deb、`SHA256SUMS.base` |
+| U-Boot | `uboot.yml` | `uboot-<firmware-tag>-p<N>` | u-boot deb、idbloader/u-boot blob、`SHA256SUMS.uboot`、`uboot-meta.json` |
 
-GitHub-hosted runner 每次为临时机器，因此输入通过 `actions/cache` 保留，
-缓存 miss 时从不可变的 `inputs-v3` Release 下载并逐文件校验。缓存 key 为
-`z96a-inputs-v3-Linux`；更新输入时发布新 `inputs-vN` 并同步更新 workflow key。
-临时 runner 不跨 job 保存 chroot 缓存，当前构建显式关闭该缓存；这只影响构建耗时。
+U-Boot 固件仍由 `alkaid-ops/z96a-rk3568-uboot` 的 `fitfix-vN` Release 提供；
+`uboot.yml` 负责下载校验、与固定 idbloader 配对、打成 deb 并发布 `-pN` 打包版本。
+固件版本与打包版本分离，`uboot-meta.json` 记录源仓库/tag 与两个 blob 的 sha256。
+
+**锁文件 `config/inputs.lock` 是总装的唯一输入**，由人工维护（策略 A）：
+
+```toml
+kernel_release    = "kernel-7.2.12-r3"
+kernel_sums       = "…"   # SHA256SUMS.kernel 的 sha256
+base_apps_release = "base-apps-20261113"
+base_apps_sums    = "…"
+uboot_release     = "uboot-fitfix-v3-p1"
+uboot_sums        = "…"
+```
+
+更新流程：组件 workflow 跑完 → 人工检查产物 → 改 lock 对应两行 → 提交 →
+触发 `build.yml`（或打 tag）。总装不会查询 “latest”，也不自动改 lock。
+
+`make image` 不编译内核：kernel/U-Boot 的 deb 全部来自 lock 指向的 Release。
+
+## 缓存设计
+
+runner 是临时的，所有缓存都用 `actions/cache`：
+
+| 缓存 | Key | 内容 | 失效条件 |
+|---|---|---|---|
+| 输入组件 | `z96a-inputs-<sha256(inputs.lock)>-<arch>` | 三个组件的 deb/tarball/blobs + 校验清单 | lock 任意一行变化 |
+| chroot | `z96a-chroot-<sha256(inputs.lock)>-<arch>` | `output/cache/chroot`（stage1 保存的已装包 rootfs） | lock 变化；内核更新会使缓存失效（内核 deb 在 chroot 内安装） |
+
+- `ci-fetch-inputs.sh` 先从 lock 校验三个组件的 `SHA256SUMS.*`，再逐资产校验；
+  缓存命中时用 `.lock-sha` 与本地清单做离线复验，不访问网络。
+- 输入缓存约 1.3 GiB；chroot 缓存由 `actions/cache` 内部压缩，仍受仓库 10 GiB
+  缓存上限约束，维护时留意淘汰旧 key。
+- Dockerfile 构建层可由 runner 的 docker layer cache 承担；不再使用 binfmt/QEMU。
+
+输入缓存布局：
 
 ```text
 $Z96A_CACHE_ROOT/
 ├── input/
-│   ├── packages/     内置应用 .deb（含内部 build artifact 包）
-│   ├── tarball/      devuan-excalibur-minimal-rootfs-arm64.tar.xz
-│   └── debs/         linux-image-*.deb、linux-headers-*.deb、u-boot-*.deb
-└── chroot/           预留目录（当前 GitHub-hosted 构建不使用）
+│   ├── debs/        linux-image/headers、u-boot deb
+│   ├── packages/    内置应用 .deb
+│   ├── tarball/     devuan-excalibur-minimal-rootfs-arm64.tar.xz
+│   ├── blobs/       u-boot.itb / idbloader
+│   ├── manifests/   SHA256SUMS.kernel / .base / .uboot
+│   └── .lock-sha    该缓存对应的 inputs.lock 摘要
+└── chroot/          stage1 的已装包 rootfs（可随时清空）
 ```
-
-生成输入 Release（仅在维护输入版本时执行）：
-
-```sh
-STAGE=/tmp/z96a-inputs-v3
-mkdir -p "$STAGE"/{packages,tarball,debs}
-cp files/rootfs-overlay/z96a-v2/opt/z96a/packages/*.deb "$STAGE/packages/"
-cp output/tarball/devuan-excalibur-minimal-rootfs-arm64.tar.xz "$STAGE/tarball/"
-cp output/z96a-v2/linux-image-*.deb output/z96a-v2/linux-headers-*.deb \
-   output/z96a-v2/u-boot-*.deb "$STAGE/debs/"
-(cd "$STAGE" && find packages tarball debs -type f -print0 | sort -z |
-  xargs -0 sha256sum > SHA256SUMS.inputs)
-gh release create inputs-v3 "$STAGE"/{packages,tarball,debs}/* \
-  "$STAGE/SHA256SUMS.inputs" --title 'Build inputs v3' \
-  --notes 'Immutable, SHA256-verified inputs for the Z96A image build.'
-```
-
-`make image` **不会编译内核**：内核/U-Boot 的 deb 只能来自输入 Release。
-因此内核补丁更新后，必须先在本地 `make kernel board=z96a-v2` 重建 deb、发布新的 `inputs-vN`，
-再重跑镜像构建（这是有意的人工门禁，不要让 CI 自行编内核）。
-
-输入 Release 是**构建输入**，不是可选加速：
-
-- `make image` 需要 rootfs tarball、kernel deb、U-Boot deb 和内置应用 deb。
-- 内部应用（`build artifact` 列）没有下载 URL，只能由缓存提供。
-- `ci-prepare-inputs.sh` 会校验 `packages-sources.tsv`、`SHA256SUMS` 与所有
-  应用 deb 的 SHA256；缺失或损坏立即失败，不会继续构建。
-
-chroot 缓存（`chroot-cache.sh`）只用于加速安装阶段。缓存 key 覆盖板级配置、
-TOML、defconfig、features、trim、userscripts、overlay、包校验和 kernel deb；
-missing 或 p1 缺 DTB 时自动回退完整 chroot。缓存损坏不会产出错误镜像。
-
-输入缓存是“当前应发布的输入”：升级 kernel、U-Boot、rootfs tarball 或内置
-应用 deb 后必须同步更新，否则 Tag 构建会继续使用旧输入。chroot 缓存可以
-随时清空，只影响耗时。更新输入后必须新建 Release tag（例如 `inputs-v4`）、
-修改 workflow 中的 Release 与 cache key，再验证下载。
-
-## 内核预发布 → 镜像构建
-
-内核不再手工打 deb 再发 inputs：`kernel.yml`（手动触发）会在 runner 上
-**交叉编译**内核（不是 QEMU 模拟 rootfs），然后把新 `linux-image` / `linux-headers`
-deb 合并进一份既有 inputs Release，作为 **pre-release** 发布，并自动触发
-`build.yml` 用该 tag 作为 `inputs_release` 构建镜像。
-
-- 基线输入：`baseline_release`（默认当前 inputs，例如 `inputs-v3`），应用 deb、
-  rootfs tarball、U-Boot deb 全部原样沿用
-- 新 tag：留空则 `inputs-kernel-<日期>-<run号>`；也可指定固定名
-- `run_image=true` 时 dispatch `build.yml -f inputs_release=<tag>`
-- 镜像工作流只消费 inputs：`ci-fetch-inputs.sh` 按 `Z96A_INPUTS_RELEASE` 下载该
-  pre-release，缓存 key 同步为 `z96a-<inputs_release>-Linux`
-- 不做内核改动时，手动构建仍可传入已有 inputs tag（默认 `inputs-v3`）
 
 ## Tag 发布流程
 

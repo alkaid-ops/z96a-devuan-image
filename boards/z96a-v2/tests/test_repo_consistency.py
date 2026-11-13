@@ -366,10 +366,10 @@ class BuildPreflightTests(unittest.TestCase):
         makefile = (ROOT / "Makefile").read_text(errors="replace")
         self.assertIn("\npreflight:", makefile, "Makefile has a preflight target")
 
-    def test_hosted_build_registers_arm64_binfmt(self):
+    def test_hosted_build_runs_native_arm64(self):
         workflow = (ROOT / ".github/workflows/build-image.yml").read_text(errors="replace")
-        self.assertIn("docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392", workflow)
-        self.assertIn("platforms: arm64", workflow)
+        self.assertIn("runs-on: ubuntu-24.04-arm", workflow)
+        self.assertNotIn("docker/setup-qemu-action", workflow)
 
     def test_image_validator_waits_for_loop_partitions(self):
         validator = (ROOT / "boards" / BOARD / "tools/validate-image.sh").read_text(errors="replace")
@@ -723,20 +723,28 @@ class CiReleaseWorkflowTests(unittest.TestCase):
         return path.read_text(errors="replace")
 
     def test_workflow_set(self):
-        for name in ("ci.yml", "build.yml", "release.yml", "build-image.yml", "kernel.yml"):
+        for name in ("ci.yml", "build.yml", "release.yml", "build-image.yml",
+                     "kernel.yml", "base-apps.yml", "uboot.yml"):
             self.assertTrue((self.WORKFLOWS / name).is_file(), name)
 
-    def test_kernel_workflow_publishes_prerelease_then_builds_image(self):
+    def test_kernel_workflow_publishes_component(self):
         text = self.read("kernel.yml")
         self.assertIn("build-in-container.sh kernel", text)
         self.assertIn("--prerelease", text)
-        self.assertIn("gh workflow run build.yml", text)
-        self.assertIn('inputs_release="$TAG"', text)
+        self.assertIn("SHA256SUMS.kernel", text)
+        self.assertNotIn("gh workflow run build.yml", text)
 
-    def test_image_build_takes_inputs_release(self):
+    def test_image_build_reads_lock_on_arm_runner(self):
         text = self.read("build-image.yml")
-        self.assertIn("inputs_release:", text)
-        self.assertIn("Z96A_INPUTS_RELEASE: ${{ inputs.inputs_release }}", text)
+        self.assertIn("runs-on: ubuntu-24.04-arm", text)
+        self.assertIn("config/inputs.lock", text)
+        self.assertNotIn("setup-qemu-action", text)
+        self.assertNotIn("inputs_release", text)
+
+    def test_component_workflows_exist(self):
+        for name in ("base-apps.yml", "uboot.yml"):
+            text = self.read(name)
+            self.assertIn("--prerelease", text)
 
     def test_tag_trigger_and_release_gate(self):
         text = self.read("release.yml")
@@ -895,6 +903,31 @@ class BootSpeedAndAudioStateTests(unittest.TestCase):
         state = ROOT / "files" / "asound" / f"{BOARD}.state"
         self.assertTrue(state.is_file(), f"missing {state}")
         self.assertIn("state.", state.read_text(errors="replace"))
+
+
+class InputLockTests(unittest.TestCase):
+    """The image assembly is pinned by config/inputs.lock (manual strategy A)."""
+
+    LOCK = ROOT / "config" / "inputs.lock"
+
+    def test_lock_lists_all_components_with_manifest_sums(self):
+        text = self.LOCK.read_text(errors="replace")
+        for key in ("kernel_release", "kernel_sums",
+                    "base_apps_release", "base_apps_sums",
+                    "uboot_release", "uboot_sums"):
+            self.assertTrue(re.search(rf"^\s*{key}\s*=\s*\"[^\"]+\"", text, re.MULTILINE),
+                            f"missing lock key {key}")
+        for key in ("kernel_sums", "base_apps_sums", "uboot_sums"):
+            value = re.search(rf"^\s*{key}\s*=\s*\"([^\"]+)\"", text, re.M).group(1)
+            self.assertRegex(value, r"^[0-9a-f]{64}$", key)
+
+    def test_fetch_tool_reads_the_lock(self):
+        text = (ROOT / "boards/z96a-v2/tools/ci-fetch-inputs.sh").read_text(errors="replace")
+        self.assertIn("config/inputs.lock", text)
+        self.assertIn("SHA256SUMS.kernel", text)
+        self.assertIn("SHA256SUMS.base", text)
+        self.assertIn("SHA256SUMS.uboot", text)
+        self.assertIn(".lock-sha", text)
 
 
 class KnownIssueTests(unittest.TestCase):

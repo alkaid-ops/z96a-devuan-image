@@ -19,10 +19,6 @@ on:
         description: "Run loop-mount image validation after the build"
         type: boolean
         default: true
-      inputs_release:
-        description: "inputs-vN release holding kernel/U-Boot/app inputs"
-        type: string
-        default: "inputs-v3"
     secrets:
       Z96A_SSH_KEY:
         description: "Optional public SSH key installed in the image; unset disables SSH login"
@@ -53,7 +49,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 240
     # Manual builds and tag releases share one lock to protect runner disk.
     concurrency:
@@ -127,11 +123,6 @@ jobs:
           docker run --rm --privileged -v /dev:/dev alpine:3.20 sh -ec 'losetup -f >/dev/null'
           echo "runner probe passed; free root disk: $((avail_kb / 1048576)) GiB"
 
-      - name: Register ARM64 binfmt for target chroot
-        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
-        with:
-          platforms: arm64
-
       - name: Ensure build container
         run: |
           set -eu
@@ -158,17 +149,23 @@ jobs:
                    output/ci
           echo "cache root: $Z96A_CACHE_ROOT"
 
+      - name: Restore chroot cache
+        id: chroot-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ env.Z96A_CACHE_ROOT }}/chroot
+          key: z96a-chroot-${{ hashFiles('config/inputs.lock') }}-${{ runner.arch }}
+
       - name: Restore verified input cache
         id: input-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ env.Z96A_CACHE_ROOT }}/input
-          key: z96a-${{ inputs.inputs_release }}-${{ runner.os }}
+          key: z96a-inputs-${{ hashFiles('config/inputs.lock') }}-${{ runner.arch }}
 
       - name: Download and verify immutable build inputs
         env:
           Z96A_INPUT_CACHE: ${{ env.Z96A_CACHE_ROOT }}/input
-          Z96A_INPUTS_RELEASE: ${{ inputs.inputs_release }}
         run: boards/z96a-v2/tools/ci-fetch-inputs.sh
 
       - name: Restore prebuilt build inputs
@@ -181,7 +178,7 @@ jobs:
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ env.Z96A_CACHE_ROOT }}/input
-          key: z96a-${{ inputs.inputs_release }}-${{ runner.os }}
+          key: z96a-inputs-${{ hashFiles('config/inputs.lock') }}-${{ runner.arch }}
 
       - name: Packaging preflight
         env:
@@ -204,13 +201,20 @@ jobs:
           Z96A_WIFI_SSID: ${{ secrets.Z96A_WIFI_SSID }}
           Z96A_WIFI_PASSKEY: ${{ secrets.Z96A_WIFI_PASSKEY }}
           Z96A_DEBUG_PARTITION: "1"
-          CHROOT_CACHE: "0"
+          CHROOT_CACHE: "1"
           CHROOT_CACHE_DIR: ${{ env.Z96A_CACHE_ROOT }}/chroot
           TERM: xterm
         run: |
           set -o pipefail
           boards/z96a-v2/tools/build-in-container.sh image 2>&1 |
             tee output/ci/build.log
+
+      - name: Save chroot cache
+        if: steps.chroot-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ env.Z96A_CACHE_ROOT }}/chroot
+          key: z96a-chroot-${{ hashFiles('config/inputs.lock') }}-${{ runner.arch }}
 
       - name: Validate image
         if: ${{ inputs.validate }}

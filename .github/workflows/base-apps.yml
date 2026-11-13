@@ -1,0 +1,74 @@
+name: base-apps
+
+# Publish the base rootfs tarball + bundled application .debs as an
+# independent component release. Low frequency: only when the Devuan base
+# tarball or a bundled application changes.
+#
+# For the bootstrap split the workflow imports the assets of an existing
+# monolithic inputs release (inputs-v3). Later this can build the rootfs
+# tarball directly; the release shape stays identical.
+on:
+  workflow_dispatch:
+    inputs:
+      source_release:
+        description: "Existing release to seed from (inputs-vN)"
+        type: string
+        default: "inputs-v3"
+      tag:
+        description: "Component tag (empty = base-apps-<date>)"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: z96a-base-apps
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  base:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    outputs:
+      release_tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: false
+
+      - name: Stage base + apps component
+        id: tag
+        env:
+          SOURCE: ${{ inputs.source_release }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          tag=${INPUT_TAG}
+          [ -n "$tag" ] || tag="base-apps-$(date -u +%Y%m%d)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+          stage=$(mktemp -d)
+          gh release download "$SOURCE" --dir "$stage" --repo "$GITHUB_REPOSITORY"
+
+          mkdir -p "$stage/packages" "$stage/tarball"
+          for deb in "$stage"/*.deb; do
+            case "$(basename "$deb")" in
+              linux-*|u-boot-*) continue ;;
+            esac
+            mv "$deb" "$stage/packages/"
+          done
+          rm -f "$stage"/linux-*.deb "$stage"/u-boot-*.deb
+          mv "$stage"/*.tar.xz "$stage/tarball/"
+
+          (cd "$stage" && sha256sum packages/*.deb tarball/*.tar.xz > SHA256SUMS.base)
+          cat "$stage/SHA256SUMS.base"
+
+          gh release create "$tag" "$stage"/packages/*.deb "$stage"/tarball/*.tar.xz \
+            "$stage/SHA256SUMS.base" --repo "$GITHUB_REPOSITORY" --prerelease \
+            --title "$tag" \
+            --notes "Base rootfs tarball and bundled applications, seeded from $SOURCE."

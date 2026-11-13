@@ -1,0 +1,115 @@
+name: uboot
+
+# Package the U-Boot firmware from its own repository into the deb/blob
+# component consumed by the image build. Firmware and packaging version are
+# separate: uboot-<source-tag>-pN, where pN changes when packaging/flash
+# conventions change (not when the firmware does).
+on:
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: "U-Boot repository"
+        type: string
+        default: "alkaid-ops/z96a-rk3568-uboot"
+      source_tag:
+        description: "Firmware release tag (e.g. fitfix-v3)"
+        type: string
+        default: "fitfix-v3"
+      itb_sha256:
+        description: "Expected u-boot.itb SHA256"
+        type: string
+        default: "56398fb629f0cafa05cea2c930c8562ce6969325b3ce45e197086118cb2b691f"
+      idbloader_sha256:
+        description: "Expected idbloader.bin SHA256"
+        type: string
+        default: "35c368f3ad8d84acd756e4bb45bcbff56912b9b4a8892ac605ff35809bf683ac"
+      packaging_rev:
+        description: "Packaging revision (p1, p2, ...)"
+        type: string
+        default: "p1"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: z96a-uboot
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  uboot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      release_tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: false
+
+      - name: Fetch and verify firmware
+        env:
+          SOURCE_REPO: ${{ inputs.source_repo }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
+          ITB_SHA: ${{ inputs.itb_sha256 }}
+        run: |
+          set -eu
+          src=$(mktemp -d)
+          gh release download "$SOURCE_TAG" --repo "$SOURCE_REPO" \
+            -p u-boot.itb -p SHA256SUMS --dir "$src"
+          test -s "$src/u-boot.itb"
+          grep -q "u-boot.itb" "$src/SHA256SUMS"
+          (cd "$src" && grep -E '^\S+  u-boot.itb$|^\S+ \*u-boot.itb$' SHA256SUMS > sums.itb)
+          printf '%s  %s\n' "$ITB_SHA" "$src/u-boot.itb" | sha256sum -c --quiet -
+          sha256sum "$src/u-boot.itb"
+          cp "$src/u-boot.itb" files/boot/uboot/z96a-v2/u-boot.bin
+
+      - name: Check idbloader
+        env:
+          IDB_SHA: ${{ inputs.idbloader_sha256 }}
+        run: |
+          set -eu
+          printf '%s  %s\n' "$IDB_SHA" files/boot/uboot/z96a-v2/idbloader.bin | sha256sum -c --quiet -
+
+      - name: Package U-Boot deb
+        run: |
+          set -eu
+          boards/z96a-v2/tools/build-in-container.sh uboot
+          ls -l output/z96a-v2/u-boot-*.deb output/z96a-v2/u-boot.bin output/z96a-v2/idbloader.bin
+
+      - name: Stage component release
+        id: tag
+        env:
+          SOURCE_TAG: ${{ inputs.source_tag }}
+          PACKAGING_REV: ${{ inputs.packaging_rev }}
+          ITB_SHA: ${{ inputs.itb_sha256 }}
+          IDB_SHA: ${{ inputs.idbloader_sha256 }}
+          SOURCE_REPO: ${{ inputs.source_repo }}
+        run: |
+          set -eu
+          tag="uboot-${SOURCE_TAG}-${PACKAGING_REV}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+          stage=$(mktemp -d)
+          mkdir -p "$stage/debs" "$stage/blobs"
+          cp output/z96a-v2/u-boot-*.deb "$stage/debs/"
+          cp output/z96a-v2/idbloader.bin output/z96a-v2/u-boot.bin "$stage/blobs/"
+          (cd "$stage" && sha256sum debs/*.deb blobs/*.bin > SHA256SUMS.uboot)
+          cat > "$stage/uboot-meta.json" <<EOF
+          {
+            "source_repo": "${SOURCE_REPO}",
+            "source_tag": "${SOURCE_TAG}",
+            "itb_sha256": "${ITB_SHA}",
+            "idbloader_sha256": "${IDB_SHA}",
+            "packaging_rev": "${PACKAGING_REV}",
+            "commit": "${GITHUB_SHA}"
+          }
+          EOF
+
+          gh release create "$tag" "$stage"/debs/*.deb "$stage"/blobs/*.bin \
+            "$stage/SHA256SUMS.uboot" "$stage/uboot-meta.json" \
+            --repo "$GITHUB_REPOSITORY" --prerelease --title "$tag" \
+            --notes "U-Boot ${SOURCE_TAG} packaged as ${PACKAGING_REV}; firmware from ${SOURCE_REPO}."
