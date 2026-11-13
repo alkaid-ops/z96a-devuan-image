@@ -8,7 +8,7 @@
 | 项目 | 原厂 | 当前 `.84` | 状态 | 说明 |
 |---|---|---|---|---|
 | CPU governor | 有完整 OPP/PVTM，运行时动态 | `performance`，4 核固定 1992 MHz | ✅ 已改仓库，真机已切 `schedutil` | 空闲可降频，满载仍到 1992 MHz |
-| CPU idle states | `cpu-sleep` PSCI `0x10000`，100/120us，1ms | DTS 无 `idle-states`，无 `/sys/.../cpuidle` | ✅ 补丁 `0026`，待重启生效 | 补丁已编译验证；不重启不生效 |
+| CPU idle states | `cpu-sleep` PSCI `0x10000`，100/120us，1ms | 已注册 `state0=WFI`、`state1=cpu-sleep` | ✅ 2026-11-13 重启验证 | `0026` 已生效，cpuidle usage 持续增长 |
 | GPU 变频 | `power-model`、`upthreshold` | `simple_ondemand` 200–800 MHz | ✅ 已动态，无需改 | 原厂 power-model 仅热估算差异 |
 | CPU OPP PVTM/leakage | `pvtm-voltage-sel`、nvmem leakage/pvtm/mbist | 固定 nominal 电压；已把 1416/1608MHz nominal 对齐原厂 1.0/1.075V | 🟡 部分 | 补丁 `0027` 已落 nominal 电压；PVTM 逐片选压仍需内核驱动 |
 | GPU OPP | 600MHz 875mV nominal | 600MHz 900mV | ✅ 补丁 `0027` 已对齐 875mV | 仅 nominal；无 GPU PVTM |
@@ -37,6 +37,28 @@
   - CPU 1416MHz nominal 1.025V → 1.0V、1608MHz 1.1V → 1.075V；
   - GPU 600MHz nominal 0.9V → 0.875V；
   - 仅 nominal 电压对齐，逐片 PVTM 选压仍未实现；已编译验证。
+
+## 真机验证（2026-11-13 重启后）
+
+替换 DTB（基于当时 live DTB，仅加 idle-states + OPP nominal 电压）并重启后：
+
+```text
+/etc/default/governor: GOVERNOR="schedutil"
+scaling_governor: schedutil
+
+cpuidle:
+  state0 name=WFI
+  state1 name=cpu-sleep
+  state1 usage 持续增长
+
+rk817-battery: present=1, capacity=100
+bq257xx-charger: online=1
+green:charging=1, red:charging=0
+```
+
+满电静置 20 秒没有 `rk817-battery` 的 8 秒周期性 uevent；没有常驻
+`z96a-charge-led` 进程。DTB 备份：
+`/boot/rockchip/rk3568-sunniwell-z96a-typec.dtb.pre-power-align-20261113`。
 
 ## 需要独立驱动的项
 
