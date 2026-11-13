@@ -29,7 +29,12 @@ inputs_key() {
 	{
 		sha256sum "lib/boards/$BOARD" "config/$BOARD.toml" \
 			"boards/$BOARD/features.conf" "boards/$BOARD/defconfig-trim.txt" \
-			"custom.txt" "userdata.txt" 2>/dev/null || true
+			"custom.txt" "userdata.txt" "scripts/stage2" "lib/function/staging" 2>/dev/null || true
+		# files installed into the rootfs by stage1/stage2 but not covered by
+		# the overlay hash above (ALSA state, init extras).
+		for extra in "files/asound/$BOARD.state" "files/asound/$BOARD.conf" files/inits/*.init; do
+			[ -f "$extra" ] && sha256sum "$extra"
+		done
 		sha256sum "defconfig/$(sed -n 's/^LINUX_DEFCONFIG="\([^"]*\)".*/\1/p' "lib/boards/$BOARD" | head -1)" 2>/dev/null || true
 		package_sums="files/rootfs-overlay/$BOARD/opt/z96a/packages/SHA256SUMS"
 		if [ -f "$package_sums" ]; then
