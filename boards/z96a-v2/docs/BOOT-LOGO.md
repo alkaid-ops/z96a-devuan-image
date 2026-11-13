@@ -127,40 +127,36 @@ SVG(SMIL) --Chromium(setCurrentTime)--> 120 张 1080p PNG
   `global.idx` / `global.finished`（函数内直接赋值是局部变量，否则每帧重置、动画停在第一帧）
 - `logo-bgra.bin.gz` / `last-bgra.bin.gz` 供 slim 往 framebuffer 补画
 
-### 3.2 initramfs 集成（动画在 root 挂载前开始）
+### 3.2 LOGO 保持与动画交接（DRM 不进 initramfs）
 
 `boards/z96a-v2/chroot-files/` 由 `scripts/stage1` 复制到 `${P_VALUE}/root/z96a-chroot-files`，
 `custom.txt` 在 chroot 内把它安装到：
 
 | 文件 | 作用 |
 |---|---|
-| `/etc/initramfs-tools/hooks/z96a-plymouth` | 拷贝 `plymouthd`、插件、DRM renderer、主题、`plymouthd.conf`；并删除 initrd 里的 `blacklist rockchipdrm` |
-| `/etc/initramfs-tools/modules` | `panel-edp`、`analogix_dp`、`rockchipdrm`（DRM 在 initramfs 就 probe） |
+| `/etc/initramfs-tools/hooks/z96a-plymouth` | 拷贝 `plymouthd`、插件、主题、`plymouthd.conf`（不拷贝 DRM renderer 也不需要） |
+| `/etc/initramfs-tools/modules` | **不含 DRM 模块**（见下） |
 | `/etc/initramfs-tools/initramfs.conf` | `MODULES=list`（USB/ext4/xhci 都是内建，不需要额外模块） |
 | `/etc/plymouth/plymouthd.conf` | `[Daemon] Theme=alkaid`（坏配置会静默回退 text 插件） |
 | `/usr/share/plymouth/themes/alkaid` | 运行期主题（slim 也用它补画） |
 
-安装时机在 **kernel 包安装之前**，因此 kernel postinst 触发的 `update-initramfs` 会把
-Plymouth 与主题打进 initrd。`lib/function/staging` 为 z96a-v2 启用 extlinux
-`initrd ../uInitrd` 并在 cmdline 加入 `splash`。
+**为什么 initrd 里不放 DRM（关键）**：U-Boot 交棒时 VOP 仍在扫描带 LOGO 的
+framebuffer（`z96a_handback.c` 会把 POST STANDBY 位清掉）。只要内核不在 initramfs
+里 probe `rockchipdrm`，这块画面就会一直保持。一旦在 initrd 里加载 DRM，probe 的
+modeset 会立刻换掉 scanout 缓冲——LOGO 在约 7.4 s 消失，而 Plymouth 的动画首帧
+`f0000.png` 是纯黑（正片从黑场淡入），于是 7.4 s→球体出现之间就出现长黑屏。
 
-**不要改动 `init-premount/plymouth`（重要）**：Plymouth 用包里的原版脚本即可。
-initrd 的 `conf/modules` 在 `load_modules` 阶段（**在 init-premount 之前**）同步
-`modprobe` 完 `panel-edp → analogix_dp → rockchipdrm`，所以 premount 运行时
-`/dev/dri/card0` 与 `/dev/fb0` 都已经存在：
+实测（2026-11-13，.84，USB rootfs）：DRM 不进 initrd 时 LOGO 保持到 rootfs udev
+拉起显示（不同 boot 在 10–17 s），动画随即从 `f0000` 开始淡入到球体（正片），
+黑场只有淡入本身的 <1 s。
 
-```
-[ 7.447] [drm] Initialized rockchip
-[ 7.468] [drm] fb0: rockchipdrmfb
-      → premount-entry 7.68  (fb0=yes card=yes)
-      → plymouthd 返回 7.70   → 动画上屏 8.00   → root mount 8.45
-```
-
-教训：曾在 premount 里加「等 `/dev/dri/by-path/...card`」或「等 `/dev/fb0`」的
-`sleep 0.1` 轮询，结果正好撞进 initramfs 的 udev 冷插拔窗口，**splash 与 root 挂载
-都被拖后约 4.5 s**（root 从 8.4 s 变 13.1 s）。这两个等待都是不必要的：premount 时
-DRM 早已就绪。也不要为此加 `LD_DEBUG` / `LD_BIND_NOW` 之类的“加速”——根因不在
-plymouthd，去掉等待后它每次都在 ~0.02 s 返回。
+历史教训（同一台设备）：
+- 在 premount 里加「等 `/dev/dri/by-path/...card`」或「等 `/dev/fb0`」的 `sleep 0.1`
+  轮询，会撞进 initramfs 的 udev 冷插拔窗口，把 splash 和 root 挂载拖后约 4.5 s
+  （root 从 8.4 s 变 13.1 s）；原版 premount 不需要任何等待。
+- 用 `LD_DEBUG` / `LD_BIND_NOW` 之类的“加速”是误判，根因不在 plymouthd。
+- 把主题起点改成 `f0080` 会让 Plymouth 接管首帧变成「LOGO 构图」的循环段，
+  正片的大球体整段被跳过——启动动画必须从 `f0000` 开始。
 
 ### 3.3 slim 交接
 
@@ -187,18 +183,13 @@ plymouthd，去掉等待后它每次都在 ~0.02 s 返回。
 ### 3.5 实测（2026-11-13，.84，重新打包镜像 + 本节修复）
 
 ```
-Run /init 6.86s → DRM 7.45s (fb0 7.47s) → 动画上屏 8.00s → root mount 8.45s
-→ rc → slim → X(vt7) → 登录页（背景 = 动画最后一帧）
+Run /init 6.84s → root mount 7.83s → LOGO 保持（DRM 由 rootfs udev 在 10–17s probe）
+→ 动画从 f0000 淡入球体（黑场 <1s）→ slim 退出 splash / X(vt7) → 登录页
 ```
 
-premount 里的一次性标记（`/run/initramfs/z96a-anim.log`，验证用，仓库不安装）：
+关键点：DRM probe 越晚，LOGO 保持得越久；动画首帧是正片的黑场淡入，不是“黑屏卡住”。
+主题起点必须是 `f0000`（`f0080` 之后是 LOGO 构图的循环段，大球体只在 0–60 帧）。
 
-```
-Z96A 7.68 premount-entry fb0=yes card=yes
-Z96A 7.70 daemon-returned
-Z96A 8.00 splash-shown
-```
-
-用户观感：LOGO 一直保持到 DRM 接管（DRM modeset 到首帧仅 ~0.5 s），随后 Alkaid
-动画连续播放（正片 + 持续段 + 无缝循环），最后直接进入带同一帧背景的登录页；
-无控制台文字、无长黑屏。
+用户观感：LOGO 一直保持到 DRM 接管，随后 Alkaid 动画从球体淡入连续播放
+（正片 + 持续段 + 无缝循环），最后直接进入带同一帧背景的登录页；无控制台文字、
+无长黑屏。

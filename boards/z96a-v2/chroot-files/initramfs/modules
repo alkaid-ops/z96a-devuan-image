@@ -1,6 +1,8 @@
-panel-edp
-analogix_dp
-rockchipdrm
+# z96a-v2: the DRM stack is deliberately NOT loaded in the initramfs.
+# U-Boot hands over a live scanout with the Alkaid logo on screen; a DRM
+# probe/modeset here would wipe it and leave a black screen until the splash
+# reaches its first bright frame.  The rootfs udev (or slim's modprobe) brings
+# rockchipdrm up later, so the logo stays visible until that modeset.
 usb-storage
 sd_mod
 scsi_mod
