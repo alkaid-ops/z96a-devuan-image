@@ -67,7 +67,11 @@ jobs:
           TERM: xterm
         run: |
           set -o pipefail
-          boards/z96a-v2/tools/build-in-container.sh kernel 2>&1 | tee kernel-build.log
+          boards/z96a-v2/tools/build-in-container.sh kernel 2>&1 | tee kernel-build.log || {
+            echo "---- patch log ----"
+            cat output/z96a-v2/logs/*linux-patch*.log 2>/dev/null | tail -80
+            exit 1
+          }
 
       - name: Verify kernel deb matches the compiled tree
         run: |
