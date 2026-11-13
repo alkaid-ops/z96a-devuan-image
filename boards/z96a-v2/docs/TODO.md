@@ -52,6 +52,9 @@
 - [ ] 实测 Print 键启动 Flameshot。
 - [ ] 确认 `F12/Scroll Lock`、`Delete/Insert`、`Esc` 保持默认。
 - [ ] 如需在应用内使用普通 F1–F12，确认 Fn Lock 或其他键盘模式行为。
+- [ ] **BT SCO / I2S2（未来）**：vendor `bt-sco`（`delta,dfbmcs320`）+ `bt-sound`
+  使用 `i2s@fe420000`；当前 `CONFIG_SND_SOC_BT_SCO` 未编译、无 `bt-sco` 节点。
+  需要时再开配置 + DTS，验证蓝牙 HFP/耳机麦克风。
 
 ## P2 构建 / 维护
 
