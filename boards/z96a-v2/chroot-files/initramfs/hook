@@ -17,16 +17,13 @@ done
 
 mkdir -p "$DESTDIR/usr/share/plymouth/themes"
 cp -a /usr/share/plymouth/themes/alkaid "$DESTDIR/usr/share/plymouth/themes/"
-# the theme dir also holds the fb0 paint blobs: keep the boot logo (the
-# init-premount override paints it into /dev/fb0 while plymouthd starts),
-# drop the last-frame blob that only slim needs from the rootfs
-rm -f "$DESTDIR/usr/share/plymouth/themes/alkaid/last-bgra.bin.gz"
+# the theme dir also holds the fb0 paint blobs used later by slim; the
+# initramfs only needs the frame sequence and the script
+rm -f "$DESTDIR/usr/share/plymouth/themes/alkaid"/*.bin.gz
 
 mkdir -p "$DESTDIR/etc/plymouth"
-[ -f /etc/plymouth/plymouthd.conf ] &&
-	cp /etc/plymouth/plymouthd.conf "$DESTDIR/etc/plymouth/"
+cp /etc/plymouth/plymouthd.conf "$DESTDIR/etc/plymouth/"
 
 # The DRM stack must be available in the initramfs; the rootfs deferral
 # blacklist only makes sense for the no-initrd boot path.
 rm -f "$DESTDIR/usr/lib/modprobe.d/z96a-defer-drm.conf"
-
