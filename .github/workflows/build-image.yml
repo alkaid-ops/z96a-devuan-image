@@ -209,6 +209,16 @@ jobs:
           boards/z96a-v2/tools/build-in-container.sh image 2>&1 |
             tee output/ci/build.log
 
+      - name: Make chroot cache readable by the runner user
+        run: |
+          set -eu
+          chroot_dir="$Z96A_CACHE_ROOT/chroot"
+          [ -d "$chroot_dir" ] || exit 0
+          # stage1 saves the tree from the root container; tar in
+          # actions/cache runs as the runner user and fails with exit 2 on
+          # root-only directories such as /root. Give it read access.
+          sudo chown -R "$(id -u):$(id -g)" "$chroot_dir"
+
       - name: Save chroot cache
         if: steps.chroot-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
