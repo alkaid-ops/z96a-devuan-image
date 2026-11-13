@@ -723,8 +723,20 @@ class CiReleaseWorkflowTests(unittest.TestCase):
         return path.read_text(errors="replace")
 
     def test_workflow_set(self):
-        for name in ("ci.yml", "build.yml", "release.yml", "build-image.yml"):
+        for name in ("ci.yml", "build.yml", "release.yml", "build-image.yml", "kernel.yml"):
             self.assertTrue((self.WORKFLOWS / name).is_file(), name)
+
+    def test_kernel_workflow_publishes_prerelease_then_builds_image(self):
+        text = self.read("kernel.yml")
+        self.assertIn("build-in-container.sh kernel", text)
+        self.assertIn("--prerelease", text)
+        self.assertIn("gh workflow run build.yml", text)
+        self.assertIn('inputs_release="$TAG"', text)
+
+    def test_image_build_takes_inputs_release(self):
+        text = self.read("build-image.yml")
+        self.assertIn("inputs_release:", text)
+        self.assertIn("Z96A_INPUTS_RELEASE: ${{ inputs.inputs_release }}", text)
 
     def test_tag_trigger_and_release_gate(self):
         text = self.read("release.yml")

@@ -19,6 +19,10 @@ on:
         description: "Run loop-mount image validation after the build"
         type: boolean
         default: true
+      inputs_release:
+        description: "inputs-vN release holding kernel/U-Boot/app inputs"
+        type: string
+        default: "inputs-v3"
     secrets:
       Z96A_SSH_KEY:
         description: "Optional public SSH key installed in the image; unset disables SSH login"
@@ -159,11 +163,12 @@ jobs:
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ env.Z96A_CACHE_ROOT }}/input
-          key: z96a-inputs-v3-${{ runner.os }}
+          key: z96a-${{ inputs.inputs_release }}-${{ runner.os }}
 
       - name: Download and verify immutable build inputs
         env:
           Z96A_INPUT_CACHE: ${{ env.Z96A_CACHE_ROOT }}/input
+          Z96A_INPUTS_RELEASE: ${{ inputs.inputs_release }}
         run: boards/z96a-v2/tools/ci-fetch-inputs.sh
 
       - name: Restore prebuilt build inputs
@@ -176,7 +181,7 @@ jobs:
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ env.Z96A_CACHE_ROOT }}/input
-          key: z96a-inputs-v3-${{ runner.os }}
+          key: z96a-${{ inputs.inputs_release }}-${{ runner.os }}
 
       - name: Packaging preflight
         env:

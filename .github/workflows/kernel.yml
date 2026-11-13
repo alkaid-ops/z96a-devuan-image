@@ -1,0 +1,129 @@
+name: kernel
+
+# Kernel pre-release: build the z96a-v2 kernel on the runner (cross-compiled,
+# not QEMU), fold the resulting .debs into a copy of an existing inputs
+# release, publish it as a *pre-release* and then dispatch the image build
+# against it. Image builds never compile a kernel themselves.
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_release:
+        description: "Existing inputs release to take app/tarball/U-Boot inputs from"
+        type: string
+        default: "inputs-v3"
+      release_tag:
+        description: "Tag for the new pre-release (empty = inputs-kernel-<date>-<run>)"
+        type: string
+        default: ""
+      channel:
+        description: "RELEASE_CHANNEL for the image build"
+        type: choice
+        options: [nightly, stable, test]
+        default: nightly
+      run_image:
+        description: "Dispatch the image build against the new pre-release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: z96a-kernel-release
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  kernel:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    outputs:
+      release_tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: false
+
+      - name: Ensure build container
+        run: |
+          set -eu
+          image=${Z96A_BUILD_IMAGE:-z96a-build:local}
+          if ! docker image inspect "$image" >/dev/null 2>&1; then
+            docker build -f boards/z96a-v2/tools/Dockerfile -t "$image" .
+          fi
+
+      - name: Clean root-owned build output
+        run: |
+          set -eu
+          docker run --rm -v "$PWD:/build" -w /build z96a-build:local \
+            bash -lc 'rm -rf output board.txt board.runtime kernel.release p1 p2 sysroot img shrink.img'
+
+      - name: Build kernel
+        env:
+          TERM: xterm
+        run: |
+          set -o pipefail
+          boards/z96a-v2/tools/build-in-container.sh kernel 2>&1 | tee kernel-build.log
+
+      - name: Verify kernel deb matches the compiled tree
+        run: |
+          set -eu
+          ls -l output/z96a-v2/linux-image-z96a_*.deb output/z96a-v2/linux-headers-z96a_*.deb
+          tmp=$(mktemp -d)
+          dpkg-deb -x output/z96a-v2/linux-image-z96a_*.deb "$tmp"
+          ko=$(find "$tmp" -name rockchip-vdec.ko -print -quit)
+          test -n "$ko"
+          modinfo "$ko" | grep -q 'rockchip,rk3568-vdec'
+          sha256sum "$tmp/boot/Image"
+          rm -rf "$tmp"
+
+      - name: Stage inputs pre-release
+        id: tag
+        env:
+          BASE: ${{ inputs.baseline_release }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -eu
+          tag=${INPUT_TAG}
+          if [ -z "$tag" ]; then
+            tag="inputs-kernel-$(date -u +%Y%m%d)-${GITHUB_RUN_NUMBER}"
+          fi
+          echo "release tag: $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+          stage=$(mktemp -d)
+          echo "stage=$stage" >> "$GITHUB_ENV"
+          gh release download "$BASE" --dir "$stage" --repo "$GITHUB_REPOSITORY"
+
+          mkdir -p "$stage/debs" "$stage/packages" "$stage/tarball"
+          cd "$stage"
+          mv linux-*.deb u-boot-*.deb debs/
+          rm -f debs/linux-image-*.deb debs/linux-headers-*.deb
+          mv *.deb packages/ 2>/dev/null || true
+          mv *.tar.xz tarball/
+
+          cp "$GITHUB_WORKSPACE"/output/z96a-v2/linux-image-z96a_*.deb \
+             "$GITHUB_WORKSPACE"/output/z96a-v2/linux-headers-z96a_*.deb debs/
+          sha256sum debs/*.deb packages/*.deb tarball/*.tar.xz > SHA256SUMS.inputs
+          grep -E 'linux-(image|headers)' SHA256SUMS.inputs
+
+          gh release create "$tag" debs/*.deb packages/*.deb tarball/*.tar.xz \
+            SHA256SUMS.inputs --repo "$GITHUB_REPOSITORY" --prerelease \
+            --title "$tag" \
+            --notes "Kernel pre-release built from ${GITHUB_SHA}; kernel debs rebuilt here, all other inputs copied from $BASE."
+
+      - name: Dispatch image build against the pre-release
+        if: ${{ inputs.run_image }}
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          gh workflow run build.yml --repo "$GITHUB_REPOSITORY" \
+            -f channel="$CHANNEL" \
+            -f validate=true \
+            -f inputs_release="$TAG"
+          echo "dispatch: z96a-image-build / build.yml inputs_release=$TAG"

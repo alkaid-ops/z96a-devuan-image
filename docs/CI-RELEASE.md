@@ -97,6 +97,21 @@ missing 或 p1 缺 DTB 时自动回退完整 chroot。缓存损坏不会产出�
 随时清空，只影响耗时。更新输入后必须新建 Release tag（例如 `inputs-v4`）、
 修改 workflow 中的 Release 与 cache key，再验证下载。
 
+## 内核预发布 → 镜像构建
+
+内核不再手工打 deb 再发 inputs：`kernel.yml`（手动触发）会在 runner 上
+**交叉编译**内核（不是 QEMU 模拟 rootfs），然后把新 `linux-image` / `linux-headers`
+deb 合并进一份既有 inputs Release，作为 **pre-release** 发布，并自动触发
+`build.yml` 用该 tag 作为 `inputs_release` 构建镜像。
+
+- 基线输入：`baseline_release`（默认当前 inputs，例如 `inputs-v3`），应用 deb、
+  rootfs tarball、U-Boot deb 全部原样沿用
+- 新 tag：留空则 `inputs-kernel-<日期>-<run号>`；也可指定固定名
+- `run_image=true` 时 dispatch `build.yml -f inputs_release=<tag>`
+- 镜像工作流只消费 inputs：`ci-fetch-inputs.sh` 按 `Z96A_INPUTS_RELEASE` 下载该
+  pre-release，缓存 key 同步为 `z96a-<inputs_release>-Linux`
+- 不做内核改动时，手动构建仍可传入已有 inputs tag（默认 `inputs-v3`）
+
 ## Tag 发布流程
 
 ```text
