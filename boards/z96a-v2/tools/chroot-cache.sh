@@ -98,12 +98,14 @@ case "$MODE" in
 			# p1 is the vfat boot partition: preserving owner/mode on vfat
 			# makes rsync exit with "failed to set permissions", which used
 			# to leave p2 restored but reported a cache miss.
-			rsync -rlt --no-owner --no-group --no-perms \
+			rsync -rlt --no-owner --no-group --no-perms --delete-before \
 				--exclude '/dev/***' --exclude '/proc/***' --exclude '/sys/***' \
 				--exclude '/tmp/***' \
 				"$src/" "$ROOTFS/"
 		else
-			rsync -a \
+			# --delete-before/--inplace keep the destination from needing
+			# a second copy of every changed file while it is near-full.
+			rsync -a --delete-before --inplace \
 				--exclude '/dev/***' --exclude '/proc/***' --exclude '/sys/***' \
 				--exclude '/tmp/***' \
 				"$src/" "$ROOTFS/"
