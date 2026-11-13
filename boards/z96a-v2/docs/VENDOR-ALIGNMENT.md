@@ -105,7 +105,23 @@ patches/git/z96a-v2/linux-add_sunniwell_z96a/0010-z96a-emmc-hs400.patch
 - 已删除 `0010-z96a-emmc-hs400.patch`。
 - 已从 `boards/z96a-v2/patches/SERIES.md` 移除该行。
 - 已在 `HARDWARE-STATUS.md` 更正为 HS200 / 200MHz，无 HS400。
-- 不要重新加入 `mmc-hs400-1_8v`。
+
+### 状态（2026-11-14）：重新启用 HS400ES 200MHz
+
+早期 HS400 写入失败已定位为 TXCLK tap 问题，根因与 `mmc-hs400-1_8v` 本身无关。现已重新启用，并固定 TXCLK tap：
+
+```text
+patches/git/z96a-v2/linux-add_sunniwell_z96a/0031-rk3568-hs400-txclk-tap-08.patch
+patches/git/z96a-v2/linux-add_sunniwell_z96a/0032-z96a-emmc-hs400es-200mhz.patch
+```
+
+- `0031`：RK3568 rev0 HS400/HS400ES TXCLK tap 固定 `0x8`（`0x29000008`），HS200 路径不变；
+- `0032`：生产 DTS 的 `&sdhci` 增加 `mmc-hs400-1_8v`、`mmc-hs400-enhanced-strobe`，`max-frequency` 保持 200MHz；
+- STRBIN 保持默认 `0x09000004`，RXCLK 保持 `0x28000000`，CMDOUT 保持 0；
+- 验证：100MHz A/B/A、200MHz HS200/HS400ES 单次、200MHz TXCLK 0x04–0x10 扫描、200MHz STRBIN 4/6/8 扫描均完成；tap 0x04–0x0C 稳定，0x0E/0x10 出现 DATA_CRC；
+- 生产选择 `0x8`，因为写入吞吐最高且位于稳定窗口中心。
+
+注意：不要再删除或绕过 TXCLK tap；仅加回 `mmc-hs400-1_8v` 而不带 `0031` 会重现早期写入 I/O error。
 
 ## 3. WiFi SDIO（已对齐：1.8V / 200MHz SDR104）
 
@@ -393,7 +409,7 @@ low-temp 调整
 
 1. `files/boot/uboot/z96a-v2/idbloader.bin` = `35c368f3...`；`u-boot.bin` = `3dd68203...`。
 2. 重新构建的 u-boot deb 内文件哈希一致。
-3. 新镜像启动后 eMMC `dmesg` 为 HS200/high speed，无 HS400。
+3. 新镜像启动后 eMMC `dmesg` 为 `HS400 Enhanced strobe`，200MHz / 8-bit / 1.8V，TXCLK 实际为 `0x29000008`。
 4. eMMC 写入测试（小文件 dd 读回）通过。
 5. WiFi `dmesg` 显示 200MHz/SDR104（若启用该补丁）。
 6. 充电器在真实电池上按预期电流/电压充电，NTC 保护有效。

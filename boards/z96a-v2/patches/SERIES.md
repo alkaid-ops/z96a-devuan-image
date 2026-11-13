@@ -40,6 +40,14 @@
 | `0022-z96a-battery-5000mah-divider.patch` | 电池 5000mAh/8.4V + `bat-res-up/down`（140/20） |
 | `0023-z96a-charger-safe-input-current.patch` | 兼容差充电器：非 PD 输入限流保守化 + AC 边沿去抖/去重写 |
 | `0024-z96a-rk809-battery-present.patch` | RK809 `BAT_EXS` 不可靠，强制 battery_present（满电校准） |
+| `0025-z96a-rk817-charge-led-events.patch` | RK817 充电 LED 按 capacity/status 变化发事件 |
+| `0026-z96a-cpu-idle-states.patch` | CPU idle states 对齐 |
+| `0027-z96a-cpu-gpu-opp-voltage.patch` | CPU/GPU OPP 电压对齐 |
+| `0028-z96a-charger-ntc-guard.patch` | 充电器 NTC 保护门控 |
+| `0029-z96a-charger-ntc-dts.patch` | 充电器 NTC DTS 节点 |
+| `0030-z96a-sdhci-dwcmshc-diag.patch` | DWCMSHC 首次写错误诊断（模块参数默认关闭） |
+| `0031-rk3568-hs400-txclk-tap-08.patch` | RK3568 rev0 HS400/HS400ES TXCLK tap 固定 0x8 |
+| `0032-z96a-emmc-hs400es-200mhz.patch` | 生产 DTS 启用 HS400/HS400ES 200MHz |
 
 `.old` 后缀和 `remote-head/` 是 rebase 过程的中间产物，稳定后清理（见 `docs/TODO.md`）。
 

@@ -1,0 +1,29 @@
+--- a/drivers/mmc/host/sdhci-of-dwcmshc.c
++++ b/drivers/mmc/host/sdhci-of-dwcmshc.c
+@@ -443,6 +443,7 @@
+ 	 * - Revision 0: Exclusively used by RK3566 and RK3568 SoCs.
+ 	 * - Revision 1: Implemented in all other Rockchip SoCs, including RK3576, RK3588, etc.
+ 	 */
++	u8 hs400_txclk_tapnum;
+ 	int revision;
+ };
+ 
+@@ -966,6 +967,10 @@
+ 	    host->mmc->ios.timing == MMC_TIMING_MMC_HS400)
+ 		txclk_tapnum = priv->txclk_tapnum;
+ 
++	if (rockchip_pdata->revision == 0 &&
++	    host->mmc->ios.timing == MMC_TIMING_MMC_HS400)
++		txclk_tapnum = rockchip_pdata->hs400_txclk_tapnum;
++
+ 	if (rockchip_pdata->revision == 1 && host->mmc->ios.timing == MMC_TIMING_MMC_HS400) {
+ 		txclk_tapnum = DLL_TXCLK_TAPNUM_90_DEGREES;
+ 
+@@ -2250,6 +2255,7 @@
+ 		.init = dwcmshc_rk35xx_init,
+ 		.postinit = dwcmshc_rk35xx_postinit,
+ 	},
++	.hs400_txclk_tapnum = 0x8,
+ 	.revision = 0,
+ };
+ 
