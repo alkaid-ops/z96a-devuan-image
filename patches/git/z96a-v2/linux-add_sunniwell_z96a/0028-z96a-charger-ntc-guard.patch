@@ -1,0 +1,151 @@
+--- a/drivers/power/supply/bq257xx_charger.c
++++ b/drivers/power/supply/bq257xx_charger.c
+@@ -12,12 +12,21 @@
+ #include <linux/power_supply.h>
+ #include <linux/property.h>
+ #include <linux/regmap.h>
++#include <linux/thermal.h>
+ #include <linux/workqueue.h>
+ 
+ #define BQ257XX_RECOVERY_INTERVAL_MS	1000
+ #define BQ257XX_RECOVERY_MAX_ATTEMPTS	60
+ #define BQ257XX_RECOVERY_STABLE_ATTEMPTS	10
+ 
++/* REG00 bit0: 1 = inhibit charging, 0 = allow charging. */
++#define BQ25703_CHRG_INHIBIT		BIT(0)
++
++/* Debug override for validating the high-temperature cutoff (Celsius). */
++static int ntc_test_high_temp_c = -1;
++module_param_named(test_high_temp_c, ntc_test_high_temp_c, int, 0644);
++MODULE_PARM_DESC(test_high_temp_c, "Force high-temp cutoff for NTC test (-1 = use DT)");
++
+ /* Forward declaration of driver data. */
+ struct bq257xx_chg;
+ 
+@@ -96,6 +105,13 @@
+ 	unsigned int recovery_attempts;
+ 	unsigned int recovery_streak;
+ 	struct delayed_work recovery_work;
++	struct thermal_zone_device *battery_tz;
++	struct delayed_work thermal_work;
++	u32 low_temp_off_c;
++	u32 high_temp_off_c;
++	u32 thermal_poll_ms;
++	bool charge_inhibited;
++	bool thermal_tz_missing_logged;
+ 	const char *manufacturer;
+ };
+ 
+@@ -836,9 +852,77 @@
+ 	if (ret)
+ 		pdata->iindpm_max = pdata->chip->default_iindpm_uA;
+ 
++	pdata->low_temp_off_c = 0;
++	pdata->high_temp_off_c = 43;
++	pdata->thermal_poll_ms = 5000;
++	device_property_read_u32(dev, "southchip,low-temp-off-celsius",
++				 &pdata->low_temp_off_c);
++	device_property_read_u32(dev, "southchip,high-temp-off-celsius",
++				 &pdata->high_temp_off_c);
++	device_property_read_u32(dev, "southchip,thermal-poll-ms",
++				 &pdata->thermal_poll_ms);
++
+ 	return 0;
+ }
+ 
++static void bq257xx_thermal_work(struct work_struct *work)
++{
++	struct bq257xx_chg *pdata = container_of(work, struct bq257xx_chg,
++						 thermal_work.work);
++	struct device *dev = &pdata->bq->client->dev;
++	int temp, ret;
++	bool inhibit;
++
++	if (!pdata->battery_tz) {
++		pdata->battery_tz =
++			thermal_zone_get_zone_by_name("battery-thermal");
++		if (IS_ERR(pdata->battery_tz)) {
++			pdata->battery_tz = NULL;
++			if (!pdata->thermal_tz_missing_logged) {
++				dev_warn(dev, "battery-thermal unavailable, NTC guard idle\n");
++				pdata->thermal_tz_missing_logged = true;
++			}
++			goto reschedule;
++		}
++	}
++
++	ret = thermal_zone_get_temp(pdata->battery_tz, &temp);
++	if (ret) {
++		dev_dbg(dev, "battery temperature read failed: %d\n", ret);
++		goto reschedule;
++	}
++
++	{
++		int high_c = ntc_test_high_temp_c >= 0 ?
++			ntc_test_high_temp_c : (int)pdata->high_temp_off_c;
++
++		if (pdata->charge_inhibited)
++			inhibit = temp <= (int)pdata->low_temp_off_c * 1000 + 1000 ||
++				  temp >= high_c * 1000 - 2000;
++		else
++			inhibit = temp <= (int)pdata->low_temp_off_c * 1000 ||
++				  temp >= high_c * 1000;
++	}
++
++	if (inhibit != pdata->charge_inhibited) {
++		ret = regmap_update_bits(pdata->bq->regmap,
++					 BQ25703_CHARGE_OPTION_0,
++					 BQ25703_CHRG_INHIBIT,
++					 inhibit ? BQ25703_CHRG_INHIBIT : 0);
++		if (ret) {
++			dev_warn(dev, "failed to set charge inhibit: %d\n", ret);
++		} else {
++			pdata->charge_inhibited = inhibit;
++			dev_info(dev, "battery %d mC, charging %s\n", temp,
++				 inhibit ? "inhibited" : "enabled");
++		}
++	}
++
++reschedule:
++	schedule_delayed_work(&pdata->thermal_work,
++			      msecs_to_jiffies(pdata->thermal_poll_ms));
++}
++
+ static int bq257xx_charger_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+@@ -854,6 +938,7 @@
+ 		return -ENOMEM;
+ 
+ 	INIT_DELAYED_WORK(&pdata->recovery_work, bq257xx_recovery_work);
++	INIT_DELAYED_WORK(&pdata->thermal_work, bq257xx_thermal_work);
+ 	pdata->bq = bq;
+ 	pdata->chip = &bq25703_chip_info;
+ 
+@@ -891,6 +976,11 @@
+ 	pdata->chip->bq257xx_get_state(pdata);
+ 	pdata->last_online = pdata->online;
+ 
++	dev_info(dev, "NTC guard: %u..%u C, poll %u ms\n",
++		 pdata->low_temp_off_c, pdata->high_temp_off_c,
++		 pdata->thermal_poll_ms);
++	schedule_delayed_work(&pdata->thermal_work, msecs_to_jiffies(1000));
++
+ 	platform_set_drvdata(pdev, pdata);
+ 
+ 	if (bq->client->irq) {
+@@ -915,12 +1005,14 @@
+ 	struct bq257xx_chg *pdata = platform_get_drvdata(pdev);
+ 
+ 	cancel_delayed_work_sync(&pdata->recovery_work);
++	cancel_delayed_work_sync(&pdata->thermal_work);
+ }
+ 
+ static void bq257xx_charger_shutdown(struct platform_device *pdev)
+ {
+ 	struct bq257xx_chg *pdata = platform_get_drvdata(pdev);
+ 
++	cancel_delayed_work_sync(&pdata->thermal_work);
+ 	pdata->chip->bq257xx_hw_shutdown(pdata);
+ }
+ 

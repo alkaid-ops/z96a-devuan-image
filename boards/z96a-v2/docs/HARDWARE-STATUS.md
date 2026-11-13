@@ -20,7 +20,7 @@
 | 摄像头 Microdia `0c45:6368` | `uvcvideo`；DT 新增 `vcc_camera`（GPIO2_D0，always-on） | 🟡（驱动/供电就绪，当前未接入） |
 | Type-C 控制器 HUSB311 | `tcpci_rt1711h`，`port0` host/source | ✅（非本次充电输入故障层；OTG device 不处理） |
 | USB 3.1 切换 D3EB | `gpio_sbu_mux` 绑定 `usb-switch` | ✅ |
-| 充电芯片 SC8886 | `bq257xx-charger` | 🟡（正常充电器稳定；已知旧充电器导致输入抖动） |
+| 充电芯片 SC8886 | `bq257xx-charger` | ✅（0028/0029 NTC：0–43°C 外 `CHRG_INHIBIT`，5s 轮询；旧充电器输入抖动仍单独观察） |
 | 电池 SHT 3585130-2S | RK817 PMIC 库仑计 `rk817-battery`（100% / 8.387V / 5Ah）；`bq257xx-fgu` OCV 已停用；`battery-thermal` 温度 | ✅ |
 | 霍尔开关 MH248 | `gpio-keys-hall`，`event0` | ✅ |
 | 音频 ADC 3×ES7202 | i2c `0x30/31/32` 均绑定 `es7202`；`z96a_mic` 原生 6ch | ✅（见下） |

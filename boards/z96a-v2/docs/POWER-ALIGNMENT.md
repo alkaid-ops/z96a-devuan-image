@@ -18,8 +18,8 @@
 | VENC/JPEG/IEP/RGA | `rkvenc`/`jpegd`/`iep`/`rk_rga` | `rkvdec`/`hantro_vpu`/`rga`/`v4l2_jpeg` | 🟡 部分 | 无 `rkvenc`/`iep` vendor 路径，按需补 |
 | SFC/SPI NOR | `sfc@fe300000` okay | disabled | 🟡 待确认硬件 | 需确认板上 SPI NOR 用途，不盲开 |
 | SPDIF/SATA1 | 原厂有节点 | 当前节点存在但未验证 | 🟡 待确认 | 与 eDP/外部接口相关，按需 |
-| Type-C PD | `switch-ctl-gpios`、PDO `0x40190c8` | 无 switch-ctl，PDO `0x220190c8` | 🟡 待验证 | 需要 vendor 驱动属性支持，不能只改 DT |
-| SC8886 NTC | NTC 表 + io-channels + 输入限流 | 0023 输入回退；NTC 未对齐 | ❌ 安全项 | 需核对/移植 charger NTC 支持 |
+| Type-C PD | `switch-ctl-gpios`、PDO `0x40190c8` | `gpio-sbu-mux` 已用同一 GPIO4_D2；PDO `0x220190c8` | ✅ switch 已对齐 | vendor switch 与当前 `usb-switch` 同一引脚；PDO 保留 DUAL_ROLE+DATA_SWAP，避免破坏 source/OTG |
+| SC8886 NTC | NTC 表 + io-channels + 输入限流 | 0023 输入回退 + `battery-thermal`；0028 新增 0/43°C 充电抑制 | ✅ 已实现/真机验证 | 5s 轮询，REG00 CHRG_INHIBIT；20°C 强制截止测试通过 |
 | 背光曲线 | 0–255 原始曲线 | 20–220 + 200 级插值 | 🟡 有意差异 | 当前曲线为低亮度稳定调过，暂不改 |
 | U-Boot | A SPL + P1 FIT / DDR 1560 | B 版 / DDR 1184 | ⏸ 按用户要求不动 | 不碰引导区 |
 
@@ -60,6 +60,20 @@ green:charging=1, red:charging=0
 `z96a-charge-led` 进程。DTB 备份：
 `/boot/rockchip/rk3568-sunniwell-z96a-typec.dtb.pre-power-align-20261113`。
 
+### 充电 NTC / Type-C 验证（同日，未重启）
+
+- `bq257xx-charger` 新模块加载后打印
+  `NTC guard: 0..43 C, poll 5000 ms`；
+- 用 `test_high_temp_c=20` 强制低截止，当前 20.2°C 触发：
+  `battery 20166 mC, charging inhibited`，`status=Not charging`、
+  `current=0`；
+- 恢复 `test_high_temp_c=-1` 后：
+  `battery 20277 mC, charging enabled`，`status=Charging`；
+- Type-C：`usb-switch/gpio-sbu-mux` 使用与 vendor `switch-ctl-gpios`
+  相同的 GPIO4_D2；`port_type=dual`、`data_role=host`、
+  `power_role=source`，USB3 5Gbps 正常。PDO 保留
+  `DUAL_ROLE|DATA_SWAP`，不改成 vendor 的 `USB_COMM` 单标志。
+
 ## 需要独立驱动的项
 
 这些不能只改 DTS，必须移植/实现内核支持，建议单独立项：
@@ -67,9 +81,7 @@ green:charging=1, red:charging=0
 1. **CPU PVTM/leakage 选压**：原厂 `rockchip,pvtm-voltage-sel`、`nvmem-cells`；当前内核没有对应驱动，补 DTS 无效。
 2. **NPU**：原厂 `rockchip,rk3568-rknpu`；当前无驱动、无节点。
 3. **VENC/IEP/JPEG**：原厂独立 `rkvenc`/`iep`/`jpegd`；当前只有部分 hantro/rkvdec 路径。
-4. **SC8886 NTC/充电保护**：原厂 NTC 表 + io-channels；当前 bq257xx 驱动没有对应 NTC 消费路径。
-5. **Type-C switch-ctl/PDO**：需要确认 mainline `husb311`/`tcpm` 是否消费 `switch-ctl-gpios`；当前驱动没有该属性。
-6. **deep suspend 唤醒**：属于 P0 稳定性问题，需串口/`no_console_suspend` 抓完整 suspend/resume 日志。
+4. **deep suspend 唤醒**：属于 P0 稳定性问题，需串口/`no_console_suspend` 抓完整 suspend/resume 日志。
 
 ## 需要确认硬件后再动
 

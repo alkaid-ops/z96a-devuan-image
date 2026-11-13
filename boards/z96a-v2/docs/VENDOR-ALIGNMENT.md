@@ -220,6 +220,16 @@ simple-battery（1A、8.4V、OCV 表）
 
 这一项涉及安全，建议单独评审，不要只改 DTS 就宣称对齐。
 
+- **SC8886 NTC**：2026-11-13 已实现内核侧充电保护。`bq257xx_charger`
+  每 5 秒读取 `battery-thermal`（与托盘显示同一个 SARADC ch4），
+  低于 0°C 或高于 43°C 时置 `CHRG_INHIBIT`，回到 1–41°C 自动恢复。
+  真机强制 20°C 截止测试通过（`charging inhibited` / `Not charging`，
+  恢复后 `charging enabled`）。补丁 `0028`/`0029`。
+- **Type-C switch**：`usb-switch` 的 `gpio-sbu-mux` 使用与 vendor
+  `switch-ctl-gpios` 相同的 GPIO4_D2，已对齐；PDO 保留
+  `DUAL_ROLE | DATA_SWAP`，不改成 vendor 的 `USB_COMM` 单标志，避免
+  破坏 source/OTG。
+
 ### 电池计量：RK817 PMIC 库仑计（2026-11-13）
 
 **本机电池规格（用户确认）**：SHT 3585130-2S / **5000mAh / 37Wh / 8.4V（2S）**。
@@ -294,6 +304,8 @@ charger {
 
 ## 5. Type-C / USB-PD（中优先级）
 
+**2026-11-13 核对结论：switch 已对齐，无需改代码。**
+
 原厂 HUSB311：
 
 ```text
@@ -304,14 +316,18 @@ source-pdos/sink-pdos = 0x40190c8
 当前 mainline：
 
 ```text
-无 switch-ctl-gpios
+usb-switch (onnn,fsusb43l10x / gpio-sbu-mux) 使用同一 GPIO4_D2
 source-pdos/sink-pdos = 0x220190c8
 ```
 
-需要确认：
-
-- `switch-ctl-gpios` 对应的 USB 数据切换 GPIO 是否必须；当前 USB 启动可用，但 Type-C 角色/OTG 可能不同。
-- PDO 值是否影响 PD 充电协商；结合 SC8886 输入限流一起验证。
+- vendor `switch-ctl-gpios` 的 GPIO 与当前 `usb-switch/select-gpios`
+  是同一个引脚（GPIO4_D2，RK_PD2），只是 vendor 写在 HUSB311 节点里、
+  mainline 用 `gpio-sbu-mux` 标准绑定。实测 Type-C `port_type=dual`，
+  `data_role=host` / `power_role=source`，USB3 5Gbps 正常。
+- PDO 差异：vendor `0x40190c8` 只带 `USB_COMM`，当前
+  `0x220190c8` 带 `DUAL_ROLE | DATA_SWAP`。当前值保留，因为 source/OTG
+  和 data-role swap 需要这些标志；改成 vendor 值会去掉 dual-role，
+  可能破坏 source/OTG。除非后续有 PD 设备实测确认，否则不改。
 
 ## 6. NPU（中优先级，功能缺失）
 
