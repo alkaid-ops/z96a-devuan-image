@@ -1,15 +1,11 @@
 --- a/drivers/power/supply/bq257xx_charger.c
 +++ b/drivers/power/supply/bq257xx_charger.c
-@@ -12,12 +12,21 @@
+@@ -12,8 +12,17 @@
  #include <linux/power_supply.h>
  #include <linux/property.h>
  #include <linux/regmap.h>
 +#include <linux/thermal.h>
  #include <linux/workqueue.h>
- 
- #define BQ257XX_RECOVERY_INTERVAL_MS	1000
- #define BQ257XX_RECOVERY_MAX_ATTEMPTS	60
- #define BQ257XX_RECOVERY_STABLE_ATTEMPTS	10
  
 +/* REG00 bit0: 1 = inhibit charging, 0 = allow charging. */
 +#define BQ25703_CHRG_INHIBIT		BIT(0)
@@ -23,9 +19,9 @@
  struct bq257xx_chg;
  
 @@ -96,6 +105,13 @@
- 	unsigned int recovery_attempts;
- 	unsigned int recovery_streak;
- 	struct delayed_work recovery_work;
+ 	struct power_supply *charger;
+ 	bool online;
+ 	bool charging;
 +	struct thermal_zone_device *battery_tz;
 +	struct delayed_work thermal_work;
 +	u32 low_temp_off_c;
@@ -33,10 +29,10 @@
 +	u32 thermal_poll_ms;
 +	bool charge_inhibited;
 +	bool thermal_tz_missing_logged;
- 	const char *manufacturer;
- };
- 
-@@ -836,9 +852,77 @@
+ 	bool fast_charge;
+ 	bool pre_charge;
+ 	bool overvoltage;
+@@ -898,9 +914,77 @@
  	if (ret)
  		pdata->iindpm_max = pdata->chip->default_iindpm_uA;
  
@@ -114,15 +110,15 @@
  static int bq257xx_charger_probe(struct platform_device *pdev)
  {
  	struct device *dev = &pdev->dev;
-@@ -854,6 +938,7 @@
+@@ -916,6 +1000,7 @@
  		return -ENOMEM;
  
- 	INIT_DELAYED_WORK(&pdata->recovery_work, bq257xx_recovery_work);
-+	INIT_DELAYED_WORK(&pdata->thermal_work, bq257xx_thermal_work);
  	pdata->bq = bq;
++	INIT_DELAYED_WORK(&pdata->thermal_work, bq257xx_thermal_work);
  	pdata->chip = &bq25703_chip_info;
  
-@@ -891,6 +976,11 @@
+ 	switch (bq->type) {
+@@ -962,6 +1047,11 @@
  	pdata->chip->bq257xx_get_state(pdata);
  	pdata->last_online = pdata->online;
  
@@ -134,10 +130,10 @@
  	platform_set_drvdata(pdev, pdata);
  
  	if (bq->client->irq) {
-@@ -915,12 +1005,14 @@
- 	struct bq257xx_chg *pdata = platform_get_drvdata(pdev);
- 
- 	cancel_delayed_work_sync(&pdata->recovery_work);
+@@ -982,12 +1072,14 @@
+ 	schedule_delayed_work(&pdata->ac_work,
+ 			      msecs_to_jiffies(BQ257XX_AC_DEBOUNCE_MS));
+ 	return 0;
 +	cancel_delayed_work_sync(&pdata->thermal_work);
  }
  
