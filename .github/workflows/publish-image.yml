@@ -69,6 +69,19 @@ jobs:
           ref: ${{ steps.source.outputs.head_sha }}
           fetch-depth: 0
 
+      - name: Reclaim runner disk space and check capacity
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/local/lib/android/sdk /opt/ghc /usr/share/dotnet \
+            /usr/local/share/powershell /usr/local/share/chromium
+          sudo docker system prune -af || true
+          avail_kb=$(df -Pk / | awk 'NR==2 {print $4}')
+          if [ "$avail_kb" -lt 14680064 ]; then
+            echo "less than 14 GiB free for artifact + decompressed image (${avail_kb}KiB)" >&2
+            exit 1
+          fi
+          df -h /
+
       - name: Download the exact stage-4 artifact
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
