@@ -13,6 +13,7 @@ import hashlib
 import os
 import re
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -708,13 +709,14 @@ class ChrootCacheTests(unittest.TestCase):
 
 
 class CiReleaseWorkflowTests(unittest.TestCase):
-    """Phase 3/4 CI: tag builds must be gated on validation before release."""
+    """Five-stage component build, temporary image, and exact-artifact publish."""
 
     WORKFLOWS = ROOT / ".github" / "workflows"
     TOOLS = (
         "boards/z96a-v2/tools/ci-prepare-inputs.sh",
         "boards/z96a-v2/tools/ci-validate-image.sh",
         "boards/z96a-v2/tools/ci-collect-image.sh",
+        "boards/z96a-v2/tools/ci-resolve-inputs.sh",
     )
 
     def read(self, name):
@@ -723,10 +725,12 @@ class CiReleaseWorkflowTests(unittest.TestCase):
         return path.read_text(errors="replace")
 
     def test_workflow_set(self):
-        for name in ("ci.yml", "build.yml", "release.yml", "build-image.yml",
+        for name in ("ci.yml", "image-temp.yml", "publish-image.yml", "build-image.yml",
                      "kernel.yml", "base-apps.yml", "uboot.yml",
-                     "publish-existing.yml"):
+                     "probe.yml"):
             self.assertTrue((self.WORKFLOWS / name).is_file(), name)
+        for retired in ("build.yml", "release.yml", "publish-existing.yml"):
+            self.assertFalse((self.WORKFLOWS / retired).exists(), retired)
 
     def test_kernel_workflow_publishes_component(self):
         text = self.read("kernel.yml")
@@ -738,7 +742,7 @@ class CiReleaseWorkflowTests(unittest.TestCase):
     def test_image_build_reads_lock_on_arm_runner(self):
         text = self.read("build-image.yml")
         self.assertIn("runs-on: ubuntu-24.04-arm", text)
-        self.assertIn("config/inputs.lock", text)
+        self.assertIn("ci-resolve-inputs.sh", text)
         self.assertNotIn("setup-qemu-action", text)
         self.assertNotIn("inputs_release", text)
 
@@ -748,30 +752,50 @@ class CiReleaseWorkflowTests(unittest.TestCase):
             self.assertIn("--prerelease", text)
 
     def test_tag_trigger_and_release_gate(self):
-        text = self.read("release.yml")
-        self.assertIn("tags:", text)
-        self.assertRegex(text, r"-\s*'v\*'", "release must trigger on v* tags")
-        self.assertIn("needs: build", text)
-        self.assertIn("contents: write", text)
-        self.assertIn("sha256sum -c", text, "release must re-verify the checksum")
+        temp = self.read("image-temp.yml")
+        publish = self.read("publish-image.yml")
+        self.assertIn("workflow_dispatch:", temp)
+        self.assertIn("workflow_dispatch:", publish)
+        self.assertNotIn("push:", temp)
+        self.assertNotIn("push:", publish)
+        self.assertIn("./.github/workflows/build-image.yml", temp)
+        self.assertIn("actions: read", publish)
+        self.assertIn("contents: write", publish)
+        self.assertIn("actions/download-artifact", publish)
+        self.assertIn("run-id:", publish)
+        self.assertIn("head_sha", publish)
+        self.assertIn("workflow_path", publish)
+        self.assertIn("expired == false", publish)
+        self.assertIn("sha256sum -c", publish)
+        self.assertIn("gh release create", publish)
+        self.assertIn("gh release edit", publish)
+        self.assertIn("git/ref/tags/$RELEASE_TAG", publish)
+        self.assertNotIn("build-in-container.sh image", publish)
 
-    def test_release_tag_suffix_marks_prerelease(self):
-        text = self.read("release.yml")
-        self.assertIn("prerelease:", text)
+    def test_explicit_component_selection_is_ephemeral_and_cache_pinned(self):
+        text = self.read("build-image.yml")
+        for name in ("kernel_release", "base_apps_release", "uboot_release"):
+            self.assertIn(name + ":", text)
+        self.assertIn("ci-resolve-inputs.sh", text)
+        self.assertIn("steps.resolve-inputs.outputs.lock_sha", text)
+        self.assertIn("Z96A_INPUTS_LOCK:", text)
+        self.assertIn("components.json", text)
 
-    def test_publish_existing_reuses_staged_image_without_rebuilding(self):
-        text = self.read("publish-existing.yml")
-        self.assertIn("workflow_dispatch:", text)
-        self.assertNotIn("tags:", text, "staged publishing must not trigger on tags")
-        self.assertIn("contents: write", text)
-        self.assertIn("gh release edit", text, "must publish the existing draft")
-        self.assertIn("--draft=false", text)
-        self.assertIn("packaging/check-release-asset.sh", text)
-        self.assertIn("sha256sum -c", text)
-        self.assertIn("ci-validate-image.sh", text)
-        for rebuild in ("build-in-container.sh image", "make preflight",
-                        "ci-prepare-inputs.sh", "softprops/action-gh-release"):
-            self.assertNotIn(rebuild, text, rebuild)
+    def test_component_resolver_script(self):
+        path = ROOT / "boards/z96a-v2/tools/ci-resolve-inputs.sh"
+        self.assertTrue(path.is_file())
+        self.assertTrue(os.access(path, os.X_OK))
+        self.assertEqual(subprocess.run(["bash", "-n", str(path)]).returncode, 0)
+        with tempfile.TemporaryDirectory() as directory:
+            env = os.environ.copy()
+            env.update(KERNEL_RELEASE="kernel-test", BASE_APPS_RELEASE="", UBOOT_RELEASE="")
+            result = subprocess.run(
+                [str(path), str(Path(directory) / "inputs.lock"),
+                 str(Path(directory) / "components.json")],
+                env=env, text=True, capture_output=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("all three component tags", result.stderr)
 
     def test_build_uses_hosted_runner_and_validation(self):
         text = self.read("build-image.yml")
@@ -789,7 +813,7 @@ class CiReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("RELEASE_TAG", text)
 
     def test_no_pull_request_target(self):
-        for name in ("ci.yml", "build.yml", "release.yml", "build-image.yml"):
+        for name in ("ci.yml", "image-temp.yml", "publish-image.yml", "build-image.yml"):
             self.assertNotIn("pull_request_target", self.read(name))
 
     def test_ci_tools_parse(self):

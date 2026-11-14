@@ -1,20 +1,24 @@
 # CI 与发布（GitHub Actions）
 
-目标：推送版本 Tag 后自动构建 Z96A 镜像、执行完整镜像校验、校验通过后发布
-GitHub Release。PR 与普通 push 只跑轻量检查，不构建整张镜像。
+目标：将 U-Boot、kernel、base/apps、整镜像临时构建、整镜像正式发布分成五个可独立
+操作的阶段。正式发布严格复用阶段 4 的同一个 Actions artifact，不重新组装镜像。
 
 ## 触发方式
 
 | 工作流 | 触发 | 产物 | 是否发布 |
 |---|---|---|---|
 | `.github/workflows/ci.yml` | PR、push、手动 | 无镜像 | 否 |
-| `.github/workflows/build.yml` | Actions 手动触发 | Actions artifact | 否 |
-| `.github/workflows/release.yml` | 推送 `v*` Tag | Actions artifact + GitHub Release | 是 |
-| `.github/workflows/publish-existing.yml` | Actions 手动触发 | — | 是（引用已构建镜像） |
-| `.github/workflows/build-image.yml` | 被上面两个工作流调用 | — | 由调用方决定 |
+| `.github/workflows/kernel.yml` | Actions 手动触发 | kernel 组件 Release | 阶段 2 |
+| `.github/workflows/base-apps.yml` | Actions 手动触发 | base/apps 组件 Release | 阶段 3 |
+| `.github/workflows/uboot.yml` | Actions 手动触发 | U-Boot 组件 Release | 阶段 1 |
+| `.github/workflows/image-temp.yml` | Actions 手动触发 | 90 天 Actions artifact | 阶段 4 |
+| `.github/workflows/publish-image.yml` | Actions 手动触发，指定阶段 4 run ID | GitHub Release | 阶段 5 |
+| `.github/workflows/build-image.yml` | 被 `image-temp.yml` 调用 | — | 可复用镜像组装实现 |
+| `.github/workflows/ci.yml` | PR、普通 push、手动 | 检查报告 | 否 |
+| `.github/workflows/probe.yml` | Actions 手动触发 | runner 探测报告 | 否 |
 
 Tag 格式：`vX.Y` 或 `vX.Y.Z`（可带 `-rc1` 之类后缀，后缀会标记为 prerelease）。
-Tag 必须指向默认分支上的提交；`release.yml` 会检查 `git merge-base --is-ancestor`。
+正式版本 Tag 由阶段 5 从阶段 4 的源码提交创建；发布流程不使用 tag push 作为构建触发器。
 已发布 Tag 不应移动或删除。
 
 可选配置仓库 Settings → Secrets and variables → Actions：`Z96A_SSH_KEY`（公钥）；
@@ -35,7 +39,7 @@ Docker（探针见 hosted-runner-probe）。
 - 出站网络：apt（Devuan 主源/backports）、vendor URL、GitHub Release 下载。
 - 同一时间只运行一个镜像构建（`concurrency: z96a-image-build`）。
 - 构建容器以 root 写 `output/`，workflow 使用 `clean: false` 并在容器内清理。
-- 完整镜像只由手动 workflow 或版本 tag 触发；push/PR 只跑轻量 CI。
+- 完整镜像只由 `image-temp.yml` 手动触发；push/PR 只跑轻量 CI。
 
 ## 组件发布与 inputs.lock
 
@@ -52,7 +56,7 @@ U-Boot 固件仍由 `alkaid-ops/z96a-rk3568-uboot` 的 `fitfix-vN` Release 提�
 `uboot.yml` 负责下载校验、与固定 idbloader 配对、打成 deb 并发布 `-pN` 打包版本。
 固件版本与打包版本分离，`uboot-meta.json` 记录源仓库/tag 与两个 blob 的 sha256。
 
-**锁文件 `config/inputs.lock` 是总装的唯一输入**，由人工维护（策略 A）：
+默认锁文件 `config/inputs.lock` 由人工维护；阶段 4 也允许显式选取三个组件 tag：
 
 ```toml
 kernel_release    = "kernel-7.2.12-r3"
@@ -63,8 +67,10 @@ uboot_release     = "uboot-fitfix-v3-p1"
 uboot_sums        = "…"
 ```
 
-更新流程：组件 workflow 跑完 → 人工检查产物 → 改 lock 对应两行 → 提交 →
-触发 `build.yml`（或打 tag）。总装不会查询 “latest”，也不自动改 lock。
+默认更新流程：组件 workflow 跑完 → 人工检查产物 → 改 lock 对应两行 → 提交。
+阶段 4 可直接使用 lock，或显式传入三个 tag；显式组合会现场计算各自的清单摘要，
+生成仅存在于 runner 的临时 lock，并把组合清单作为 `components.json` 留在 artifact 中。
+两种路径都不查询 “latest”，也不会自动修改仓库 lock。
 
 `make image` 不编译内核：kernel/U-Boot 的 deb 全部来自 lock 指向的 Release。
 
@@ -102,41 +108,25 @@ CI 使用 `xz -6`（原先是默认级别 6 加 `-e`），然后检查 XZ 完整
 和 GitHub Release 资产大小限制。压缩率及耗时以实际构建为准；`validate=false`
 只跳过原始镜像的结构校验，不跳过压缩文件检查。本地默认压缩设置保持不变。
 
-## 引用已构建镜像发布（publish-existing.yml）
-
-当镜像已在本地构建、校验并真机验证过，且不希望 CI 再组装一次时使用。发布的是
-**原样镜像字节**，不做任何重建。
+## 五阶段正式发布
 
 ```text
-本地：gh release create v2.0.0 --draft *.img.xz *.img.xz.sha256 \
-        manifest.json sbom.json build-evidence.json
-  → publish-existing.yml：确认是草稿 Release、校验压缩资产（xz -t + SHA256 + 2 GiB）
-  → 可选：解压原始镜像，在 arm64 构建容器内 loop 挂载执行 validate-image.sh
-  → gh release edit v2.0.0 --draft=false：发布同一个 Release
+1. uboot.yml       → uboot-<firmware>-pN
+2. kernel.yml      → kernel-<version>-rN
+3. base-apps.yml   → base-apps-<date>
+4. image-temp.yml  → build/validate once → z96a-image-<run-id>-<attempt> artifact
+5. publish-image.yml(run_id, vX.Y.Z) → download that exact artifact → verify → Release
 ```
 
-- 资产放在**目标版本的草稿 Release** 里。草稿不会创建 git tag，因此不会匹配
-  `release.yml`，不会启动重建；发布草稿也不产生 `push` 事件。
-- 工作流只接受草稿状态；已发布的版本不会被覆盖。
-- 镜像内 `manifest.json` 的 `release_info` 在构建时写死。用本地构建发布时它记录的是
-  构建当时的 `channel`/`tag`（例如 `nightly`/`null`），不会因本工作流改写；发布资产
-  里的同名文件与镜像内保持一致，实际渠道以 Release 与 `build-evidence.json` 为准。
-- 与 tag 发布相比少了 rootfs 组装，因此只做“压缩包 + 镜像结构”校验，不做输入锁
-  复验。
+阶段 4 的三个组件 tag 必须全部提供或全部留空。留空时使用 `config/inputs.lock`；
+提供时工作流下载三个 `SHA256SUMS.*`，计算摘要并生成 runner 临时 lock。该 lock 的
+摘要进入缓存键，组合写入 `components.json` 随 artifact 保留，不新增仓库组合配置文件。
 
-## Tag 发布流程
-
-```text
-push tag vX.Y.Z
-  → release.yml / tag job：校验 Tag 格式与分支来源
-  → build-image.yml：
-      checkout → runner 检查 → 播种输入 → preflight → 单测 → secret scan
-      → build-in-container.sh image（收缩 → 原始镜像校验 → xz 压缩）
-      → 校验压缩资产完整性、SHA256 和大小
-      → ci-collect-image.sh（SHA256、耗时、build-evidence.json）
-      → upload-artifact
-  → release.yml / publish job：下载 artifact、复核 SHA256、创建 GitHub Release
-```
+阶段 5 必须输入阶段 4 的 run ID。工作流检查 run 成功、来源为 `image-temp.yml`、
+artifact 名称与 run ID/attempt 精确匹配且未过期；之后复核 XZ、SHA256、资产大小、
+构建证据，并对下载的同一镜像再做 loop 结构校验。只有全部通过后才创建或更新目标
+版本草稿并发布。现有 `release.yml` 的 `v*` 自动重建入口已移除，避免发布 tag 时再次
+组装镜像。stage-4 artifact 保留 90 天；过期后必须重新执行阶段 4。
 
 发布资产：
 
@@ -146,27 +136,21 @@ push tag vX.Y.Z
 manifest.json
 sbom.json
 build-evidence.json
+components.json
+build.log
 ```
 
-`manifest.json` 的 `release_info` 会记录 `channel` 与 `tag`。
+`manifest.json` 的 `release_info` 会记录 `channel` 与 `tag`。正式 Release 的 tag 指向
+阶段 4 构建所用的源码提交；发布工作流本身不调用镜像构建脚本。
 
 ## 失败与安全规则
 
-- 任一前置检查、构建、校验失败 → 不创建 Release。
-- Release job 只在 `needs: build` 成功后运行，且单独授予 `contents: write`；
-  构建 job 只有只读权限。
+- 阶段 4 任一前置检查、构建、校验失败 → 不产生可供发布的成功 artifact。
+- 阶段 5 仅在精确来源 artifact 全部验证后获得 `contents: write` 权限并发布。
 - 第三方 Actions 固定到完整 commit SHA。
 - 构建日志（`output/ci/build.log`）随 artifact 上传；失败时另有日志 artifact。
 - 校验失败不会上传镜像 artifact，避免误用未验证产物。
-- 需要重跑时删除并重新推送同一 Tag（或发新 Tag）；工作流按 Tag 串行执行。
-
-## 手动构建
-
-`build.yml` 仅生成 Actions artifact，不创建 Release，用于验证 runner、缓存与
-输入是否就绪。参数：
-
-- `channel`：`nightly` / `stable` / `test`，写入 manifest。
-- `validate`：是否执行 loop 挂载镜像校验，默认开启。
+- artifact 过期或构建内容需要变化时，重新运行阶段 4 并使用新 run ID；已发布版本不覆盖。
 
 ## 与本地构建的对应关系
 

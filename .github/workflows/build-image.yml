@@ -1,6 +1,6 @@
 name: build-image
 
-# Reusable image build. Called by release.yml (tag) and build.yml (manual).
+# Reusable image build. Called by image-temp.yml for stage 4.
 #
 # Runs on GitHub-hosted Ubuntu. A preflight verifies Docker privilege, loop
 # devices and free disk before spending time on the build.
@@ -19,6 +19,18 @@ on:
         description: "Run loop-mount image validation after the build"
         type: boolean
         default: true
+      kernel_release:
+        description: "Optional kernel component tag (all component tags must be supplied together)"
+        type: string
+        default: ""
+      base_apps_release:
+        description: "Optional base-apps component tag"
+        type: string
+        default: ""
+      uboot_release:
+        description: "Optional U-Boot component tag"
+        type: string
+        default: ""
     secrets:
       Z96A_SSH_KEY:
         description: "Optional public SSH key installed in the image; unset disables SSH login"
@@ -42,6 +54,12 @@ on:
       artifact_name:
         description: "Actions artifact containing release files"
         value: ${{ jobs.build.outputs.artifact_name }}
+      run_id:
+        description: "Workflow run ID containing the immutable image artifact"
+        value: ${{ jobs.build.outputs.run_id }}
+      run_attempt:
+        description: "Attempt number for the artifact-producing workflow run"
+        value: ${{ jobs.build.outputs.run_attempt }}
 
 env:
   # Hosted runners are ephemeral; actions/cache restores this input directory.
@@ -51,7 +69,7 @@ jobs:
   build:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 240
-    # Manual builds and tag releases share one lock to protect runner disk.
+    # Temporary image builds share one lock to protect runner disk.
     concurrency:
       group: z96a-image-build
       cancel-in-progress: false
@@ -59,6 +77,9 @@ jobs:
       image_name: ${{ steps.collect.outputs.name }}
       image_sha256: ${{ steps.collect.outputs.sha256 }}
       artifact_name: z96a-image-${{ github.run_id }}-${{ github.run_attempt }}
+      run_id: ${{ github.run_id }}
+      run_attempt: ${{ github.run_attempt }}
+      inputs_lock_sha: ${{ steps.resolve-inputs.outputs.lock_sha }}
 
     steps:
       - name: Check out the triggering commit
@@ -148,21 +169,36 @@ jobs:
                    output/ci
           echo "cache root: $Z96A_CACHE_ROOT"
 
+      - name: Resolve and pin component combination
+        id: resolve-inputs
+        env:
+          KERNEL_RELEASE: ${{ inputs.kernel_release }}
+          BASE_APPS_RELEASE: ${{ inputs.base_apps_release }}
+          UBOOT_RELEASE: ${{ inputs.uboot_release }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          boards/z96a-v2/tools/ci-resolve-inputs.sh "$RUNNER_TEMP/z96a-inputs.lock" output/ci/components.json
+          echo "lock_sha=$(sha256sum "$RUNNER_TEMP/z96a-inputs.lock" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "lock_path=$RUNNER_TEMP/z96a-inputs.lock" >> "$GITHUB_OUTPUT"
+
       - name: Restore verified input cache
         id: input-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ env.Z96A_CACHE_ROOT }}/input
-          key: z96a-inputs-${{ hashFiles('config/inputs.lock') }}-${{ runner.arch }}
+          key: z96a-inputs-${{ steps.resolve-inputs.outputs.lock_sha }}-${{ runner.arch }}
 
       - name: Download and verify immutable build inputs
         env:
           Z96A_INPUT_CACHE: ${{ env.Z96A_CACHE_ROOT }}/input
+          Z96A_INPUTS_LOCK: ${{ steps.resolve-inputs.outputs.lock_path }}
         run: boards/z96a-v2/tools/ci-fetch-inputs.sh
 
       - name: Restore prebuilt build inputs
         env:
           Z96A_INPUT_CACHE: ${{ env.Z96A_CACHE_ROOT }}/input
+          Z96A_INPUTS_LOCK: ${{ steps.resolve-inputs.outputs.lock_path }}
         run: boards/z96a-v2/tools/ci-prepare-inputs.sh
 
       - name: Save verified input cache
@@ -170,7 +206,7 @@ jobs:
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ env.Z96A_CACHE_ROOT }}/input
-          key: z96a-inputs-${{ hashFiles('config/inputs.lock') }}-${{ runner.arch }}
+          key: z96a-inputs-${{ steps.resolve-inputs.outputs.lock_sha }}-${{ runner.arch }}
 
       - name: Packaging preflight
         env:
@@ -229,6 +265,7 @@ jobs:
           cp "$img" "$img.sha256" output/ci/release/
           cp output/z96a-v2/manifest.json output/z96a-v2/sbom.json \
              output/ci/build-evidence.json output/ci/build.log output/ci/release/
+          cp output/ci/components.json output/ci/release/
           ls -lh output/ci/release
 
       - name: Upload image artifact
@@ -238,7 +275,7 @@ jobs:
           name: z96a-image-${{ github.run_id }}-${{ github.run_attempt }}
           path: output/ci/release
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 90
 
       - name: Upload logs on failure
         if: failure()

@@ -30,6 +30,7 @@ jobs:
           bash -n boards/z96a-v2/tools/ci-prepare-inputs.sh
           bash -n boards/z96a-v2/tools/ci-validate-image.sh
           bash -n boards/z96a-v2/tools/ci-collect-image.sh
+          bash -n boards/z96a-v2/tools/ci-resolve-inputs.sh
 
       - name: Shellcheck (board scripts)
         run: |
@@ -42,7 +43,8 @@ jobs:
             boards/z96a-v2/tools/ci-fetch-inputs.sh \
             boards/z96a-v2/tools/ci-prepare-inputs.sh \
             boards/z96a-v2/tools/ci-validate-image.sh \
-            boards/z96a-v2/tools/ci-collect-image.sh
+            boards/z96a-v2/tools/ci-collect-image.sh \
+            boards/z96a-v2/tools/ci-resolve-inputs.sh
 
       - name: Python unit tests
         run: python3 -m unittest discover -s boards/z96a-v2/tests -p 'test_*.py' -v

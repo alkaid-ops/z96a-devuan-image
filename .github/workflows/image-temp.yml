@@ -1,0 +1,52 @@
+name: image-temp
+
+# Stage 4: assemble and validate an image, then retain it as a run-scoped
+# Actions artifact. This workflow never creates a GitHub Release or version tag.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Intended final release tag (e.g. v2.0.0); metadata only"
+        required: true
+        type: string
+      channel:
+        description: "Release channel recorded in the manifest"
+        required: true
+        type: choice
+        options: [stable, test, nightly]
+        default: stable
+      kernel_release:
+        description: "Kernel component tag (leave all three component tags empty to use config/inputs.lock)"
+        type: string
+        default: ""
+      base_apps_release:
+        description: "Base/apps component tag"
+        type: string
+        default: ""
+      uboot_release:
+        description: "U-Boot component tag"
+        type: string
+        default: ""
+      validate:
+        description: "Run full loop-mount image validation"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: z96a-image-temp
+  cancel-in-progress: false
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-image.yml
+    secrets: inherit
+    with:
+      channel: ${{ inputs.channel }}
+      release_tag: ${{ inputs.release_tag }}
+      validate: ${{ inputs.validate }}
+      kernel_release: ${{ inputs.kernel_release }}
+      base_apps_release: ${{ inputs.base_apps_release }}
+      uboot_release: ${{ inputs.uboot_release }}
