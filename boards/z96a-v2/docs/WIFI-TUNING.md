@@ -71,6 +71,40 @@ iw dev wlan0 set power_save off
 
 已设置 8MB 上限。单次测试中没有明显回退，保留。
 
+## 受控矩阵结果（AP149，5s iperf3）
+
+### RPS 掩码（IRQ 保持 f）
+
+| rps_cpus | 下行 | 上行 |
+|---|---|---|
+| 0 | 138Mbps | 23.0Mbps |
+| 1 (CPU0) | 113Mbps | 24.8Mbps |
+| 2 (CPU1) | 140Mbps | 25.0Mbps |
+| 4 (CPU2) | 112Mbps | 23.1Mbps |
+| 8 (CPU3) | 128Mbps | 失败/无结果 |
+| f (全部) | 150Mbps | 20.1Mbps |
+
+### IRQ affinity（RPS f）
+
+| smp_affinity | 下行 | 上行 |
+|---|---|---|
+| 1 (CPU0) | 144Mbps | 24.6Mbps |
+| 2 (CPU1) | 143Mbps | 17.5Mbps |
+| 4 (CPU2) | 122Mbps | 23.7Mbps |
+| 8 (CPU3) | 152Mbps | 23.0Mbps |
+| f (全部) | 139Mbps | 29.5Mbps |
+
+最终选择了：
+
+```text
+rps_cpus = f
+rps_flow_cnt = 4096
+dw-mci IRQ 73 affinity = 8 (CPU3)
+power_save = off
+```
+
+3 次复测：下行 125 / 153 / 123Mbps，上行 24.7 / 27.7 / 18.0Mbps。最好 153Mbps，但波动仍然明显；没有稳定 30% 提升。
+
 ## 结论
 
 - 参数调优不能稳定复现“下行 170–210Mbps”：本机实际在 52–139Mbps 之间大幅波动。
