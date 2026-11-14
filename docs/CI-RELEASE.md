@@ -108,16 +108,16 @@ CI 使用 `xz -6`（原先是默认级别 6 加 `-e`），然后检查 XZ 完整
 **原样镜像字节**，不做任何重建。
 
 ```text
-本地：gh release create <staging-tag> --prerelease *.img.xz *.img.xz.sha256 \
+本地：gh release create v2.0.0 --draft *.img.xz *.img.xz.sha256 \
         manifest.json sbom.json build-evidence.json
-  → publish-existing.yml：校验 tag 格式/来源、压缩资产完整性（xz -t + SHA256 + 2 GiB）
+  → publish-existing.yml：确认是草稿 Release、校验压缩资产（xz -t + SHA256 + 2 GiB）
   → 可选：解压原始镜像，在 arm64 构建容器内 loop 挂载执行 validate-image.sh
-  → 创建正式 Release（prerelease: false）
+  → gh release edit v2.0.0 --draft=false：发布同一个 Release
 ```
 
-- `source_tag` 是暂存用的 prerelease，**必须以非 `v` 开头**（如 `staging-2.0.0`）。
-  推送或创建 `v*` tag 会匹配 `release.yml` 并启动完整重建。
-- `release_tag` 必须尚不存在；该工作流拒绝覆盖已发布版本。
+- 资产放在**目标版本的草稿 Release** 里。草稿不会创建 git tag，因此不会匹配
+  `release.yml`，不会启动重建；发布草稿也不产生 `push` 事件。
+- 工作流只接受草稿状态；已发布的版本不会被覆盖。
 - 镜像内 `manifest.json` 的 `release_info` 在构建时写死。用本地构建发布时它记录的是
   构建当时的 `channel`/`tag`（例如 `nightly`/`null`），不会因本工作流改写；发布资产
   里的同名文件与镜像内保持一致，实际渠道以 Release 与 `build-evidence.json` 为准。

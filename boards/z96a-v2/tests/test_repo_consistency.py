@@ -764,14 +764,13 @@ class CiReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", text)
         self.assertNotIn("tags:", text, "staged publishing must not trigger on tags")
         self.assertIn("contents: write", text)
-        self.assertIn("softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3", text)
+        self.assertIn("gh release edit", text, "must publish the existing draft")
+        self.assertIn("--draft=false", text)
         self.assertIn("packaging/check-release-asset.sh", text)
         self.assertIn("sha256sum -c", text)
         self.assertIn("ci-validate-image.sh", text)
-        # A v* staging tag would match release.yml and rebuild the image.
-        self.assertIn("must not start with v", text)
         for rebuild in ("build-in-container.sh image", "make preflight",
-                        "ci-prepare-inputs.sh"):
+                        "ci-prepare-inputs.sh", "softprops/action-gh-release"):
             self.assertNotIn(rebuild, text, rebuild)
 
     def test_build_uses_hosted_runner_and_validation(self):

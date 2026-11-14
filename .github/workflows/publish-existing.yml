@@ -2,22 +2,18 @@ name: publish-existing
 
 # Publish an image that was already built and validated elsewhere (for example
 # a local build that has been flashed and exercised on the device) without
-# rebuilding it. The image, checksum, manifest, SBOM and build evidence are
-# uploaded once to a staging prerelease; this workflow downloads them, re-verifies
-# the compressed asset (and optionally the mounted image structure), then creates
-# the real version release.
+# rebuilding it.
 #
-# The staging tag must NOT start with "v": creating a "v*" tag would match
-# release.yml and start a full rebuild instead of publishing these assets.
+# Assets are uploaded once to the *draft* release for the final tag. A draft
+# release does not create the git tag, so nothing triggers release.yml and no
+# image is rebuilt. This workflow downloads the draft assets, re-verifies the
+# compressed asset (and optionally the mounted image structure), then publishes
+# the draft as the version release.
 on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Release tag to create (vX.Y or vX.Y.Z)"
-        required: true
-        type: string
-      source_tag:
-        description: "Staging prerelease holding the built assets (must not start with v)"
+        description: "Release tag whose draft holds the built assets (vX.Y or vX.Y.Z)"
         required: true
         type: string
       validate:
@@ -48,29 +44,22 @@ jobs:
       - name: Check out the publishing commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Guard release tag and staging source
+      - name: Guard draft release and tag format
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
-          SOURCE_TAG: ${{ inputs.source_tag }}
         run: |
           set -eu
           if ! printf '%s' "$RELEASE_TAG" | grep -Eq '^v[0-9]+(\.[0-9]+){1,2}$'; then
             echo "invalid release tag: $RELEASE_TAG (expected vX.Y or vX.Y.Z)" >&2
             exit 1
           fi
-          if ! printf '%s' "$SOURCE_TAG" | grep -Eq '^[^v]'; then
-            echo "staging tag must not start with v (it would trigger release.yml): $SOURCE_TAG" >&2
+          draft=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json isDraft -q .isDraft 2>/dev/null || echo missing)
+          if [ "$draft" != "true" ]; then
+            echo "expected an unpublished draft release for $RELEASE_TAG (got: $draft)" >&2
             exit 1
           fi
-          if ! gh release view "$SOURCE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "staging release not found: $SOURCE_TAG" >&2
-            exit 1
-          fi
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "release already exists, refusing to overwrite: $RELEASE_TAG" >&2
-            exit 1
-          fi
-          echo "publishing $RELEASE_TAG from staged $SOURCE_TAG"
+          echo "publishing draft release $RELEASE_TAG"
 
       - name: Reclaim runner disk space
         run: |
@@ -86,13 +75,13 @@ jobs:
           fi
           df -h /
 
-      - name: Download staged release assets
+      - name: Download draft release assets
         env:
-          SOURCE_TAG: ${{ inputs.source_tag }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -eu
           mkdir -p dist
-          gh release download "$SOURCE_TAG" --repo "$GITHUB_REPOSITORY" \
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --dir dist --pattern '*.img.xz' --pattern '*.img.xz.sha256' \
             --pattern 'manifest.json' --pattern 'sbom.json' \
             --pattern 'build-evidence.json'
@@ -124,36 +113,20 @@ jobs:
           img=$(ls -t dist/*.img.xz | head -n 1)
           boards/z96a-v2/tools/ci-validate-image.sh "$img"
 
-      - name: Remove staged assets and raw image
+      - name: Remove decompressed image
         if: always()
+        run: rm -f output/ci/*.img || true
+
+      - name: Publish draft as the version release
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          rm -f output/ci/*.img || true
-          du -sh dist 2>/dev/null || true
-
-      - name: Create release
-        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
-        with:
-          tag_name: ${{ inputs.release_tag }}
-          name: ${{ inputs.release_tag }}
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-          fail_on_unmatched_files: true
-          body: |
-            Image built and validated before publication (not rebuilt by this workflow).
-
-            - Release channel recorded in the image manifest: see `manifest.json`
-              (`release_info.channel`); this image was assembled from the inputs
-              pinned in `config/inputs.lock` at build time.
-            - The compressed asset was verified (`xz -t`, SHA256) and the mounted
-              image structure was checked before this release was created.
-            - Staged source release: `${{ inputs.source_tag }}`.
-          files: |
-            dist/*.img.xz
-            dist/*.img.xz.sha256
-            dist/manifest.json
-            dist/sbom.json
-            dist/build-evidence.json
+          set -eu
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --draft=false --prerelease=false --latest
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isDraft,isPrerelease,assets -q \
+            '"tag=\(.tagName) draft=\(.isDraft) prerelease=\(.isPrerelease)", (.assets[] | "asset=\(.name) \(.size)")'
 
       - name: Summarize
         run: |
@@ -165,5 +138,5 @@ jobs:
             echo "- image: $(basename "$img")"
             echo "- bytes: $(stat -c '%s' "$img")"
             echo "- sha256: $(sha256sum "$img" | cut -d' ' -f1)"
-            echo "- staging source: ${{ inputs.source_tag }}"
+            echo "- release notes are taken from the draft body"
           } >> "$GITHUB_STEP_SUMMARY"
