@@ -14,6 +14,9 @@
 	done
 	chmod 0755 /usr/local/sbin/z96a-network-up /etc/init.d/z96a-network-up
 	update-rc.d z96a-network-up defaults 99 01 >/dev/null 2>&1 || true
+	# rtw88 parameter tuning (RPS/IRQ/TCP/country/power_save); no driver change.
+	chmod 0755 /usr/local/sbin/z96a-wifi-tuning /etc/init.d/z96a-wifi-tuning
+	update-rc.d z96a-wifi-tuning defaults 99 01 >/dev/null 2>&1 || true
 	chmod 0755 /usr/local/sbin/z96a-charge-led /etc/init.d/z96a-charge-led
 	update-rc.d z96a-charge-led defaults 20 01 >/dev/null 2>&1 || true
 	chmod 0755 /usr/local/bin/z96a-audio-mux /etc/init.d/z96a-audio-mux

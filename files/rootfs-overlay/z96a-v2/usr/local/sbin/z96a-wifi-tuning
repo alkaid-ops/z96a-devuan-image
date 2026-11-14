@@ -1,0 +1,94 @@
+#!/bin/sh
+# Z96A rtw88 WiFi tuning for boot.
+#
+# No driver replacement: this only applies cfg80211, sysfs and proc settings
+# that have been verified on .84 with rtw88_8822cs:
+#
+#   - country CN
+#   - power_save off
+#   - RPS across all four CPUs, with a flow table large enough for TCP
+#   - SDIO (dw-mci) IRQ pinned to CPU3
+#   - larger TCP socket buffers
+#
+# The script may run before NetworkManager brings wlan0 up; it waits for the
+# interface, then applies the settings once and exits.  A later NetworkManager
+# reconnect may reset power_save; the init script is restarted at boot, and
+# `z96a-wifi-tuning` can also be run manually after a reconnect.
+
+set -u
+
+LOG=${Z96A_WIFI_TUNING_LOG:-/run/z96a-wifi-tuning.log}
+COUNTRY=${Z96A_WIFI_COUNTRY:-CN}
+RPS_MASK=${Z96A_WIFI_RPS_CPUS:-f}
+RPS_FLOW=${Z96A_WIFI_RPS_FLOW_CNT:-4096}
+RPS_SOCK_FLOW=${Z96A_WIFI_RPS_SOCK_FLOW:-32768}
+IRQ_MASK=${Z96A_WIFI_IRQ_AFFINITY:-8}
+WAIT_SEC=${Z96A_WIFI_TUNING_WAIT:-180}
+IW=${Z96A_IW:-/usr/sbin/iw}
+
+log_line() {
+	printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$LOG" 2>/dev/null || true
+}
+
+[ -x "$IW" ] || IW=iw
+
+# Wait for the SDIO network interface.  At boot it can appear before the
+# NetworkManager connection; that is fine, RPS/power_save do not require an
+# associated AP.
+i=0
+while [ ! -d /sys/class/net/wlan0 ]; do
+	i=$((i + 1))
+	[ "$i" -ge "$WAIT_SEC" ] && { log_line "wlan0 did not appear"; exit 0; }
+	sleep 1
+done
+
+if "$IW" reg set "$COUNTRY" >/dev/null 2>&1; then
+	log_line "iw reg set $COUNTRY ok"
+else
+	log_line "iw reg set $COUNTRY failed"
+fi
+
+if "$IW" dev wlan0 set power_save off >/dev/null 2>&1; then
+	log_line "power_save off"
+else
+	log_line "power_save off failed"
+fi
+
+QUEUE=/sys/class/net/wlan0/queues/rx-0
+if [ -d "$QUEUE" ]; then
+	echo "$RPS_MASK" > "$QUEUE/rps_cpus" 2>/dev/null || true
+	echo "$RPS_FLOW" > "$QUEUE/rps_flow_cnt" 2>/dev/null || true
+	log_line "rps_cpus=$RPS_MASK rps_flow_cnt=$RPS_FLOW"
+else
+	log_line "wlan0 rx-0 queue not found"
+fi
+
+echo "$RPS_SOCK_FLOW" > /proc/sys/net/core/rps_sock_flow_entries 2>/dev/null || true
+
+# The SDIO controller interrupt is named "dw-mci" in /proc/interrupts.
+irq=
+n=0
+while [ -z "$irq" ] && [ "$n" -lt 30 ]; do
+	irq=$(awk '/dw-mci/ { print $1; exit }' /proc/interrupts 2>/dev/null | tr -d ':')
+	[ -n "$irq" ] || { n=$((n + 1)); sleep 1; }
+done
+if [ -n "$irq" ] && [ -w "/proc/irq/$irq/smp_affinity" ]; then
+	echo "$IRQ_MASK" > "/proc/irq/$irq/smp_affinity" 2>/dev/null || true
+	log_line "dw-mci irq=$irq affinity=$IRQ_MASK"
+else
+	log_line "dw-mci irq not found"
+fi
+
+for spec in \
+	"net.core.rmem_max:8388608" \
+	"net.core.wmem_max:8388608"; do
+	key=${spec%%:*}
+	val=${spec#*:}
+	path=/proc/sys/$(echo "$key" | tr . /)
+	echo "$val" > "$path" 2>/dev/null || true
+done
+echo "4096 87380 8388608" > /proc/sys/net/ipv4/tcp_rmem 2>/dev/null || true
+echo "4096 65536 8388608" > /proc/sys/net/ipv4/tcp_wmem 2>/dev/null || true
+
+log_line "wifi tuning applied"
+exit 0

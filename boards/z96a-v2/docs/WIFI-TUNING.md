@@ -59,6 +59,8 @@ echo f > /proc/irq/73/smp_affinity
 
 `rps_sock_flow_entries` 和 TCP 缓冲保留。
 
+> 注：上面是单次测试（mask `b` + CPU2）的早期结果。后面的 RPS 掩码矩阵和 8 轮 A/B 复测推翻了该结论，最终采用 `f` + CPU3，见下文。
+
 ### 3. power_save / 深度省电
 
 ```sh
@@ -139,22 +141,53 @@ B 上行 17.1–33.6，平均约 26.2
 ## 结论
 
 - 参数调优不能稳定复现“下行 170–210Mbps”：本机实际在 52–139Mbps 之间大幅波动。
-- 主要变量是 AP/空口/速率控制，不是 CPU 软中断或 TCP 缓冲。
-- RPS + IRQ affinity 在本机没有收益，已回滚；`power_save off` 有正向作用。
+- 主要剩余变量是 AP/空口/速率控制；但 8 轮 A/B 证明 CPU 侧的 RPS/IRQ 配置本身是有效增益。
+- 最终采用：`rps_cpus=f`、`rps_flow_cnt=4096`、`dw-mci` IRQ → CPU3、`power_save off`、`country CN`、TCP 8MB。
 - 没有使用 vendor `8822cs.ko`、没有换驱动、没有重启。
 - 需要长期稳定，优先：
   1. `power_save off`；
-  2. 选 80MHz 5GHz AP/BSSID，避开拥塞信道；
-  3. country 按实际区域设置；
-  4. 不要盲目开 RPS/IRQ 分散。
+  2. RPS `f` + SDIO IRQ 绑 CPU3；
+  3. 选 80MHz 5GHz AP/BSSID，避开拥塞信道；
+  4. country 按实际区域设置。
+
+## 持久化到镜像仓库
+
+运行时设置已固化到 `z96a-devuan-image`，不依赖手动命令：
+
+```text
+files/rootfs-overlay/z96a-v2/usr/local/sbin/z96a-wifi-tuning
+files/rootfs-overlay/z96a-v2/etc/init.d/z96a-wifi-tuning
+files/rootfs-overlay/z96a-v2/etc/sysctl.d/99-z96a-wifi.conf
+```
+
+- `z96a-wifi-tuning` 等待 `wlan0` 出现，然后一次性写入：
+  `iw reg set CN`、`power_save off`、`rx-0/rps_cpus=f`、
+  `rx-0/rps_flow_cnt=4096`、`net.core.rps_sock_flow_entries=32768`、
+  `dw-mci` IRQ affinity `8`、TCP 8MB 缓冲，写完退出。
+- `etc/init.d/z96a-wifi-tuning` 用 `start-stop-daemon --background` 拉起它，
+  由 `boards/z96a-v2/userscripts/configure/96-ownership.sh` 执行
+  `chmod 0755` 和 `update-rc.d z96a-wifi-tuning defaults 99 01`。
+- 不改驱动、不加载 vendor 模块、不写 vendor 固件。
+- 设置生效日志在 `/run/z96a-wifi-tuning.log`。
+- 如果 NetworkManager 重连或驱动重新加载导致 `rx-0` 队列重建，参数会丢；
+  再次执行 `/usr/local/sbin/z96a-wifi-tuning` 即可（可重复执行，幂等）。
+- 所有值可通过环境变量覆盖（`Z96A_WIFI_COUNTRY`、`Z96A_WIFI_RPS_CPUS`、
+  `Z96A_WIFI_RPS_FLOW_CNT`、`Z96A_WIFI_RPS_SOCK_FLOW`、
+  `Z96A_WIFI_IRQ_AFFINITY`、`Z96A_WIFI_TUNING_WAIT`），便于后续做矩阵实验。
 
 ## 回滚
 
 ```sh
 iw reg set 00
 iw dev wlan0 set power_save on
-nmcli connection modify XFL_5G 802-11-wireless.bssid ""
+echo 0 > /sys/class/net/wlan0/queues/rx-0/rps_cpus
+echo 0 > /sys/class/net/wlan0/queues/rx-0/rps_flow_cnt
+echo f > /proc/irq/<dw-mci-irq>/smp_affinity
 cat /proc/sys/net/core/rmem_max   # 需要恢复原值
 ```
 
-（TCP 缓冲当前值已记录；如需恢复原值，先查发行版默认。）
+禁用启动项：
+
+```sh
+update-rc.d z96a-wifi-tuning disable
+```

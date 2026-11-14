@@ -1,0 +1,33 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          z96a-wifi-tuning
+# Required-Start:    $local_fs $remote_fs
+# Required-Stop:     $local_fs $remote_fs
+# Should-Start:      network-manager NetworkManager
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Apply rtw88 WiFi parameter tuning after boot
+### END INIT INFO
+
+case "$1" in
+	start)
+		# Background once: the helper waits for wlan0, applies the settings,
+		# and exits.  It is not a persistent polling daemon.
+		start-stop-daemon --start --background --make-pidfile \
+			--pidfile /run/z96a-wifi-tuning.pid \
+			--exec /usr/local/sbin/z96a-wifi-tuning
+		;;
+	stop)
+		start-stop-daemon --stop --pidfile /run/z96a-wifi-tuning.pid --retry 5
+		;;
+	restart)
+		"$0" stop
+		"$0" start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}" >&2
+		exit 3
+		;;
+esac
+
+exit 0
