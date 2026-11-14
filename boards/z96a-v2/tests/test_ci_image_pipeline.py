@@ -51,6 +51,30 @@ COMPRESS_IMG=1 IMG_COMPRESSION=xz CORES=1 Z96A_VALIDATE_IMAGE=1 Z96A_XZ_FAST=1
     def test_validation_failure_stops_compression(self):
         self.run_finish(1)
 
+    def test_ci_image_is_trimmed_to_complete_sectors_before_validation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / "disk.img"
+            image.write_bytes(b"A" * 1536 + b"\0" * 448)
+            result = subprocess.run(
+                [str(ROOT / "boards/z96a-v2/tools/align-image-size.sh"), str(image)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(image.stat().st_size, 1536)
+            self.assertIn("trimmed 448", result.stdout)
+
+    def test_sector_aligner_is_a_noop_for_aligned_image(self):
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / "disk.img"
+            image.write_bytes(b"A" * 1024)
+            result = subprocess.run(
+                [str(ROOT / "boards/z96a-v2/tools/align-image-size.sh"), str(image)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(image.stat().st_size, 1024)
+            self.assertIn("already sector aligned", result.stdout)
+
 
 class InputCacheVerificationTests(unittest.TestCase):
     def test_modified_manifest_is_not_trusted_on_cache_hit(self):

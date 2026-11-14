@@ -10,6 +10,7 @@ GitHub Release。PR 与普通 push 只跑轻量检查，不构建整张镜像。
 | `.github/workflows/ci.yml` | PR、push、手动 | 无镜像 | 否 |
 | `.github/workflows/build.yml` | Actions 手动触发 | Actions artifact | 否 |
 | `.github/workflows/release.yml` | 推送 `v*` Tag | Actions artifact + GitHub Release | 是 |
+| `.github/workflows/publish-existing.yml` | Actions 手动触发 | — | 是（引用已构建镜像） |
 | `.github/workflows/build-image.yml` | 被上面两个工作流调用 | — | 由调用方决定 |
 
 Tag 格式：`vX.Y` 或 `vX.Y.Z`（可带 `-rc1` 之类后缀，后缀会标记为 prerelease）。
@@ -95,10 +96,33 @@ $Z96A_CACHE_ROOT/
 │   └── .lock-sha    该缓存对应的 inputs.lock 摘要
 ```
 
-CI 在文件系统收缩之后、压缩之前，直接对原始镜像执行 loop 检查；失败即终止。
+CI 在文件系统收缩之后，先将镜像裁至完整 512 字节扇区边界（只移除最后
+一个完整扇区之后的尾随字节），再直接对原始镜像执行 loop 检查；失败即终止。
 CI 使用 `xz -6`（原先是默认级别 6 加 `-e`），然后检查 XZ 完整性、SHA256
 和 GitHub Release 资产大小限制。压缩率及耗时以实际构建为准；`validate=false`
 只跳过原始镜像的结构校验，不跳过压缩文件检查。本地默认压缩设置保持不变。
+
+## 引用已构建镜像发布（publish-existing.yml）
+
+当镜像已在本地构建、校验并真机验证过，且不希望 CI 再组装一次时使用。发布的是
+**原样镜像字节**，不做任何重建。
+
+```text
+本地：gh release create <staging-tag> --prerelease *.img.xz *.img.xz.sha256 \
+        manifest.json sbom.json build-evidence.json
+  → publish-existing.yml：校验 tag 格式/来源、压缩资产完整性（xz -t + SHA256 + 2 GiB）
+  → 可选：解压原始镜像，在 arm64 构建容器内 loop 挂载执行 validate-image.sh
+  → 创建正式 Release（prerelease: false）
+```
+
+- `source_tag` 是暂存用的 prerelease，**必须以非 `v` 开头**（如 `staging-2.0.0`）。
+  推送或创建 `v*` tag 会匹配 `release.yml` 并启动完整重建。
+- `release_tag` 必须尚不存在；该工作流拒绝覆盖已发布版本。
+- 镜像内 `manifest.json` 的 `release_info` 在构建时写死。用本地构建发布时它记录的是
+  构建当时的 `channel`/`tag`（例如 `nightly`/`null`），不会因本工作流改写；发布资产
+  里的同名文件与镜像内保持一致，实际渠道以 Release 与 `build-evidence.json` 为准。
+- 与 tag 发布相比少了 rootfs 组装，因此只做“压缩包 + 镜像结构”校验，不做输入锁
+  复验。
 
 ## Tag 发布流程
 
