@@ -182,6 +182,32 @@ rtw_ips_mode:The default IPS mode (int)
 rtw_wireless_mode: (int)
 ```
 
+## Vendor 模块关键默认值（静态读取）
+
+从 `8822cs.ko` 的 `.data` 读取到的初始化值：
+
+| 参数 | 默认值 | 说明 |
+|---|---|---|
+| `rtw_country_code` | NULL/未设置 | 驱动运行时用默认 `00` 或 Android 下发 |
+| `rtw_channel_plan` | 65535 (0xFFFF) | 未指定，运行时按 country 选 |
+| `rtw_power_mgnt` | 2 | by efuse |
+| `rtw_lps_level` | 1 | 默认 LPS |
+| `rtw_smart_ps` | 2 | by efuse |
+| `rtw_bw_mode` / `rtw_tx_bw_mode` | 33 (0x21) | 20/40/80 位图 |
+| `rtw_ampdu_enable` | 1 | 开启 |
+| `rtw_rx_ampdu_amsdu` | 1 | 开启 |
+| `rtw_tx_ampdu_amsdu` | 2 | 默认 |
+| `rtw_btcoex_enable` | 2 | by efuse |
+| `rtw_antdiv_cfg` | 2 | by efuse |
+| `rtw_tx_pwr_by_rate` | 1 | 开启 |
+| `rtw_antenna_gain` | 32767 (0x7FFF) | 未指定，使用 efuse |
+| `rtw_en_napi` | 1 | 开启 |
+| `rtw_en_gro` | 1 | 开启 |
+| `rtw_target_tx_pwr_2g/5g_a..d` | 全部 -1 | 未定义，用 efuse/校准 |
+| `rtw_tx_nss` / `rtw_rx_nss` / `rtw_ant_num` | BSS 0 | 运行时按 efuse |
+
+所以 vendor 模块的默认配置也没有板级 country/txpower 定制；它依赖芯片 efuse 和 Android 运行时下发的 country/regulatory。
+
 ## 对主线的意义
 
 - rtw88 没有对应的外部 PHY/efuse config 接口；不能把这 40 字节直接转换成
