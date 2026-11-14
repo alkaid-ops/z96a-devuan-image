@@ -767,6 +767,7 @@ class CiReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("workflow_path", publish)
         self.assertIn("expired == false", publish)
         self.assertIn("sha256sum -c", publish)
+        self.assertIn("docker build -f boards/z96a-v2/tools/Dockerfile", publish)
         self.assertIn("gh release create", publish)
         self.assertIn("gh release edit", publish)
         self.assertIn("git/ref/tags/$RELEASE_TAG", publish)

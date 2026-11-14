@@ -119,6 +119,14 @@ jobs:
           printf 'image=%s\nsha256=%s\n' "$(basename "$image")" "$(sha256sum "$image" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
         id: verify
 
+      - name: Ensure build container for structural validation
+        run: |
+          set -euo pipefail
+          image=${Z96A_BUILD_IMAGE:-z96a-build:local}
+          if ! docker image inspect "$image" >/dev/null 2>&1; then
+            docker build -f boards/z96a-v2/tools/Dockerfile -t "$image" .
+          fi
+
       - name: Revalidate image structure
         run: boards/z96a-v2/tools/ci-validate-image.sh "dist/${{ steps.verify.outputs.image }}"
 
