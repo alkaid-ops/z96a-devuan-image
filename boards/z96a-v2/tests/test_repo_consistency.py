@@ -724,7 +724,8 @@ class CiReleaseWorkflowTests(unittest.TestCase):
 
     def test_workflow_set(self):
         for name in ("ci.yml", "build.yml", "release.yml", "build-image.yml",
-                     "kernel.yml", "base-apps.yml", "uboot.yml"):
+                     "kernel.yml", "base-apps.yml", "uboot.yml",
+                     "publish-existing.yml"):
             self.assertTrue((self.WORKFLOWS / name).is_file(), name)
 
     def test_kernel_workflow_publishes_component(self):
@@ -758,12 +759,28 @@ class CiReleaseWorkflowTests(unittest.TestCase):
         text = self.read("release.yml")
         self.assertIn("prerelease:", text)
 
+    def test_publish_existing_reuses_staged_image_without_rebuilding(self):
+        text = self.read("publish-existing.yml")
+        self.assertIn("workflow_dispatch:", text)
+        self.assertNotIn("tags:", text, "staged publishing must not trigger on tags")
+        self.assertIn("contents: write", text)
+        self.assertIn("softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3", text)
+        self.assertIn("packaging/check-release-asset.sh", text)
+        self.assertIn("sha256sum -c", text)
+        self.assertIn("ci-validate-image.sh", text)
+        # A v* staging tag would match release.yml and rebuild the image.
+        self.assertIn("must not start with v", text)
+        for rebuild in ("build-in-container.sh image", "make preflight",
+                        "ci-prepare-inputs.sh"):
+            self.assertNotIn(rebuild, text, rebuild)
+
     def test_build_uses_hosted_runner_and_validation(self):
         text = self.read("build-image.yml")
         self.assertIn("runs-on: ubuntu-24.04", text)
         self.assertIn("group: z96a-image-build", text)
         self.assertIn("build-in-container.sh image", text)
         self.assertIn("Z96A_VALIDATE_IMAGE", text)
+        self.assertIn('Z96A_ALIGN_IMAGE_SECTORS: "1"', text)
         self.assertIn("packaging/check-release-asset.sh", text)
         self.assertIn("ci-prepare-inputs.sh", text)
         self.assertIn("ci-collect-image.sh", text)

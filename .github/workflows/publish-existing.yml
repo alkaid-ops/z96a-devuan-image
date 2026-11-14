@@ -1,0 +1,169 @@
+name: publish-existing
+
+# Publish an image that was already built and validated elsewhere (for example
+# a local build that has been flashed and exercised on the device) without
+# rebuilding it. The image, checksum, manifest, SBOM and build evidence are
+# uploaded once to a staging prerelease; this workflow downloads them, re-verifies
+# the compressed asset (and optionally the mounted image structure), then creates
+# the real version release.
+#
+# The staging tag must NOT start with "v": creating a "v*" tag would match
+# release.yml and start a full rebuild instead of publishing these assets.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to create (vX.Y or vX.Y.Z)"
+        required: true
+        type: string
+      source_tag:
+        description: "Staging prerelease holding the built assets (must not start with v)"
+        required: true
+        type: string
+      validate:
+        description: "Loop-mount the decompressed image and check its structure"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: z96a-publish-existing
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  publish:
+    name: Verify and publish staged image
+    # The structure check runs validate-image.sh in the arm64 build container
+    # and chroots into the image root, so it needs a native arm64 runner.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the publishing commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Guard release tag and staging source
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
+        run: |
+          set -eu
+          if ! printf '%s' "$RELEASE_TAG" | grep -Eq '^v[0-9]+(\.[0-9]+){1,2}$'; then
+            echo "invalid release tag: $RELEASE_TAG (expected vX.Y or vX.Y.Z)" >&2
+            exit 1
+          fi
+          if ! printf '%s' "$SOURCE_TAG" | grep -Eq '^[^v]'; then
+            echo "staging tag must not start with v (it would trigger release.yml): $SOURCE_TAG" >&2
+            exit 1
+          fi
+          if ! gh release view "$SOURCE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "staging release not found: $SOURCE_TAG" >&2
+            exit 1
+          fi
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release already exists, refusing to overwrite: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          echo "publishing $RELEASE_TAG from staged $SOURCE_TAG"
+
+      - name: Reclaim runner disk space
+        run: |
+          set -eu
+          sudo rm -rf /usr/local/lib/android/sdk /opt/ghc /usr/share/dotnet \
+            /usr/local/share/powershell /usr/local/share/chromium
+          sudo docker system prune -af || true
+          avail_kb=$(df -Pk / | awk 'NR==2 {print $4}')
+          # compressed asset + decompressed image + build container layers.
+          if [ "$avail_kb" -lt 14680064 ]; then
+            echo "less than 14 GiB free on runner root filesystem (${avail_kb}KiB)" >&2
+            exit 1
+          fi
+          df -h /
+
+      - name: Download staged release assets
+        env:
+          SOURCE_TAG: ${{ inputs.source_tag }}
+        run: |
+          set -eu
+          mkdir -p dist
+          gh release download "$SOURCE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --dir dist --pattern '*.img.xz' --pattern '*.img.xz.sha256' \
+            --pattern 'manifest.json' --pattern 'sbom.json' \
+            --pattern 'build-evidence.json'
+          ls -lh dist
+
+      - name: Verify compressed assets before publishing
+        run: |
+          set -eu
+          img=$(ls -t dist/*.img.xz | head -n 1)
+          packaging/check-release-asset.sh "$img"
+          (cd dist && sha256sum -c "$(basename "$img").sha256")
+          for name in manifest.json sbom.json build-evidence.json; do
+            test -s "dist/$name" || { echo "missing staged asset: $name" >&2; exit 1; }
+          done
+
+      - name: Ensure build container
+        if: inputs.validate
+        run: |
+          set -eu
+          image=${Z96A_BUILD_IMAGE:-z96a-build:local}
+          if ! docker image inspect "$image" >/dev/null 2>&1; then
+            docker build -f boards/z96a-v2/tools/Dockerfile -t "$image" .
+          fi
+
+      - name: Validate image structure
+        if: inputs.validate
+        run: |
+          set -eu
+          img=$(ls -t dist/*.img.xz | head -n 1)
+          boards/z96a-v2/tools/ci-validate-image.sh "$img"
+
+      - name: Remove staged assets and raw image
+        if: always()
+        run: |
+          rm -f output/ci/*.img || true
+          du -sh dist 2>/dev/null || true
+
+      - name: Create release
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: ${{ inputs.release_tag }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          body: |
+            Image built and validated before publication (not rebuilt by this workflow).
+
+            - Release channel recorded in the image manifest: see `manifest.json`
+              (`release_info.channel`); this image was assembled from the inputs
+              pinned in `config/inputs.lock` at build time.
+            - The compressed asset was verified (`xz -t`, SHA256) and the mounted
+              image structure was checked before this release was created.
+            - Staged source release: `${{ inputs.source_tag }}`.
+          files: |
+            dist/*.img.xz
+            dist/*.img.xz.sha256
+            dist/manifest.json
+            dist/sbom.json
+            dist/build-evidence.json
+
+      - name: Summarize
+        run: |
+          set -eu
+          img=$(ls -t dist/*.img.xz | head -n 1)
+          {
+            echo "### Published ${{ inputs.release_tag }}"
+            echo ""
+            echo "- image: $(basename "$img")"
+            echo "- bytes: $(stat -c '%s' "$img")"
+            echo "- sha256: $(sha256sum "$img" | cut -d' ' -f1)"
+            echo "- staging source: ${{ inputs.source_tag }}"
+          } >> "$GITHUB_STEP_SUMMARY"
