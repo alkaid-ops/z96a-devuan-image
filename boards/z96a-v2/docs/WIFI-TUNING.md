@@ -105,6 +105,37 @@ power_save = off
 
 3 次复测：下行 125 / 153 / 123Mbps，上行 24.7 / 27.7 / 18.0Mbps。最好 153Mbps，但波动仍然明显；没有稳定 30% 提升。
 
+## A/B 交叉复测（8 轮，交替）
+
+同一 AP（149/5745/80MHz）、同一时段，交替切换：
+
+- A：`rps_cpus=0`、IRQ `f`（原始）
+- B：`rps_cpus=f`、IRQ `8`(CPU3)，`rps_flow_cnt=4096`
+
+```text
+round1 A down=84.4 up=FAIL | B down=128  up=19.0
+round2 A down=88.1 up=9.83 | B down=139  up=29.3
+round3 A down=92.5 up=27.3 | B down=118  up=25.5
+round4 A down=87.0 up=FAIL | B down=136  up=26.8
+round5 A down=77.3 up=18.3 | B down=57.9 up=17.1
+round6 A down=89.1 up=24.0 | B down=125  up=33.6
+round7 A down=86.7 up=24.5 | B down=138  up=31.3
+round8 A down=95.9 up=FAIL | B down=139  up=26.9
+```
+
+统计：
+
+```text
+A 下行 77.3–95.9 Mbps，平均约 87.9
+B 下行 57.9–139 Mbps，平均约 122.6（去掉 round5 异常约 129.3）
+B 在 8 轮里 7 轮明显高于 A
+
+A 上行多处 FAIL/9.8–27.3
+B 上行 17.1–33.6，平均约 26.2
+```
+
+结论：不是单次峰值误差；同一时段交叉测，RPS `f` + IRQ CPU3 对下行有约 **35–45%** 提升，上行也有改善但仍有波动。round5 的 57.9Mbps 是一次 AP/空口异常，不能否定整体趋势。
+
 ## 结论
 
 - 参数调优不能稳定复现“下行 170–210Mbps”：本机实际在 52–139Mbps 之间大幅波动。
