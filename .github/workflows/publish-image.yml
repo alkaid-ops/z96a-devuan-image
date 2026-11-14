@@ -134,7 +134,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
-          HEAD_SHA: ${{ steps.source.outputs.head_sha }}
         run: |
           set -euo pipefail
           notes="$RUNNER_TEMP/release-notes.md"
@@ -153,16 +152,16 @@ jobs:
             draft=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft -q .isDraft)
             [ "$draft" = true ] || { echo "refusing to overwrite a published release" >&2; exit 1; }
             gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-              --target "$HEAD_SHA" --title "$RELEASE_TAG" --notes-file "$notes" --draft
+              --title "$RELEASE_TAG" --notes-file "$notes" --draft
           else
             gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-              --draft --target "$HEAD_SHA" --title "$RELEASE_TAG" --notes-file "$notes"
+              --draft --title "$RELEASE_TAG" --notes-file "$notes"
           fi
           gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
             dist/*.img.xz dist/*.img.xz.sha256 dist/manifest.json dist/sbom.json \
             dist/build-evidence.json dist/components.json dist/build.log
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-            --target "$HEAD_SHA" --draft=false --prerelease=false --latest
+            --draft=false --prerelease=false --latest
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --json tagName,isDraft,isPrerelease,assets -q \
             '"tag=\(.tagName) draft=\(.isDraft) prerelease=\(.isPrerelease)", (.assets[] | "asset=\(.name) \(.size)")'

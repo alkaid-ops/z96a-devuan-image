@@ -126,7 +126,9 @@ CI 使用 `xz -6`（原先是默认级别 6 加 `-e`），然后检查 XZ 完整
 artifact 名称与 run ID/attempt 精确匹配且未过期；之后复核 XZ、SHA256、资产大小、
 构建证据，并对下载的同一镜像再做 loop 结构校验。只有全部通过后才创建或更新目标
 版本草稿并发布。现有 `release.yml` 的 `v*` 自动重建入口已移除，避免发布 tag 时再次
-组装镜像。stage-4 artifact 保留 90 天；过期后必须重新执行阶段 4。
+组装镜像。Release tag 使用发布时默认分支目标；实际镜像源码提交以 `build-evidence.json`
+为准，两者可能因阶段 4 之后的工作流维护提交而不同。stage-4 artifact 保留 90 天；
+过期后必须重新执行阶段 4。
 
 发布资产：
 
@@ -140,8 +142,8 @@ components.json
 build.log
 ```
 
-`manifest.json` 的 `release_info` 会记录 `channel` 与 `tag`。正式 Release 的 tag 指向
-阶段 4 构建所用的源码提交；发布工作流本身不调用镜像构建脚本。
+`manifest.json` 的 `release_info` 会记录 `channel` 与 `tag`。`build-evidence.json` 记录
+阶段 4 实际构建提交；发布工作流本身不调用镜像构建脚本。
 
 ## 失败与安全规则
 

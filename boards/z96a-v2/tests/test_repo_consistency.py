@@ -771,6 +771,7 @@ class CiReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("gh release create", publish)
         self.assertIn("gh release edit", publish)
         self.assertIn("git/ref/tags/$RELEASE_TAG", publish)
+        self.assertNotIn("--target", publish, "publishing must not retarget old workflow commits")
         self.assertNotIn("build-in-container.sh image", publish)
 
     def test_explicit_component_selection_is_ephemeral_and_cache_pinned(self):
